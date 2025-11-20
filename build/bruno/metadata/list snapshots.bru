@@ -1,0 +1,20 @@
+meta {
+  name: list snapshots
+  type: http
+  seq: 2
+}
+
+get {
+  url: http://localhost:8081/api/metadata/snapshots?table=revenueEvent
+  body: none
+  auth: inherit
+}
+
+params:query {
+  table: revenueEvent
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

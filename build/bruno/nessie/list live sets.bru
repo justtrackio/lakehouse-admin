@@ -1,0 +1,16 @@
+meta {
+  name: list live sets
+  type: http
+  seq: 4
+}
+
+get {
+  url: http://localhost:8081/api/nessie/gc/sets
+  body: none
+  auth: inherit
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

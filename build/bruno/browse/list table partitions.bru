@@ -1,0 +1,28 @@
+meta {
+  name: list table partitions
+  type: http
+  seq: 1
+}
+
+get {
+  url: http://localhost:8081/api/table/:table
+  body: json
+  auth: inherit
+}
+
+params:path {
+  table: revenueEvent
+}
+
+body:json {
+  {
+    "partitions": {
+      "year": "2020"
+    }
+  }
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

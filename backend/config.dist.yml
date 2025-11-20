@@ -1,0 +1,49 @@
+env: dev
+
+app_project: applike
+app_family: justtrack
+app_group: justdev
+app_name: lakehouse-admin
+
+cloud:
+  aws:
+    defaults:
+      endpoint: ""
+      region: "eu-central-1"
+
+httpserver:
+  default:
+    port: 8081
+    mode: release
+    timeout:
+      read: 10m
+      write: 10m
+
+iceberg:
+  default_database: main
+
+k8s:
+  default:
+    client_mode: in-cluster
+    namespace: lakehouse-admin
+
+log:
+  level: info
+
+spark:
+  endpoint: sc://spark-connect-server-svc.spark:15002
+
+sqlc:
+  default:
+    driver: mysql
+    uri:
+      host: localhost
+      user: root
+      password: justtrack
+      database: lakehouse_admin
+    migrations:
+      enabled: true
+      path: build/migrations
+
+trino:
+  dsn: https://lakehouse-admin@trino.prod-marketing.justtrack-ops.io?catalog=lakehouse&schema=main

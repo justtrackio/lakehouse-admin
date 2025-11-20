@@ -1,0 +1,20 @@
+meta {
+  name: list partitions
+  type: http
+  seq: 3
+}
+
+get {
+  url: http://localhost:8081/api/iceberg/partitions?table=adwordsevent
+  body: none
+  auth: inherit
+}
+
+params:query {
+  table: adwordsevent
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

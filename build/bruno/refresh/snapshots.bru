@@ -1,0 +1,20 @@
+meta {
+  name: snapshots
+  type: http
+  seq: 5
+}
+
+get {
+  url: http://localhost:8081/api/refresh/table/snapshots?table=appsflyerpostback
+  body: none
+  auth: inherit
+}
+
+params:query {
+  table: appsflyerpostback
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

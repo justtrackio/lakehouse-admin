@@ -1,0 +1,20 @@
+meta {
+  name: partitions
+  type: http
+  seq: 4
+}
+
+get {
+  url: http://localhost:8081/api/refresh/table/partitions?table=appsflyerpostback
+  body: none
+  auth: inherit
+}
+
+params:query {
+  table: appsflyerpostback
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

@@ -1,0 +1,16 @@
+meta {
+  name: tables
+  type: http
+  seq: 2
+}
+
+get {
+  url: http://localhost:8081/api/refresh/tables
+  body: none
+  auth: inherit
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

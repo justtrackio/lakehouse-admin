@@ -1,0 +1,20 @@
+meta {
+  name: table summary
+  type: http
+  seq: 2
+}
+
+get {
+  url: http://localhost:8081/api/browse/:table
+  body: none
+  auth: inherit
+}
+
+params:path {
+  table: adImpressionEvent
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

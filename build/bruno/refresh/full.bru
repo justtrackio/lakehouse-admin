@@ -1,0 +1,16 @@
+meta {
+  name: full
+  type: http
+  seq: 1
+}
+
+get {
+  url: http://localhost:8081/api/refresh/full
+  body: none
+  auth: inherit
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}
