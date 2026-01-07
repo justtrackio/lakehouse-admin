@@ -176,3 +176,22 @@ func (c *IcebergClient) partitionKeyString(partition map[int]any) string {
 
 	return strings.Join(parts, "|")
 }
+
+func (c *IcebergClient) ListTables(ctx context.Context) ([]table.Identifier, error) {
+	var err error
+	var t table.Identifier
+	var tables []table.Identifier
+
+	ctx = utils.WithAwsConfig(ctx, &c.awsCfg)
+	iterator := c.catalog.ListTables(ctx, table.Identifier{c.settings.DefaultDatabase})
+
+	for t, err = range iterator {
+		if err != nil {
+			return nil, fmt.Errorf("error while iterating tables: %w", err)
+		}
+
+		tables = append(tables, t)
+	}
+
+	return tables, nil
+}

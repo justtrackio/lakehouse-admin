@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/apache/iceberg-go/table"
 	"github.com/justtrackio/gosoline/pkg/cfg"
 	"github.com/justtrackio/gosoline/pkg/log"
 )
@@ -59,6 +60,25 @@ func (s *ServiceIceberg) ListSnapshots(ctx context.Context, logicalName string) 
 	}
 
 	s.logger.Info(ctx, "listed %d snapshots for table %s", len(result), logicalName)
+
+	return result, nil
+}
+
+func (s *ServiceIceberg) ListTables(ctx context.Context) ([]string, error) {
+	var err error
+	var tables []table.Identifier
+
+	if tables, err = s.client.ListTables(ctx); err != nil {
+		return nil, fmt.Errorf("could not list tables from iceberg: %w", err)
+	}
+
+	result := make([]string, len(tables))
+	for i, t := range tables {
+		// The identifier comes as [database, table]
+		result[i] = t[len(t)-1]
+	}
+
+	s.logger.Info(ctx, "listed %d tables", len(result))
 
 	return result, nil
 }

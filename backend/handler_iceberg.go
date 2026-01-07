@@ -59,3 +59,14 @@ func (h *HandlerIceberg) ListPartitions(ctx context.Context, input *TableSelectI
 		Partitions: partitions,
 	}), nil
 }
+
+func (h *HandlerIceberg) ListTables(ctx context.Context) (httpserver.Response, error) {
+	var err error
+	var tables []string
+
+	if tables, err = h.service.ListTables(ctx); err != nil {
+		return nil, fmt.Errorf("could not list tables: %w", err)
+	}
+
+	return httpserver.NewJsonResponse(tables), nil
+}

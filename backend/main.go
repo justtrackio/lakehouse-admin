@@ -51,6 +51,7 @@ func main() {
 			}))
 
 			router.Group("/api/iceberg").HandleWith(httpserver.With(NewHandlerIceberg, func(r *httpserver.Router, handler *HandlerIceberg) {
+				r.GET("/tables", httpserver.BindN(handler.ListTables))
 				r.GET("/snapshots", httpserver.Bind(handler.ListSnapshots))
 				r.GET("/partitions", httpserver.Bind(handler.ListPartitions))
 			}))
