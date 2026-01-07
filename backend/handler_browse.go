@@ -98,7 +98,17 @@ func (h *HandlerBrowse) ListPartitions(ctx context.Context, input *ListPartition
 		return nil, fmt.Errorf("could not describe table: %w", err)
 	}
 
-	groupBy := table.Partitions.Get()[len(input.Partitions)].Name
+	partitions := table.Partitions.Get()
+	depth := len(input.Partitions)
+
+	// Handle unpartitioned tables or out-of-range depth gracefully
+	if len(partitions) == 0 || depth >= len(partitions) {
+		return httpserver.NewJsonResponse(ListPartitionsResponse{
+			Partitions: []ListPartitionItem{},
+		}), nil
+	}
+
+	groupBy := partitions[depth].Name
 	groupBy = fmt.Sprintf("p.partition->>'$.%s'", groupBy)
 
 	where := sqlc.Eq{"p.table": input.Table}
@@ -124,6 +134,4 @@ func (h *HandlerBrowse) ListPartitions(ctx context.Context, input *ListPartition
 	return httpserver.NewJsonResponse(ListPartitionsResponse{
 		Partitions: items,
 	}), nil
-
-	return nil, nil
 }

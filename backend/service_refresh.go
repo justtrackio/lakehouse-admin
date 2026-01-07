@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/gosoline-project/sqlc"
 	"github.com/justtrackio/gosoline/pkg/cfg"
 	"github.com/justtrackio/gosoline/pkg/db"
@@ -15,11 +14,11 @@ import (
 
 func NewServiceRefresh(ctx context.Context, config cfg.Config, logger log.Logger) (*ServiceRefresh, error) {
 	var err error
-	var spark *SparkClient
+	var iceberg *ServiceIceberg
 	var sqlClient sqlc.Client
 
-	if spark, err = ProvideSparkClient(ctx, config, logger); err != nil {
-		return nil, fmt.Errorf("could not create spark client: %w", err)
+	if iceberg, err = NewServiceIceberg(ctx, config, logger); err != nil {
+		return nil, fmt.Errorf("could not create iceberg service: %w", err)
 	}
 
 	if sqlClient, err = sqlc.ProvideClient(ctx, config, logger, "default"); err != nil {
@@ -28,14 +27,14 @@ func NewServiceRefresh(ctx context.Context, config cfg.Config, logger log.Logger
 
 	return &ServiceRefresh{
 		logger:    logger.WithChannel("refresh"),
-		spark:     spark,
+		iceberg:   iceberg,
 		sqlClient: sqlClient,
 	}, nil
 }
 
 type ServiceRefresh struct {
 	logger    log.Logger
-	spark     *SparkClient
+	iceberg   *ServiceIceberg
 	sqlClient sqlc.Client
 }
 
@@ -48,11 +47,15 @@ func (s *ServiceRefresh) LastUpdatedAt(ctx context.Context, name string) (time.T
 	return table.UpdatedAt, nil
 }
 
+func (s *ServiceRefresh) ListTables(ctx context.Context) ([]string, error) {
+	return s.iceberg.ListTables(ctx)
+}
+
 func (s *ServiceRefresh) RefreshAllTables(ctx context.Context) ([]string, error) {
 	var err error
 	var tables []string
 
-	if tables, err = s.spark.ListTables(ctx); err != nil {
+	if tables, err = s.iceberg.ListTables(ctx); err != nil {
 		return nil, fmt.Errorf("could not list tables: %w", err)
 	}
 
@@ -69,8 +72,8 @@ func (s *ServiceRefresh) RefreshTable(ctx context.Context, table string) (*Table
 	var err error
 	var desc *TableDescription
 
-	if desc, err = s.spark.DescribeTable(ctx, table); err != nil {
-		return nil, fmt.Errorf("could not list snapshots: %w", err)
+	if desc, err = s.iceberg.DescribeTable(ctx, table); err != nil {
+		return nil, fmt.Errorf("could not describe table: %w", err)
 	}
 
 	insert := s.sqlClient.Q().Into("tables").Records(desc).Replace()
@@ -85,38 +88,27 @@ func (s *ServiceRefresh) RefreshTable(ctx context.Context, table string) (*Table
 
 func (s *ServiceRefresh) RefreshPartitions(ctx context.Context, table string) ([]Partition, error) {
 	var err error
-	var tableDesc TableDescription
-	var result []sPartition
+	var result []IcebergPartition
 
 	if _, err = s.sqlClient.Q().Delete("partitions").Where(sqlc.Eq{"table": table}).Exec(ctx); err != nil {
-		return nil, fmt.Errorf("could not delete existing snapshots: %w", err)
+		return nil, fmt.Errorf("could not delete existing partitions: %w", err)
 	}
 
-	if result, err = s.spark.ListPartitions(ctx, table); err != nil {
+	if result, err = s.iceberg.ListPartitions(ctx, table); err != nil {
 		return nil, fmt.Errorf("could not list partitions: %w", err)
-	}
-
-	if err = s.sqlClient.Q().From("tables").Where(sqlc.Eq{"name": table}).Get(ctx, &tableDesc); err != nil {
-		return nil, fmt.Errorf("could not get table description for table %s: %w", table, err)
 	}
 
 	partitions := make([]Partition, len(result))
 	for i, p := range result {
-		unhidden := s.unhidePartitions(tableDesc, p.Partition)
-
 		partitions[i] = Partition{
-			Table:                     table,
-			Partition:                 db.NewJSON(unhidden, db.NonNullable{}),
-			SpecId:                    p.SpecId,
-			RecordCount:               p.RecordCount,
-			FileCount:                 p.FileCount,
-			TotalDataFileSizeInBytes:  p.TotalDataFileSizeInBytes,
-			PositionDeleteRecordCount: p.PositionDeleteRecordCount,
-			PositionDeleteFileCount:   p.PositionDeleteFileCount,
-			EqualityDeleteRecordCount: p.EqualityDeleteRecordCount,
-			EqualityDeleteFileCount:   p.EqualityDeleteFileCount,
-			LastUpdatedAt:             p.LastUpdatedAt,
-			LastUpdatedSnapshotId:     p.LastUpdatedSnapshotId,
+			Table:                    table,
+			Partition:                db.NewJSON(p.Partition, db.NonNullable{}),
+			SpecId:                   int(p.SpecID),
+			RecordCount:              p.RecordCount,
+			FileCount:                p.FileCount,
+			TotalDataFileSizeInBytes: p.DataFileSizeBytes,
+			LastUpdatedAt:            p.LastUpdatedAt,
+			LastUpdatedSnapshotId:    p.LastSnapshotID,
 		}
 	}
 
@@ -134,43 +126,15 @@ func (s *ServiceRefresh) RefreshPartitions(ctx context.Context, table string) ([
 	return partitions, nil
 }
 
-func (s *ServiceRefresh) unhidePartitions(tableDesc TableDescription, partitions map[string]any) map[string]any {
-	unhidden := map[string]any{}
-
-	for _, tp := range tableDesc.Partitions.Get() {
-		if !tp.IsHidden {
-			unhidden[tp.Name] = partitions[tp.Name]
-			continue
-		}
-
-		val := partitions[fmt.Sprintf("%s_day", tp.Hidden.Column)]
-
-		switch tp.Hidden.Type {
-		case "day":
-			switch tp.Name {
-			case "year":
-				unhidden[tp.Name] = (val.(arrow.Date32)).ToTime().Format("2006")
-			case "month":
-				unhidden[tp.Name] = (val.(arrow.Date32)).ToTime().Format("01")
-			case "day":
-				unhidden[tp.Name] = (val.(arrow.Date32)).ToTime().Format("02")
-			}
-
-		}
-	}
-
-	return unhidden
-}
-
 func (s *ServiceRefresh) RefreshSnapshots(ctx context.Context, table string) ([]Snapshot, error) {
 	var err error
-	var result []sSnapshot
+	var result []IcebergSnapshot
 
 	if _, err = s.sqlClient.Q().Delete("snapshots").Where(sqlc.Eq{"table": table}).Exec(ctx); err != nil {
 		return nil, fmt.Errorf("could not delete existing snapshots: %w", err)
 	}
 
-	if result, err = s.spark.ListSnapshots(ctx, table); err != nil {
+	if result, err = s.iceberg.ListSnapshots(ctx, table); err != nil {
 		return nil, fmt.Errorf("could not list snapshots: %w", err)
 	}
 
@@ -178,8 +142,8 @@ func (s *ServiceRefresh) RefreshSnapshots(ctx context.Context, table string) ([]
 	for i := range result {
 		snapshots[i].Table = table
 		snapshots[i].CommittedAt = result[i].CommittedAt
-		snapshots[i].SnapshotId = result[i].SnapshotId
-		snapshots[i].ParentId = result[i].ParentId
+		snapshots[i].SnapshotId = result[i].SnapshotID
+		snapshots[i].ParentId = result[i].ParentID
 		snapshots[i].Operation = result[i].Operation
 		snapshots[i].ManifestList = result[i].ManifestList
 		snapshots[i].Summary = db.NewJSON(result[i].Summary, db.NonNullable{})
@@ -203,7 +167,7 @@ func (s *ServiceRefresh) RefreshFull(ctx context.Context) ([]string, error) {
 	var err error
 	var tables []string
 
-	if tables, err = s.spark.ListTables(ctx); err != nil {
+	if tables, err = s.iceberg.ListTables(ctx); err != nil {
 		return nil, fmt.Errorf("could not list tables: %w", err)
 	}
 

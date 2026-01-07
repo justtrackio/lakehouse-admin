@@ -281,15 +281,15 @@ func (c *SparkClient) QueryRowsPaged(ctx context.Context, query string) ([]map[s
 		limitQuery := fmt.Sprintf("%s LIMIT %d OFFSET %d", query, limit, offset)
 
 		if df, err = c.session.Sql(ctx, limitQuery); err != nil {
-			return nil, fmt.Errorf("failed to execute query after offset %s: %w", offset, err)
+			return nil, fmt.Errorf("failed to execute query after offset %d: %w", offset, err)
 		}
 
 		if columns, err = df.Columns(ctx); err != nil {
-			return nil, fmt.Errorf("failed to get columns after offset %s: %w", offset, err)
+			return nil, fmt.Errorf("failed to get columns after offset %d: %w", offset, err)
 		}
 
 		if rows, err = df.Collect(ctx); err != nil {
-			return nil, fmt.Errorf("failed to collect rows after offset %s: %w", offset, err)
+			return nil, fmt.Errorf("failed to collect rows after offset %d: %w", offset, err)
 		}
 
 		for _, r := range rows {

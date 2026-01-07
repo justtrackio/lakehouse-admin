@@ -94,6 +94,7 @@ func (c *IcebergClient) ListSnapshots(ctx context.Context, logicalName string) (
 
 type IcebergPartitionStats struct {
 	Partition         map[string]any
+	RawPartition      map[int]any
 	SpecID            int32
 	RecordCount       int64
 	FileCount         int64
@@ -102,6 +103,9 @@ type IcebergPartitionStats struct {
 	LastSnapshotID    int64
 }
 
+// ListPartitions returns partition stats with browse-compatible keys
+// that match the TableDescription.Partitions names (year, month, day for time transforms,
+// or column name for identity transforms).
 func (c *IcebergClient) ListPartitions(ctx context.Context, logicalName string) ([]IcebergPartitionStats, error) {
 	tbl, err := c.LoadTable(ctx, logicalName)
 	if err != nil {
@@ -112,6 +116,10 @@ func (c *IcebergClient) ListPartitions(ctx context.Context, logicalName string) 
 	if currentSnapshot == nil {
 		return []IcebergPartitionStats{}, nil
 	}
+
+	metadata := tbl.Metadata()
+	spec := c.getDefaultPartitionSpec(metadata)
+	schema := metadata.CurrentSchema()
 
 	partitionMap := make(map[string]*IcebergPartitionStats)
 
@@ -129,8 +137,11 @@ func (c *IcebergClient) ListPartitions(ctx context.Context, logicalName string) 
 		partitionKey := c.partitionKeyString(file.Partition())
 
 		if _, exists := partitionMap[partitionKey]; !exists {
+			normalizedPartition := c.normalizePartitionForBrowse(file.Partition(), spec, schema)
+
 			partitionMap[partitionKey] = &IcebergPartitionStats{
-				Partition:         c.partitionToMap(file.Partition()),
+				Partition:         normalizedPartition,
+				RawPartition:      file.Partition(),
 				SpecID:            file.SpecID(),
 				RecordCount:       0,
 				FileCount:         0,
@@ -154,19 +165,7 @@ func (c *IcebergClient) ListPartitions(ctx context.Context, logicalName string) 
 	return result, nil
 }
 
-func (c *IcebergClient) partitionToMap(partition map[int]any) map[string]any {
-	result := make(map[string]any)
-	if len(partition) == 0 {
-		return result
-	}
-
-	for fieldID, val := range partition {
-		result[fmt.Sprintf("field_%d", fieldID)] = val
-	}
-
-	return result
-}
-
+// Removed partitionToMap, but kept partitionKeyString as it is used by ListPartitions
 func (c *IcebergClient) partitionKeyString(partition map[int]any) string {
 	if len(partition) == 0 {
 		return "unpartitioned"
@@ -178,6 +177,78 @@ func (c *IcebergClient) partitionKeyString(partition map[int]any) string {
 	}
 
 	return strings.Join(parts, "|")
+}
+
+func (c *IcebergClient) getDefaultPartitionSpec(metadata table.Metadata) *iceberg.PartitionSpec {
+	specs := metadata.PartitionSpecs()
+	defaultSpecID := metadata.DefaultPartitionSpec()
+
+	if len(specs) == 0 {
+		return nil
+	}
+
+	if defaultSpecID >= 0 && defaultSpecID < len(specs) {
+		return &specs[defaultSpecID]
+	}
+
+	for i := range specs {
+		return &specs[i]
+	}
+
+	return nil
+}
+
+func (c *IcebergClient) normalizePartitionForBrowse(rawPartition map[int]any, spec *iceberg.PartitionSpec, schema *iceberg.Schema) map[string]any {
+	result := make(map[string]any)
+
+	if spec == nil || len(rawPartition) == 0 {
+		return result
+	}
+
+	// Build a map from partition field ID to partition field info
+	fieldIDToSpec := make(map[int]iceberg.PartitionField)
+	for pf := range spec.Fields() {
+		fieldIDToSpec[pf.FieldID] = pf
+	}
+
+	for partFieldID, val := range rawPartition {
+		pf, ok := fieldIDToSpec[partFieldID]
+		if !ok {
+			// Unknown partition field, use field_<id> as fallback
+			result[fmt.Sprintf("field_%d", partFieldID)] = val
+			continue
+		}
+
+		sourceField, ok := schema.FindFieldByID(pf.SourceID)
+		if !ok {
+			result[fmt.Sprintf("field_%d", partFieldID)] = val
+			continue
+		}
+
+		transform := pf.Transform.String()
+
+		switch transform {
+		case "identity":
+			result[sourceField.Name] = val
+		case "day":
+			t := val.(iceberg.Date).ToTime()
+			result["year"] = t.Format("2006")
+			result["month"] = t.Format("01")
+			result["day"] = t.Format("02")
+		case "month":
+			t := val.(iceberg.Date).ToTime()
+			result["year"] = t.Format("2006")
+			result["month"] = t.Format("01")
+		case "year":
+			t := val.(iceberg.Date).ToTime()
+			result["year"] = t.Format("2006")
+		default:
+			// For other transforms (bucket, truncate), use the partition field name
+			result[pf.Name] = val
+		}
+	}
+
+	return result
 }
 
 func (c *IcebergClient) ListTables(ctx context.Context) ([]table.Identifier, error) {

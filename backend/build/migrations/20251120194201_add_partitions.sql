@@ -7,10 +7,6 @@ CREATE TABLE partitions (
     record_count BIGINT NOT NULL,
     file_count BIGINT NOT NULL,
     total_data_file_size_in_bytes BIGINT NOT NULL,
-    position_delete_record_count BIGINT NOT NULL,
-    position_delete_file_count BIGINT NOT NULL,
-    equality_delete_record_count BIGINT NOT NULL,
-    equality_delete_file_count BIGINT NOT NULL,
     last_updated_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     last_updated_snapshot_id BIGINT NOT NULL,
 

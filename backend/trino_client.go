@@ -65,7 +65,18 @@ type TrinoClient struct {
 func (c *TrinoClient) ListPartitions(ctx context.Context, table string) ([]sPartition, error) {
 	result := make([]sPartition, 0)
 
-	query := fmt.Sprintf(`SELECT * FROM "%s$partitions"`, table)
+	query := fmt.Sprintf(`
+		SELECT
+			partition,
+			spec_id,
+			record_count,
+			file_count,
+			total_data_file_size_in_bytes,
+			last_updated_at,
+			last_updated_snapshot_id
+		FROM "%s$partitions"
+	`, table)
+
 	if err := c.db.Select(&result, query); err != nil {
 		return nil, fmt.Errorf("could not list partitions: %w", err)
 	}

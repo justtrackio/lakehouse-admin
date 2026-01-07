@@ -14,27 +14,20 @@ func NewModuleRefresh(ctx context.Context, config cfg.Config, logger log.Logger)
 	logger = logger.WithChannel("refresh")
 
 	var err error
-	var spark *SparkClient
 	var service *ServiceRefresh
 
-	if spark, err = ProvideSparkClient(ctx, config, logger); err != nil {
-		return nil, fmt.Errorf("could not create spark client: %w", err)
-	}
-
 	if service, err = NewServiceRefresh(ctx, config, logger); err != nil {
-		return nil, fmt.Errorf("could not create spark client: %w", err)
+		return nil, fmt.Errorf("could not create refresh service: %w", err)
 	}
 
 	return &ModuleRefresh{
 		logger:  logger,
-		spark:   spark,
 		service: service,
 	}, nil
 }
 
 type ModuleRefresh struct {
 	logger  log.Logger
-	spark   *SparkClient
 	service *ServiceRefresh
 }
 
@@ -43,7 +36,7 @@ func (m *ModuleRefresh) Run(ctx context.Context) error {
 	var tables []string
 	var lastUpdatedAt time.Time
 
-	if tables, err = m.spark.ListTables(ctx); err != nil {
+	if tables, err = m.service.ListTables(ctx); err != nil {
 		return fmt.Errorf("could not list tables: %w", err)
 	}
 

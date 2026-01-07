@@ -9,8 +9,8 @@ import (
 type Snapshot struct {
 	Table        string                                  `json:"table" db:"table"`
 	CommittedAt  time.Time                               `json:"committed_at" db:"committed_at"`
-	SnapshotId   string                                  `json:"snapshot_id" db:"snapshot_id"`
-	ParentId     string                                  `json:"parent_id" db:"parent_id"`
+	SnapshotId   int64                                   `json:"snapshot_id" db:"snapshot_id"`
+	ParentId     *int64                                  `json:"parent_id" db:"parent_id"`
 	Operation    string                                  `json:"operation" db:"operation"`
 	ManifestList string                                  `json:"manifest_list" db:"manifest_list"`
 	Summary      db.JSON[map[string]any, db.NonNullable] `json:"summary" db:"summary"`
@@ -26,32 +26,24 @@ type sSnapshot struct {
 }
 
 type Partition struct {
-	Table                     string                                  `json:"table" db:"table"`
-	Partition                 db.JSON[map[string]any, db.NonNullable] `json:"partition" db:"partition"`
-	SpecId                    int                                     `json:"spec_id" db:"spec_id"`
-	RecordCount               int64                                   `json:"record_count" db:"record_count"`
-	FileCount                 int64                                   `json:"file_count" db:"file_count"`
-	TotalDataFileSizeInBytes  int64                                   `json:"total_data_file_size_in_bytes" db:"total_data_file_size_in_bytes"`
-	PositionDeleteRecordCount int64                                   `json:"position_delete_record_count" db:"position_delete_record_count"`
-	PositionDeleteFileCount   int64                                   `json:"position_delete_file_count" db:"position_delete_file_count"`
-	EqualityDeleteRecordCount int64                                   `json:"equality_delete_record_count" db:"equality_delete_record_count"`
-	EqualityDeleteFileCount   int64                                   `json:"equality_delete_file_count" db:"equality_delete_file_count"`
-	LastUpdatedAt             time.Time                               `json:"last_updated_at" db:"last_updated_at"`
-	LastUpdatedSnapshotId     int64                                   `json:"last_updated_snapshot_id" db:"last_updated_snapshot_id"`
+	Table                    string                                  `json:"table" db:"table"`
+	Partition                db.JSON[map[string]any, db.NonNullable] `json:"partition" db:"partition"`
+	SpecId                   int                                     `json:"spec_id" db:"spec_id"`
+	RecordCount              int64                                   `json:"record_count" db:"record_count"`
+	FileCount                int64                                   `json:"file_count" db:"file_count"`
+	TotalDataFileSizeInBytes int64                                   `json:"total_data_file_size_in_bytes" db:"total_data_file_size_in_bytes"`
+	LastUpdatedAt            time.Time                               `json:"last_updated_at" db:"last_updated_at"`
+	LastUpdatedSnapshotId    int64                                   `json:"last_updated_snapshot_id" db:"last_updated_snapshot_id"`
 }
 
 type sPartition struct {
-	Partition                 map[string]any `json:"partition" db:"partition"`
-	SpecId                    int            `json:"spec_id" db:"spec_id"`
-	RecordCount               int64          `json:"record_count" db:"record_count"`
-	FileCount                 int64          `json:"file_count" db:"file_count"`
-	TotalDataFileSizeInBytes  int64          `json:"total_data_file_size_in_bytes" db:"total_data_file_size_in_bytes"`
-	PositionDeleteRecordCount int64          `json:"position_delete_record_count" db:"position_delete_record_count"`
-	PositionDeleteFileCount   int64          `json:"position_delete_file_count" db:"position_delete_file_count"`
-	EqualityDeleteRecordCount int64          `json:"equality_delete_record_count" db:"equality_delete_record_count"`
-	EqualityDeleteFileCount   int64          `json:"equality_delete_file_count" db:"equality_delete_file_count"`
-	LastUpdatedAt             time.Time      `json:"last_updated_at" db:"last_updated_at"`
-	LastUpdatedSnapshotId     int64          `json:"last_updated_snapshot_id" db:"last_updated_snapshot_id"`
+	Partition                map[string]any `json:"partition" db:"partition"`
+	SpecId                   int            `json:"spec_id" db:"spec_id"`
+	RecordCount              int64          `json:"record_count" db:"record_count"`
+	FileCount                int64          `json:"file_count" db:"file_count"`
+	TotalDataFileSizeInBytes int64          `json:"total_data_file_size_in_bytes" db:"total_data_file_size_in_bytes"`
+	LastUpdatedAt            time.Time      `json:"last_updated_at" db:"last_updated_at"`
+	LastUpdatedSnapshotId    int64          `json:"last_updated_snapshot_id" db:"last_updated_snapshot_id"`
 }
 
 type TableDescription struct {
