@@ -17,10 +17,10 @@ type ExpireSnapshotsResult struct {
 }
 
 type RemoveOrphanFilesResult struct {
-	Table              string         `json:"table"`
-	RetentionThreshold string         `json:"retention_threshold"`
-	Metrics            map[string]any `json:"metrics"`
-	Status             string         `json:"status"`
+	Table         string         `json:"table"`
+	RetentionDays int            `json:"retention_days"`
+	Metrics       map[string]any `json:"metrics"`
+	Status        string         `json:"status"`
 }
 
 func NewServiceMaintenance(ctx context.Context, config cfg.Config, logger log.Logger) (*ServiceMaintenance, error) {
@@ -68,16 +68,17 @@ func (s *ServiceMaintenance) ExpireSnapshots(ctx context.Context, table string, 
 	}, nil
 }
 
-func (s *ServiceMaintenance) RemoveOrphanFiles(ctx context.Context, table string, retentionThreshold string) (*RemoveOrphanFilesResult, error) {
-	if retentionThreshold == "" {
-		return nil, fmt.Errorf("retention threshold must be non-empty")
+func (s *ServiceMaintenance) RemoveOrphanFiles(ctx context.Context, table string, retentionDays int) (*RemoveOrphanFilesResult, error) {
+	if retentionDays < 1 {
+		return nil, fmt.Errorf("retention days must be at least 1")
 	}
-
-	qualifiedTable := qualifiedTableName("lakehouse", "main", table)
-	query := fmt.Sprintf("ALTER TABLE %s EXECUTE remove_orphan_files(retention_threshold => %s)", qualifiedTable, quoteLiteral(retentionThreshold))
 
 	var rows []map[string]any
 	var err error
+
+	retentionThreshold := fmt.Sprintf("%dd", retentionDays)
+	qualifiedTable := qualifiedTableName("lakehouse", "main", table)
+	query := fmt.Sprintf("ALTER TABLE %s EXECUTE remove_orphan_files(retention_threshold => %s)", qualifiedTable, quoteLiteral(retentionThreshold))
 
 	if rows, err = s.trino.QueryRows(ctx, query); err != nil {
 		return nil, fmt.Errorf("could not remove orphan files for table %s: %w", table, err)
@@ -95,9 +96,9 @@ func (s *ServiceMaintenance) RemoveOrphanFiles(ctx context.Context, table string
 	}
 
 	return &RemoveOrphanFilesResult{
-		Table:              table,
-		RetentionThreshold: retentionThreshold,
-		Metrics:            metrics,
-		Status:             "ok",
+		Table:         table,
+		RetentionDays: retentionDays,
+		Metrics:       metrics,
+		Status:        "ok",
 	}, nil
 }

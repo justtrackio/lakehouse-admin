@@ -79,6 +79,47 @@ export async function fetchSnapshots(tableName: string): Promise<SnapshotItem[]>
   return apiClient.get<SnapshotItem[]>(`/api/metadata/snapshots?table=${tableName}`);
 }
 
+export interface ExpireSnapshotsResponse {
+  table: string;
+  retention_days: number;
+  retain_last: number;
+  clean_expired_metadata: boolean;
+  status: string;
+}
+
+export async function expireSnapshots(
+  tableName: string,
+  retentionDays: number,
+  retainLast: number,
+): Promise<ExpireSnapshotsResponse> {
+  return apiClient.post<ExpireSnapshotsResponse>(
+    `/api/maintenance/${tableName}/expire-snapshots`,
+    {
+      retention_days: retentionDays,
+      retain_last: retainLast,
+    }
+  );
+}
+
+export interface RemoveOrphanFilesResponse {
+  table: string;
+  retention_days: number;
+  metrics: Record<string, any>;
+  status: string;
+}
+
+export async function removeOrphanFiles(
+  tableName: string,
+  retentionDays: number,
+): Promise<RemoveOrphanFilesResponse> {
+  return apiClient.post<RemoveOrphanFilesResponse>(
+    `/api/maintenance/${tableName}/remove-orphan-files`,
+    {
+      retention_days: retentionDays,
+    }
+  );
+}
+
 export interface RefreshFullResponse {
   status: string;
 }

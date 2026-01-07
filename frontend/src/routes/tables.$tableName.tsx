@@ -73,7 +73,11 @@ function TableLayout() {
     },
   ];
 
-  const activeTab = pathname.includes('/snapshots') ? 'snapshots' : 'partitions';
+  const activeTab = pathname.includes('/snapshots') 
+    ? 'snapshots' 
+    : pathname.includes('/maintenance') 
+      ? 'maintenance' 
+      : 'partitions';
 
   const tabItems = [
     {
@@ -83,6 +87,10 @@ function TableLayout() {
     {
       key: 'snapshots',
       label: 'Snapshots',
+    },
+    {
+      key: 'maintenance',
+      label: 'Maintenance',
     },
   ];
 
@@ -96,6 +104,11 @@ function TableLayout() {
     } else if (key === 'snapshots') {
       navigate({
         to: '/tables/$tableName/snapshots',
+        params: { tableName },
+      });
+    } else if (key === 'maintenance') {
+      navigate({
+        to: '/tables/$tableName/maintenance',
         params: { tableName },
       });
     }

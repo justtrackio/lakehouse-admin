@@ -19,8 +19,8 @@ type ExpireSnapshotsInput struct {
 }
 
 type RemoveOrphanFilesInput struct {
-	Table              string `uri:"table"`
-	RetentionThreshold string `json:"retention_threshold"`
+	Table         string `uri:"table"`
+	RetentionDays int    `json:"retention_days"`
 }
 
 func NewHandlerMaintenance(ctx context.Context, config cfg.Config, logger log.Logger) (*HandlerMaintenance, error) {
@@ -78,7 +78,13 @@ func (h *HandlerMaintenance) RemoveOrphanFiles(ctx context.Context, input *Remov
 	var err error
 	var result *RemoveOrphanFilesResult
 
-	if result, err = h.serviceMaintenance.RemoveOrphanFiles(ctx, input.Table, input.RetentionThreshold); err != nil {
+	// Handle retention days logic
+	retentionDays := input.RetentionDays
+	if retentionDays < minRetentionDays {
+		retentionDays = minRetentionDays
+	}
+
+	if result, err = h.serviceMaintenance.RemoveOrphanFiles(ctx, input.Table, retentionDays); err != nil {
 		return nil, fmt.Errorf("could not remove orphan files: %w", err)
 	}
 
