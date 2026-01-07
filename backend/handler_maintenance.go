@@ -24,10 +24,11 @@ type RemoveOrphanFilesInput struct {
 }
 
 type OptimizeInput struct {
-	Table               string   `uri:"table"`
-	FileSizeThresholdMb int      `json:"file_size_threshold_mb"`
-	From                DateTime `json:"from"`
-	To                  DateTime `json:"to"`
+	Table               string `uri:"table"`
+	FileSizeThresholdMb int    `json:"file_size_threshold_mb"`
+	From                string `json:"from"`
+	To                  string `json:"to"`
+	BatchSize           string `json:"batch_size"`
 }
 
 func NewHandlerMaintenance(ctx context.Context, config cfg.Config, logger log.Logger) (*HandlerMaintenance, error) {
@@ -90,8 +91,13 @@ func (h *HandlerMaintenance) Optimize(ctx context.Context, input *OptimizeInput)
 		fileSizeThresholdMb = 128
 	}
 
+	batchSize := input.BatchSize
+	if batchSize == "" {
+		batchSize = "monthly"
+	}
+
 	// 1. Call Service Optimize (now handles all logic including metadata and where clause)
-	if result, err = h.serviceMaintenance.Optimize(ctx, input.Table, fileSizeThresholdMb, input.From, input.To); err != nil {
+	if result, err = h.serviceMaintenance.Optimize(ctx, input.Table, fileSizeThresholdMb, input.From, input.To, batchSize); err != nil {
 		return nil, fmt.Errorf("could not optimize table: %w", err)
 	}
 

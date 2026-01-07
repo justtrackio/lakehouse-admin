@@ -117,7 +117,7 @@ func (s *ServiceMaintenance) RemoveOrphanFiles(ctx context.Context, table string
 	}, nil
 }
 
-func (s *ServiceMaintenance) Optimize(ctx context.Context, table string, fileSizeThresholdMb int, from DateTime, to DateTime) (*OptimizeResult, error) {
+func (s *ServiceMaintenance) Optimize(ctx context.Context, table string, fileSizeThresholdMb int, from string, to string, batchSize string) (*OptimizeResult, error) {
 	if fileSizeThresholdMb < 1 {
 		return nil, fmt.Errorf("file size threshold must be at least 1")
 	}
@@ -125,8 +125,17 @@ func (s *ServiceMaintenance) Optimize(ctx context.Context, table string, fileSiz
 	var err error
 	var desc *TableDescription
 	var partitionColumn string
+	var startDate, endDate time.Time
 
-	if from.After(to.Time) {
+	if startDate, err = time.Parse(time.DateOnly, from); err != nil {
+		return nil, fmt.Errorf("could not parse from date: %w", err)
+	}
+
+	if endDate, err = time.Parse(time.DateOnly, to); err != nil {
+		return nil, fmt.Errorf("could not parse to date: %w", err)
+	}
+
+	if startDate.After(endDate) {
 		return nil, fmt.Errorf("from date must be before or equal to to date")
 	}
 
@@ -147,16 +156,32 @@ func (s *ServiceMaintenance) Optimize(ctx context.Context, table string, fileSiz
 	threshold := fmt.Sprintf("%dMB", fileSizeThresholdMb)
 	qualifiedTable := qualifiedTableName("lakehouse", "main", table)
 
-	// We split the optimization into 30-day chunks to avoid hitting Trino limits
-	// regarding the number of files or transaction size.
-	current := from.Time
-	finalEnd := to
+	// We split the optimization into chunks to avoid hitting Trino limits
+	current := startDate
+	finalEnd := endDate
 
-	for !current.After(finalEnd.Time) {
-		// Calculate batch end (current + 30 days)
-		batchEnd := current.AddDate(0, 0, 30)
-		if batchEnd.After(finalEnd.Time) {
-			batchEnd = finalEnd.Time
+	for !current.After(finalEnd) {
+		var nextStart time.Time
+
+		switch batchSize {
+		case "daily":
+			nextStart = current.AddDate(0, 0, 1)
+		case "weekly":
+			nextStart = current.AddDate(0, 0, 7)
+		case "yearly":
+			nextStart = current.AddDate(1, 0, 0)
+		case "monthly":
+			fallthrough
+		default:
+			nextStart = current.AddDate(0, 1, 0)
+		}
+
+		// batchEnd is one day before nextStart
+		batchEnd := nextStart.AddDate(0, 0, -1)
+
+		// Clamp batchEnd to finalEnd
+		if batchEnd.After(finalEnd) {
+			batchEnd = finalEnd
 		}
 
 		batchWhere := fmt.Sprintf("date(%s) >= date '%s' AND date(%s) <= date '%s'", partitionColumn, current.Format(time.DateOnly), partitionColumn, batchEnd.Format(time.DateOnly))
@@ -168,12 +193,12 @@ func (s *ServiceMaintenance) Optimize(ctx context.Context, table string, fileSiz
 			return nil, fmt.Errorf("could not optimize table %s (batch %s): %w", table, batchWhere, err)
 		}
 
-		// Move to the next day after the current batch
-		current = batchEnd.AddDate(0, 0, 1)
+		// Move to the next batch start
+		current = nextStart
 	}
 
 	// The returned "Where" field still represents the user's original request range
-	fullWhere := fmt.Sprintf("date(%s) >= date '%s' AND date(%s) <= date '%s'", partitionColumn, from.Format(time.DateOnly), partitionColumn, to.Format(time.DateOnly))
+	fullWhere := fmt.Sprintf("date(%s) >= date '%s' AND date(%s) <= date '%s'", partitionColumn, startDate.Format(time.DateOnly), partitionColumn, endDate.Format(time.DateOnly))
 
 	return &OptimizeResult{
 		Table:               table,

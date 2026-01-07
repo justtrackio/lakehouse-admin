@@ -132,6 +132,7 @@ export async function optimizeTable(
   fileSizeThresholdMb: number,
   from?: string,
   to?: string,
+  batchSize?: string,
 ): Promise<OptimizeResponse> {
   return apiClient.post<OptimizeResponse>(
     `/api/maintenance/${tableName}/optimize`,
@@ -139,6 +140,7 @@ export async function optimizeTable(
       file_size_threshold_mb: fileSizeThresholdMb,
       from: from,
       to: to,
+      batch_size: batchSize,
     }
   );
 }

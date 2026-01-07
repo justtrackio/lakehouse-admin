@@ -11,6 +11,7 @@ import {
   Space,
   Typography,
   Popconfirm,
+  Select,
 } from 'antd';
 import type { Dayjs } from 'dayjs';
 import { optimizeTable, type OptimizeResponse } from '../api/schema';
@@ -33,6 +34,7 @@ export function OptimizeCard({ tableName }: OptimizeCardProps) {
     mutationFn: (values: {
       file_size_threshold_mb: number;
       date_range?: [Dayjs, Dayjs] | null;
+      batch_size: string;
     }) => {
       let from: string | undefined;
       let to: string | undefined;
@@ -42,7 +44,7 @@ export function OptimizeCard({ tableName }: OptimizeCardProps) {
         to = values.date_range[1].format('YYYY-MM-DD');
       }
 
-      return optimizeTable(tableName, values.file_size_threshold_mb, from, to);
+      return optimizeTable(tableName, values.file_size_threshold_mb, from, to, values.batch_size);
     },
     onMutate: () => {
       setResult(null);
@@ -59,6 +61,7 @@ export function OptimizeCard({ tableName }: OptimizeCardProps) {
   const onFinish = (values: {
     file_size_threshold_mb: number;
     date_range?: [Dayjs, Dayjs] | null;
+    batch_size: string;
   }) => {
     mutation.mutate(values);
   };
@@ -78,11 +81,12 @@ export function OptimizeCard({ tableName }: OptimizeCardProps) {
           initialValues={{
             file_size_threshold_mb: 128,
             date_range: null,
+            batch_size: 'monthly',
           }}
           disabled={mutation.isPending}
         >
           <Space direction="horizontal" size="large" style={{ width: '100%' }} align="start">
-            <div style={{ width: 500 }}>
+            <div style={{ width: 400 }}>
               <Form.Item
                 label={`File Size Threshold (MB): ${fileSizeThreshold}`}
                 name="file_size_threshold_mb"
@@ -105,6 +109,23 @@ export function OptimizeCard({ tableName }: OptimizeCardProps) {
               extra="Only optimize data within this date range (based on partition column)."
             >
               <RangePicker allowClear />
+            </Form.Item>
+
+            <Form.Item
+              label="Batch Size"
+              name="batch_size"
+              rules={[{ required: true, message: 'Please select a batch size!' }]}
+              extra="Size of optimization chunks."
+            >
+              <Select
+                style={{ width: 120 }}
+                options={[
+                  { value: 'daily', label: 'Daily' },
+                  { value: 'weekly', label: 'Weekly' },
+                  { value: 'monthly', label: 'Monthly' },
+                  { value: 'yearly', label: 'Yearly' },
+                ]}
+              />
             </Form.Item>
           </Space>
 
