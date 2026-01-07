@@ -106,6 +106,7 @@ function SnapshotsPage() {
         <MetricWithDelta
           total={record.summary?.['total-data-files']}
           added={record.summary?.['added-data-files']}
+          deleted={record.summary?.['deleted-data-files']}
           formatter={formatNumber}
         />
       ),
@@ -119,6 +120,7 @@ function SnapshotsPage() {
         <MetricWithDelta
           total={record.summary?.['total-records']}
           added={record.summary?.['added-records']}
+          deleted={record.summary?.['deleted-records']}
           formatter={formatNumber}
         />
       ),
@@ -132,6 +134,7 @@ function SnapshotsPage() {
         <MetricWithDelta
           total={record.summary?.['total-files-size']}
           added={record.summary?.['added-files-size']}
+          deleted={record.summary?.['removed-files-size']}
           formatter={formatBytes}
         />
       ),

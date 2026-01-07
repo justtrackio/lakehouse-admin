@@ -120,6 +120,30 @@ export async function removeOrphanFiles(
   );
 }
 
+export interface OptimizeResponse {
+  table: string;
+  file_size_threshold_mb: number;
+  where: string;
+  metrics: Record<string, any>;
+  status: string;
+}
+
+export async function optimizeTable(
+  tableName: string,
+  fileSizeThresholdMb: number,
+  from?: string,
+  to?: string,
+): Promise<OptimizeResponse> {
+  return apiClient.post<OptimizeResponse>(
+    `/api/maintenance/${tableName}/optimize`,
+    {
+      file_size_threshold_mb: fileSizeThresholdMb,
+      from: from,
+      to: to,
+    }
+  );
+}
+
 export interface RefreshFullResponse {
   status: string;
 }

@@ -23,6 +23,13 @@ type RemoveOrphanFilesInput struct {
 	RetentionDays int    `json:"retention_days"`
 }
 
+type OptimizeInput struct {
+	Table               string   `uri:"table"`
+	FileSizeThresholdMb int      `json:"file_size_threshold_mb"`
+	From                DateTime `json:"from"`
+	To                  DateTime `json:"to"`
+}
+
 func NewHandlerMaintenance(ctx context.Context, config cfg.Config, logger log.Logger) (*HandlerMaintenance, error) {
 	var err error
 	var serviceMaintenance *ServiceMaintenance
@@ -69,6 +76,28 @@ func (h *HandlerMaintenance) ExpireSnapshots(ctx context.Context, input *ExpireS
 
 	if _, err = h.serviceRefresh.RefreshSnapshots(ctx, input.Table); err != nil {
 		return nil, fmt.Errorf("could not resfresh snapshots: %w", err)
+	}
+
+	return httpserver.NewJsonResponse(result), nil
+}
+
+func (h *HandlerMaintenance) Optimize(ctx context.Context, input *OptimizeInput) (httpserver.Response, error) {
+	var err error
+	var result *OptimizeResult
+
+	fileSizeThresholdMb := input.FileSizeThresholdMb
+	if fileSizeThresholdMb < 1 {
+		fileSizeThresholdMb = 128
+	}
+
+	// 1. Call Service Optimize (now handles all logic including metadata and where clause)
+	if result, err = h.serviceMaintenance.Optimize(ctx, input.Table, fileSizeThresholdMb, input.From, input.To); err != nil {
+		return nil, fmt.Errorf("could not optimize table: %w", err)
+	}
+
+	// 2. Trigger Full Refresh
+	if err = h.serviceRefresh.RefreshTableFull(ctx, input.Table); err != nil {
+		return nil, fmt.Errorf("could not refresh table after optimize: %w", err)
 	}
 
 	return httpserver.NewJsonResponse(result), nil

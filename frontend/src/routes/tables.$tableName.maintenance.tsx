@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Space } from 'antd';
 import { ExpireSnapshotsCard } from '../components/ExpireSnapshotsCard';
 import { RemoveOrphanFilesCard } from '../components/RemoveOrphanFilesCard';
+import { OptimizeCard } from '../components/OptimizeCard';
 import { fetchTableDetails } from '../api/schema';
 
 export const Route = createFileRoute('/tables/$tableName/maintenance')({
@@ -25,6 +26,7 @@ function MaintenancePage() {
         snapshotCountLoading={isLoading}
       />
       <RemoveOrphanFilesCard tableName={tableName} />
+      <OptimizeCard tableName={tableName} />
     </Space>
   );
 }

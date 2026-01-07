@@ -174,22 +174,32 @@ func (s *ServiceRefresh) RefreshFull(ctx context.Context) ([]string, error) {
 	s.logger.Info(ctx, "starting full refresh for %d tables", len(tables))
 
 	for _, table := range tables {
-		s.logger.Info(ctx, "refreshing table %s", table)
-
-		if _, err = s.RefreshTable(ctx, table); err != nil {
+		if err = s.RefreshTableFull(ctx, table); err != nil {
 			return nil, fmt.Errorf("could not refresh table %s: %w", table, err)
-		}
-
-		if _, err = s.RefreshPartitions(ctx, table); err != nil {
-			return nil, fmt.Errorf("could not refresh partitions for table %s: %w", table, err)
-		}
-
-		if _, err = s.RefreshSnapshots(ctx, table); err != nil {
-			return nil, fmt.Errorf("could not refresh snapshots for table %s: %w", table, err)
 		}
 	}
 
 	s.logger.Info(ctx, "completed full refresh for %d tables", len(tables))
 
 	return tables, nil
+}
+
+func (s *ServiceRefresh) RefreshTableFull(ctx context.Context, table string) error {
+	var err error
+
+	s.logger.Info(ctx, "refreshing table %s", table)
+
+	if _, err = s.RefreshTable(ctx, table); err != nil {
+		return fmt.Errorf("could not refresh table %s: %w", table, err)
+	}
+
+	if _, err = s.RefreshPartitions(ctx, table); err != nil {
+		return fmt.Errorf("could not refresh partitions for table %s: %w", table, err)
+	}
+
+	if _, err = s.RefreshSnapshots(ctx, table); err != nil {
+		return fmt.Errorf("could not refresh snapshots for table %s: %w", table, err)
+	}
+
+	return nil
 }
