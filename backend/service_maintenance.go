@@ -117,7 +117,7 @@ func (s *ServiceMaintenance) RemoveOrphanFiles(ctx context.Context, table string
 	}, nil
 }
 
-func (s *ServiceMaintenance) Optimize(ctx context.Context, table string, fileSizeThresholdMb int, from string, to string, batchSize string) (*OptimizeResult, error) {
+func (s *ServiceMaintenance) Optimize(ctx context.Context, table string, fileSizeThresholdMb int, from DateTime, to DateTime, batchSize string) (*OptimizeResult, error) {
 	if fileSizeThresholdMb < 1 {
 		return nil, fmt.Errorf("file size threshold must be at least 1")
 	}
@@ -127,13 +127,8 @@ func (s *ServiceMaintenance) Optimize(ctx context.Context, table string, fileSiz
 	var partitionColumn string
 	var startDate, endDate time.Time
 
-	if startDate, err = time.Parse(time.DateOnly, from); err != nil {
-		return nil, fmt.Errorf("could not parse from date: %w", err)
-	}
-
-	if endDate, err = time.Parse(time.DateOnly, to); err != nil {
-		return nil, fmt.Errorf("could not parse to date: %w", err)
-	}
+	startDate = from.Time
+	endDate = to.Time
 
 	if startDate.After(endDate) {
 		return nil, fmt.Errorf("from date must be before or equal to to date")
