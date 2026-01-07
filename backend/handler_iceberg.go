@@ -70,3 +70,14 @@ func (h *HandlerIceberg) ListTables(ctx context.Context) (httpserver.Response, e
 
 	return httpserver.NewJsonResponse(tables), nil
 }
+
+func (h *HandlerIceberg) DescribeTable(ctx context.Context, input *TableSelectInput) (httpserver.Response, error) {
+	var err error
+	var desc *TableDescription
+
+	if desc, err = h.service.DescribeTable(ctx, input.Table); err != nil {
+		return nil, fmt.Errorf("could not describe table: %w", err)
+	}
+
+	return httpserver.NewJsonResponse(desc), nil
+}

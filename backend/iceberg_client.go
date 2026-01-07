@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
+	iceberg "github.com/apache/iceberg-go"
 	"github.com/apache/iceberg-go/catalog"
 	"github.com/apache/iceberg-go/catalog/glue"
 	"github.com/apache/iceberg-go/table"
@@ -13,6 +15,7 @@ import (
 	"github.com/justtrackio/gosoline/pkg/appctx"
 	"github.com/justtrackio/gosoline/pkg/cfg"
 	gosoGlue "github.com/justtrackio/gosoline/pkg/cloud/aws/glue"
+	"github.com/justtrackio/gosoline/pkg/db"
 	"github.com/justtrackio/gosoline/pkg/log"
 )
 
@@ -194,4 +197,161 @@ func (c *IcebergClient) ListTables(ctx context.Context) ([]table.Identifier, err
 	}
 
 	return tables, nil
+}
+
+func (c *IcebergClient) DescribeTable(ctx context.Context, logicalName string) (*TableDescription, error) {
+	tbl, err := c.LoadTable(ctx, logicalName)
+	if err != nil {
+		return nil, fmt.Errorf("could not load table: %w", err)
+	}
+
+	metadata := tbl.Metadata()
+
+	columns, err := c.extractColumns(metadata.CurrentSchema())
+	if err != nil {
+		return nil, fmt.Errorf("could not extract columns: %w", err)
+	}
+
+	partitions, err := c.extractPartitions(metadata)
+	if err != nil {
+		return nil, fmt.Errorf("could not extract partitions: %w", err)
+	}
+
+	desc := &TableDescription{
+		Name:       logicalName,
+		Columns:    columns,
+		Partitions: partitions,
+		UpdatedAt:  time.Now(),
+	}
+
+	return desc, nil
+}
+
+func (c *IcebergClient) extractColumns(schema *iceberg.Schema) (db.JSON[TableColumns, db.NonNullable], error) {
+	fields := schema.Fields()
+	columns := make([]TableColumn, 0, len(fields))
+
+	for _, field := range fields {
+		columns = append(columns, TableColumn{
+			Name: field.Name,
+			Type: c.formatType(field.Type),
+		})
+	}
+
+	return db.NewJSON(TableColumns(columns), db.NonNullable{}), nil
+}
+
+func (c *IcebergClient) extractPartitions(metadata table.Metadata) (db.JSON[[]TablePartition, db.NonNullable], error) {
+	var ok bool
+	var spec *iceberg.PartitionSpec
+	var sourceField iceberg.NestedField
+
+	specs := metadata.PartitionSpecs()
+	defaultSpecID := metadata.DefaultPartitionSpec()
+
+	if len(specs) == 0 {
+		return db.NewJSON([]TablePartition{}, db.NonNullable{}), nil
+	}
+
+	if defaultSpecID >= 0 && defaultSpecID < len(specs) {
+		spec = &specs[defaultSpecID]
+	}
+
+	if spec == nil {
+		for i := range specs {
+			spec = &specs[i]
+			break
+		}
+	}
+
+	if spec == nil {
+		return db.NewJSON([]TablePartition{}, db.NonNullable{}), nil
+	}
+
+	partitions := make([]TablePartition, 0)
+	fields := spec.Fields()
+	schema := metadata.CurrentSchema()
+
+	for pf := range fields {
+		if sourceField, ok = schema.FindFieldByID(pf.SourceID); !ok {
+			return db.NewJSON(partitions, db.NonNullable{}), fmt.Errorf("could not find source field with id %d for partition field %s", pf.SourceID, pf.Name)
+		}
+
+		switch pf.Transform.String() {
+		case "day", "month", "year":
+			partitions = append(partitions, c.expandTimeTransform(pf.Transform.String(), sourceField.Name)...)
+		case "identity":
+			partitions = append(partitions, TablePartition{
+				Name:     sourceField.Name,
+				IsHidden: false,
+				Hidden:   TablePartitionHidden{},
+			})
+		default:
+			return db.NewJSON(partitions, db.NonNullable{}), fmt.Errorf("unknown partition transformer type: %s", pf.Transform.String())
+		}
+	}
+
+	return db.NewJSON(partitions, db.NonNullable{}), nil
+}
+
+func (c *IcebergClient) expandTimeTransform(transform, sourceCol string) []TablePartition {
+	switch transform {
+	case "day":
+		return []TablePartition{
+			{Name: "year", IsHidden: true, Hidden: TablePartitionHidden{Column: sourceCol, Type: "day"}},
+			{Name: "month", IsHidden: true, Hidden: TablePartitionHidden{Column: sourceCol, Type: "day"}},
+			{Name: "day", IsHidden: true, Hidden: TablePartitionHidden{Column: sourceCol, Type: "day"}},
+		}
+	case "month":
+		return []TablePartition{
+			{Name: "year", IsHidden: true, Hidden: TablePartitionHidden{Column: sourceCol, Type: "month"}},
+			{Name: "month", IsHidden: true, Hidden: TablePartitionHidden{Column: sourceCol, Type: "month"}},
+		}
+	case "year":
+		return []TablePartition{
+			{Name: "year", IsHidden: true, Hidden: TablePartitionHidden{Column: sourceCol, Type: "year"}},
+		}
+	}
+	return nil
+}
+
+func (c *IcebergClient) formatType(t iceberg.Type) string {
+	typeStr := t.String()
+
+	if !strings.HasPrefix(typeStr, "struct<") && !strings.HasPrefix(typeStr, "list<") && !strings.HasPrefix(typeStr, "map<") {
+		return typeStr
+	}
+
+	switch v := t.(type) {
+	case *iceberg.StructType:
+		return c.formatStruct(v)
+	case *iceberg.ListType:
+		return c.formatList(v)
+	case *iceberg.MapType:
+		return c.formatMap(v)
+	default:
+		return typeStr
+	}
+}
+
+func (c *IcebergClient) formatStruct(t *iceberg.StructType) string {
+	fieldList := t.FieldList
+	if len(fieldList) == 0 {
+		return "struct<>"
+	}
+
+	fields := make([]string, 0, len(fieldList))
+	for _, field := range fieldList {
+		fields = append(fields, fmt.Sprintf("%s:%s", field.Name, c.formatType(field.Type)))
+	}
+
+	return fmt.Sprintf("struct<%s>", strings.Join(fields, ","))
+}
+
+func (c *IcebergClient) formatList(t *iceberg.ListType) string {
+	return fmt.Sprintf("array<%s>", c.formatType(t.Element))
+}
+
+func (c *IcebergClient) formatMap(t *iceberg.MapType) string {
+	return fmt.Sprintf("map<%s,%s>", c.formatType(t.KeyType), c.formatType(t.ValueType))
 }

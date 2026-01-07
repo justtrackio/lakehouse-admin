@@ -83,6 +83,17 @@ func (s *ServiceIceberg) ListTables(ctx context.Context) ([]string, error) {
 	return result, nil
 }
 
+func (s *ServiceIceberg) DescribeTable(ctx context.Context, logicalName string) (*TableDescription, error) {
+	desc, err := s.client.DescribeTable(ctx, logicalName)
+	if err != nil {
+		return nil, fmt.Errorf("could not describe table: %w", err)
+	}
+
+	s.logger.Info(ctx, "described table %s", logicalName)
+
+	return desc, nil
+}
+
 func (s *ServiceIceberg) ListPartitions(ctx context.Context, logicalName string) ([]IcebergPartition, error) {
 	partitionStats, err := s.client.ListPartitions(ctx, logicalName)
 	if err != nil {

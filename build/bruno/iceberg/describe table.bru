@@ -1,13 +1,17 @@
 meta {
-  name: list live sets
+  name: describe table
   type: http
   seq: 4
 }
 
 get {
-  url: http://localhost:8081/api/nessie/gc/sets
+  url: http://localhost:8081/api/iceberg/:table
   body: none
   auth: inherit
+}
+
+params:path {
+  table: adwordsevent
 }
 
 settings {
