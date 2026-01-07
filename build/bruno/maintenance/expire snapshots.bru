@@ -11,12 +11,12 @@ post {
 }
 
 params:path {
-  table: adwordsevent
+  table: purchaseevent
 }
 
 body:json {
   {
-    "older_than": "2026-01-01",
+    "retention_days": 7,
     "retain_last": 100
   }
 }

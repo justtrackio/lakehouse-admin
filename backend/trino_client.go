@@ -84,6 +84,43 @@ func (c *TrinoClient) ListPartitions(ctx context.Context, table string) ([]sPart
 	return result, nil
 }
 
+func (c *TrinoClient) Exec(ctx context.Context, query string, args ...any) error {
+	_, err := c.exec.Execute(ctx, func(ctx context.Context) (any, error) {
+		return c.db.ExecContext(ctx, query, args...)
+	})
+
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (c *TrinoClient) QueryRows(ctx context.Context, query string, args ...any) ([]map[string]any, error) {
+	res, err := c.exec.Execute(ctx, func(ctx context.Context) (any, error) {
+		return c.db.QueryxContext(ctx, query, args...)
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	rows := res.(*sqlx.Rows)
+	defer rows.Close()
+
+	result := make([]map[string]any, 0)
+
+	for rows.Next() {
+		row := make(map[string]any)
+		if err := rows.MapScan(row); err != nil {
+			return nil, fmt.Errorf("could not scan row: %w", err)
+		}
+		result = append(result, row)
+	}
+
+	return result, nil
+}
+
 func (s *TrinoClient) Query(ctx context.Context, query string, args ...any) (*sqlx.Rows, error) {
 	res, err := s.exec.Execute(ctx, func(ctx context.Context) (any, error) {
 		return s.db.QueryxContext(ctx, query, args...)

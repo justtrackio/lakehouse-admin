@@ -29,6 +29,7 @@ func main() {
 
 			router.Group("/api/maintenance").HandleWith(httpserver.With(NewHandlerMaintenance, func(r *httpserver.Router, handler *HandlerMaintenance) {
 				r.POST("/:table/expire-snapshots", httpserver.Bind(handler.ExpireSnapshots))
+				r.POST("/:table/remove-orphan-files", httpserver.Bind(handler.RemoveOrphanFiles))
 			}))
 
 			router.Group("/api/metadata").HandleWith(httpserver.With(NewHandlerMetadata, func(r *httpserver.Router, handler *HandlerMetadata) {
