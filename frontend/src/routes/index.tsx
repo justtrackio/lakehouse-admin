@@ -1,9 +1,10 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Card, Typography, Table, Spin, Alert, Button, message } from 'antd';
+import { Card, Typography, Table, Spin, Alert, Button } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { fetchTables, ListTableItem, refreshFull } from '../api/schema';
 import { formatNumber, formatBytes } from '../utils/format';
+import { useMessageApi } from '../components/MessageProvider';
 
 const { Title, Paragraph } = Typography;
 
@@ -12,6 +13,7 @@ export const Route = createFileRoute('/')({
 });
 function IndexComponent() {
   const queryClient = useQueryClient();
+  const messageApi = useMessageApi();
   const {
     data: tables,
     isLoading,
@@ -25,11 +27,11 @@ function IndexComponent() {
   const refreshMutation = useMutation({
     mutationFn: refreshFull,
     onSuccess: () => {
-      message.success('Full refresh completed successfully');
+      messageApi.success('Full refresh completed successfully');
       queryClient.invalidateQueries({ queryKey: ['tables'] });
     },
     onError: (error: Error) => {
-      message.error(`Full refresh failed: ${error.message}`);
+      messageApi.error(`Full refresh failed: ${error.message}`);
     },
   });
 

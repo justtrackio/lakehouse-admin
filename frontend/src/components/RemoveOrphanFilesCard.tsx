@@ -9,11 +9,11 @@ import {
   Slider,
   Space,
   Typography,
-  message,
   Popconfirm,
 } from 'antd';
 import { removeOrphanFiles, type RemoveOrphanFilesResponse } from '../api/schema';
 import { formatNumber } from '../utils/format';
+import { useMessageApi } from './MessageProvider';
 
 const { Paragraph } = Typography;
 
@@ -24,6 +24,8 @@ interface RemoveOrphanFilesCardProps {
 export function RemoveOrphanFilesCard({ tableName }: RemoveOrphanFilesCardProps) {
   const [form] = Form.useForm();
   const [result, setResult] = useState<RemoveOrphanFilesResponse | null>(null);
+  const messageApi = useMessageApi();
+  const retentionDays = Form.useWatch('retention_days', form);
 
   const mutation = useMutation({
     mutationFn: (values: { retention_days: number }) => removeOrphanFiles(tableName, values.retention_days),
@@ -32,10 +34,10 @@ export function RemoveOrphanFilesCard({ tableName }: RemoveOrphanFilesCardProps)
     },
     onSuccess: (data) => {
       setResult(data);
-      message.success(`Successfully removed orphan files for table ${data.table}`);
+      messageApi.success(`Successfully removed orphan files for table ${data.table}`);
     },
     onError: (error: Error) => {
-      message.error(`Failed to remove orphan files: ${error.message}`);
+      messageApi.error(`Failed to remove orphan files: ${error.message}`);
     },
   });
 
@@ -63,7 +65,7 @@ export function RemoveOrphanFilesCard({ tableName }: RemoveOrphanFilesCardProps)
           <Space direction="horizontal" size="large" style={{ width: '100%' }} align="start">
             <div style={{ width: 500 }}>
               <Form.Item
-                label="Retention Period (Days)"
+                label={`Retention Period (Days): ${retentionDays}`}
                 name="retention_days"
                 rules={[
                   { required: true, message: 'Please input retention days!' },
