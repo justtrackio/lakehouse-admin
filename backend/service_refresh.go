@@ -7,9 +7,11 @@ import (
 
 	"github.com/gosoline-project/sqlc"
 	"github.com/justtrackio/gosoline/pkg/cfg"
+	"github.com/justtrackio/gosoline/pkg/coffin"
 	"github.com/justtrackio/gosoline/pkg/db"
 	"github.com/justtrackio/gosoline/pkg/funk"
 	"github.com/justtrackio/gosoline/pkg/log"
+	"golang.org/x/sync/semaphore"
 )
 
 func NewServiceRefresh(ctx context.Context, config cfg.Config, logger log.Logger) (*ServiceRefresh, error) {
@@ -59,13 +61,29 @@ func (s *ServiceRefresh) RefreshAllTables(ctx context.Context) ([]string, error)
 		return nil, fmt.Errorf("could not list tables: %w", err)
 	}
 
-	for _, table := range tables {
-		if _, err = s.RefreshTable(ctx, table); err != nil {
-			return nil, fmt.Errorf("could not refresh table %s: %w", table, err)
-		}
-	}
+	sem := semaphore.NewWeighted(10)
+	cfn, ctx := coffin.WithContext(ctx)
 
-	return tables, nil
+	cfn.GoWithContext(ctx, func(ctx context.Context) error {
+		for _, table := range tables {
+			cfn.GoWithContext(ctx, func(ctx context.Context) error {
+				if err = sem.Acquire(ctx, 1); err != nil {
+					return fmt.Errorf("could not acquire semaphore: %w", err)
+				}
+				defer sem.Release(1)
+
+				if _, err = s.RefreshTable(ctx, table); err != nil {
+					return fmt.Errorf("could not refresh table %s: %w", table, err)
+				}
+
+				return nil
+			})
+		}
+
+		return nil
+	})
+
+	return tables, cfn.Wait()
 }
 
 func (s *ServiceRefresh) RefreshTable(ctx context.Context, table string) (*TableDescription, error) {
@@ -114,7 +132,7 @@ func (s *ServiceRefresh) RefreshPartitions(ctx context.Context, table string) ([
 
 	chunks := funk.Chunk(partitions, 100)
 	for _, chunk := range chunks {
-		insert := s.sqlClient.Q().Into("partitions").Records(chunk).Replace()
+		insert := s.sqlClient.Q().Into("partitions").Records(chunk)
 
 		if _, err = insert.Exec(ctx); err != nil {
 			return nil, fmt.Errorf("could not save partitions: %w", err)
@@ -173,15 +191,29 @@ func (s *ServiceRefresh) RefreshFull(ctx context.Context) ([]string, error) {
 
 	s.logger.Info(ctx, "starting full refresh for %d tables", len(tables))
 
-	for _, table := range tables {
-		if err = s.RefreshTableFull(ctx, table); err != nil {
-			return nil, fmt.Errorf("could not refresh table %s: %w", table, err)
+	sem := semaphore.NewWeighted(10)
+	cfn, ctx := coffin.WithContext(ctx)
+
+	cfn.GoWithContext(ctx, func(ctx context.Context) error {
+		for _, table := range tables {
+			cfn.GoWithContext(ctx, func(ctx context.Context) error {
+				if err = sem.Acquire(ctx, 1); err != nil {
+					return fmt.Errorf("could not acquire semaphore: %w", err)
+				}
+				defer sem.Release(1)
+
+				if err = s.RefreshTableFull(ctx, table); err != nil {
+					return fmt.Errorf("could not refresh table %s: %w", table, err)
+				}
+
+				return nil
+			})
 		}
-	}
 
-	s.logger.Info(ctx, "completed full refresh for %d tables", len(tables))
+		return nil
+	})
 
-	return tables, nil
+	return tables, cfn.Wait()
 }
 
 func (s *ServiceRefresh) RefreshTableFull(ctx context.Context, table string) error {

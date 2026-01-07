@@ -23,11 +23,10 @@ CREATE TABLE partitions (
     file_count BIGINT NOT NULL,
     total_data_file_size_in_bytes BIGINT NOT NULL,
     last_updated_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-    last_updated_snapshot_id BIGINT NOT NULL,
-
-    partition_hash BINARY(16) AS (UNHEX(MD5(JSON_EXTRACT(`partition`, '$')))) STORED,
-    PRIMARY KEY (`table`, `partition_hash`)
+    last_updated_snapshot_id BIGINT NOT NULL
 );
+
+create index partitions_table_index on partitions (`table`);
 -- +goose StatementEnd
 
 -- +goose Down

@@ -117,7 +117,8 @@ function IndexComponent() {
 
       {isLoading && (
         <div style={{ textAlign: 'center', padding: '24px 0' }}>
-          <Spin tip="Loading tables..." />
+          <Spin size="large" />
+          <div style={{ marginTop: 8 }}>Loading tables...</div>
         </div>
       )}
 

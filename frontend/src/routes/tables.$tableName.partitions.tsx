@@ -60,7 +60,8 @@ function PartitionsPage() {
   if (isLoadingTable) {
     return (
       <div style={{ textAlign: 'center', padding: '24px 0' }}>
-        <Spin tip="Loading table information..." />
+        <Spin size="large" />
+        <div style={{ marginTop: 8 }}>Loading table information...</div>
       </div>
     );
   }
@@ -214,7 +215,8 @@ function PartitionsPage() {
 
       {isLoadingPartitions && (
         <div style={{ textAlign: 'center', padding: '24px 0' }}>
-          <Spin tip="Loading partition values..." />
+          <Spin size="large" />
+          <div style={{ marginTop: 8 }}>Loading partition values...</div>
         </div>
       )}
 

@@ -35,7 +35,8 @@ function SnapshotsPage() {
   if (isLoading) {
     return (
       <div style={{ textAlign: 'center', padding: '24px 0' }}>
-        <Spin tip="Loading snapshots..." />
+        <Spin size="large" />
+        <div style={{ marginTop: 8 }}>Loading snapshots...</div>
       </div>
     );
   }

@@ -86,7 +86,8 @@ export function ExpireSnapshotsCard({
 
         {!isReady && (
           <div style={{ textAlign: 'center', padding: '16px 0' }}>
-            <Spin tip="Loading snapshot count..." />
+            <Spin size="default" />
+            <div style={{ marginTop: 8 }}>Loading snapshot count...</div>
           </div>
         )}
 

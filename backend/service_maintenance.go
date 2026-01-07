@@ -118,7 +118,7 @@ func (s *ServiceMaintenance) RemoveOrphanFiles(ctx context.Context, table string
 	}, nil
 }
 
-func (s *ServiceMaintenance) Optimize(ctx context.Context, table string, fileSizeThresholdMb int, from DateTime, to DateTime) (*OptimizeResult, error) {
+func (s *ServiceMaintenance) Optimize(ctx context.Context, table string, fileSizeThresholdMb int, from string, to string) (*OptimizeResult, error) {
 	if fileSizeThresholdMb < 1 {
 		return nil, fmt.Errorf("file size threshold must be at least 1")
 	}
@@ -126,7 +126,19 @@ func (s *ServiceMaintenance) Optimize(ctx context.Context, table string, fileSiz
 	var err error
 	var desc *TableDescription
 	var partitionColumn string
-	var rows []map[string]any
+	var startDate, endDate time.Time
+
+	if startDate, err = time.Parse(time.DateOnly, from); err != nil {
+		return nil, fmt.Errorf("could not parse from date: %w", err)
+	}
+
+	if endDate, err = time.Parse(time.DateOnly, to); err != nil {
+		return nil, fmt.Errorf("could not parse to date: %w", err)
+	}
+
+	if startDate.After(endDate) {
+		return nil, fmt.Errorf("from date must be before or equal to to date")
+	}
 
 	if desc, err = s.metadata.GetTable(ctx, table); err != nil {
 		return nil, fmt.Errorf("could not get table metadata: %w", err)
@@ -144,24 +156,42 @@ func (s *ServiceMaintenance) Optimize(ctx context.Context, table string, fileSiz
 
 	threshold := fmt.Sprintf("%dMB", fileSizeThresholdMb)
 	qualifiedTable := qualifiedTableName("lakehouse", "main", table)
-	where := fmt.Sprintf("date(%s) >= date '%s' AND date(%s) <= date '%s'", partitionColumn, from.Format(time.DateOnly), partitionColumn, to.Format(time.DateOnly))
-	query := fmt.Sprintf("ALTER TABLE %s EXECUTE optimize(file_size_threshold => %s) WHERE %s", qualifiedTable, quoteLiteral(threshold), where)
 
-	if rows, err = s.trino.QueryRows(ctx, query); err != nil {
-		return nil, fmt.Errorf("could not optimize table %s: %w", table, err)
-	}
+	// We split the optimization into 30-day chunks to avoid hitting Trino limits
+	// regarding the number of files or transaction size.
+	current := startDate
+	finalEnd := endDate
 
+	// Metrics are not collected anymore as per requirement, but we keep the field for API compatibility
 	metrics := make(map[string]any)
-	for _, row := range rows {
-		for k, v := range row {
-			metrics[k] = v
+
+	for !current.After(finalEnd) {
+		// Calculate batch end (current + 30 days)
+		batchEnd := current.AddDate(0, 0, 30)
+		if batchEnd.After(finalEnd) {
+			batchEnd = finalEnd
 		}
+
+		batchWhere := fmt.Sprintf("date(%s) >= date '%s' AND date(%s) <= date '%s'", partitionColumn, current.Format(time.DateOnly), partitionColumn, batchEnd.Format(time.DateOnly))
+		query := fmt.Sprintf("ALTER TABLE %s EXECUTE optimize(file_size_threshold => %s) WHERE %s", qualifiedTable, quoteLiteral(threshold), batchWhere)
+
+		s.logger.Info(ctx, "optimizing table %s batch %s to %s", table, current.Format(time.DateOnly), batchEnd.Format(time.DateOnly))
+
+		if err := s.trino.Exec(ctx, query); err != nil {
+			return nil, fmt.Errorf("could not optimize table %s (batch %s): %w", table, batchWhere, err)
+		}
+
+		// Move to the next day after the current batch
+		current = batchEnd.AddDate(0, 0, 1)
 	}
+
+	// The returned "Where" field still represents the user's original request range
+	fullWhere := fmt.Sprintf("date(%s) >= date '%s' AND date(%s) <= date '%s'", partitionColumn, startDate.Format(time.DateOnly), partitionColumn, endDate.Format(time.DateOnly))
 
 	return &OptimizeResult{
 		Table:               table,
 		FileSizeThresholdMb: fileSizeThresholdMb,
-		Where:               where,
+		Where:               fullWhere,
 		Metrics:             metrics,
 		Status:              "ok",
 	}, nil
