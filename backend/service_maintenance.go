@@ -25,11 +25,10 @@ type RemoveOrphanFilesResult struct {
 }
 
 type OptimizeResult struct {
-	Table               string         `json:"table"`
-	FileSizeThresholdMb int            `json:"file_size_threshold_mb"`
-	Where               string         `json:"where"`
-	Metrics             map[string]any `json:"metrics"`
-	Status              string         `json:"status"`
+	Table               string `json:"table"`
+	FileSizeThresholdMb int    `json:"file_size_threshold_mb"`
+	Where               string `json:"where"`
+	Status              string `json:"status"`
 }
 
 func NewServiceMaintenance(ctx context.Context, config cfg.Config, logger log.Logger) (*ServiceMaintenance, error) {
@@ -118,7 +117,7 @@ func (s *ServiceMaintenance) RemoveOrphanFiles(ctx context.Context, table string
 	}, nil
 }
 
-func (s *ServiceMaintenance) Optimize(ctx context.Context, table string, fileSizeThresholdMb int, from string, to string) (*OptimizeResult, error) {
+func (s *ServiceMaintenance) Optimize(ctx context.Context, table string, fileSizeThresholdMb int, from DateTime, to DateTime) (*OptimizeResult, error) {
 	if fileSizeThresholdMb < 1 {
 		return nil, fmt.Errorf("file size threshold must be at least 1")
 	}
@@ -126,17 +125,8 @@ func (s *ServiceMaintenance) Optimize(ctx context.Context, table string, fileSiz
 	var err error
 	var desc *TableDescription
 	var partitionColumn string
-	var startDate, endDate time.Time
 
-	if startDate, err = time.Parse(time.DateOnly, from); err != nil {
-		return nil, fmt.Errorf("could not parse from date: %w", err)
-	}
-
-	if endDate, err = time.Parse(time.DateOnly, to); err != nil {
-		return nil, fmt.Errorf("could not parse to date: %w", err)
-	}
-
-	if startDate.After(endDate) {
+	if from.After(to.Time) {
 		return nil, fmt.Errorf("from date must be before or equal to to date")
 	}
 
@@ -159,17 +149,14 @@ func (s *ServiceMaintenance) Optimize(ctx context.Context, table string, fileSiz
 
 	// We split the optimization into 30-day chunks to avoid hitting Trino limits
 	// regarding the number of files or transaction size.
-	current := startDate
-	finalEnd := endDate
+	current := from.Time
+	finalEnd := to
 
-	// Metrics are not collected anymore as per requirement, but we keep the field for API compatibility
-	metrics := make(map[string]any)
-
-	for !current.After(finalEnd) {
+	for !current.After(finalEnd.Time) {
 		// Calculate batch end (current + 30 days)
 		batchEnd := current.AddDate(0, 0, 30)
-		if batchEnd.After(finalEnd) {
-			batchEnd = finalEnd
+		if batchEnd.After(finalEnd.Time) {
+			batchEnd = finalEnd.Time
 		}
 
 		batchWhere := fmt.Sprintf("date(%s) >= date '%s' AND date(%s) <= date '%s'", partitionColumn, current.Format(time.DateOnly), partitionColumn, batchEnd.Format(time.DateOnly))
@@ -186,13 +173,12 @@ func (s *ServiceMaintenance) Optimize(ctx context.Context, table string, fileSiz
 	}
 
 	// The returned "Where" field still represents the user's original request range
-	fullWhere := fmt.Sprintf("date(%s) >= date '%s' AND date(%s) <= date '%s'", partitionColumn, startDate.Format(time.DateOnly), partitionColumn, endDate.Format(time.DateOnly))
+	fullWhere := fmt.Sprintf("date(%s) >= date '%s' AND date(%s) <= date '%s'", partitionColumn, from.Format(time.DateOnly), partitionColumn, to.Format(time.DateOnly))
 
 	return &OptimizeResult{
 		Table:               table,
 		FileSizeThresholdMb: fileSizeThresholdMb,
 		Where:               fullWhere,
-		Metrics:             metrics,
 		Status:              "ok",
 	}, nil
 }

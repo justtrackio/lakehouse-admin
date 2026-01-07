@@ -14,7 +14,6 @@ import {
 } from 'antd';
 import type { Dayjs } from 'dayjs';
 import { optimizeTable, type OptimizeResponse } from '../api/schema';
-import { formatNumber } from '../utils/format';
 import { useMessageApi } from '../context/MessageContext';
 
 const { Paragraph } = Typography;
@@ -147,20 +146,6 @@ export function OptimizeCard({ tableName }: OptimizeCardProps) {
               <Descriptions.Item label="Threshold">{result.file_size_threshold_mb} MB</Descriptions.Item>
               {result.where && <Descriptions.Item label="Filter">{result.where}</Descriptions.Item>}
               <Descriptions.Item label="Status">{result.status}</Descriptions.Item>
-            </Descriptions>
-
-            <Descriptions title="Metrics" bordered size="small" column={1}>
-              {Object.keys(result.metrics || {}).length === 0 ? (
-                <Descriptions.Item label="Info">No metrics returned</Descriptions.Item>
-              ) : (
-                Object.entries(result.metrics || {})
-                  .sort(([a], [b]) => a.localeCompare(b))
-                  .map(([key, value]) => (
-                    <Descriptions.Item key={key} label={key}>
-                      {typeof value === 'number' ? formatNumber(value) : String(value)}
-                    </Descriptions.Item>
-                  ))
-              )}
             </Descriptions>
           </div>
         )}

@@ -124,7 +124,6 @@ export interface OptimizeResponse {
   table: string;
   file_size_threshold_mb: number;
   where: string;
-  metrics: Record<string, unknown>;
   status: string;
 }
 

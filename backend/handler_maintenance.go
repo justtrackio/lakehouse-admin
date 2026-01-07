@@ -24,10 +24,10 @@ type RemoveOrphanFilesInput struct {
 }
 
 type OptimizeInput struct {
-	Table               string `uri:"table"`
-	FileSizeThresholdMb int    `json:"file_size_threshold_mb"`
-	From                string `json:"from"`
-	To                  string `json:"to"`
+	Table               string   `uri:"table"`
+	FileSizeThresholdMb int      `json:"file_size_threshold_mb"`
+	From                DateTime `json:"from"`
+	To                  DateTime `json:"to"`
 }
 
 func NewHandlerMaintenance(ctx context.Context, config cfg.Config, logger log.Logger) (*HandlerMaintenance, error) {
