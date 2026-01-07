@@ -12,7 +12,7 @@ import {
   Spin,
 } from 'antd';
 import { expireSnapshots } from '../api/schema';
-import { useMessageApi } from './MessageProvider';
+import { useMessageApi } from '../context/MessageContext';
 
 const { Paragraph } = Typography;
 

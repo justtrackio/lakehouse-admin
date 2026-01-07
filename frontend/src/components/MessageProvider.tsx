@@ -1,16 +1,6 @@
-import { createContext, useContext, ReactNode } from 'react';
+import { ReactNode } from 'react';
 import { message } from 'antd';
-import type { MessageInstance } from 'antd/es/message/interface';
-
-const MessageContext = createContext<MessageInstance | null>(null);
-
-export function useMessageApi(): MessageInstance {
-  const context = useContext(MessageContext);
-  if (!context) {
-    throw new Error('useMessageApi must be used within a MessageProvider');
-  }
-  return context;
-}
+import { MessageContext } from '../context/MessageContext';
 
 interface MessageProviderProps {
   children: ReactNode;

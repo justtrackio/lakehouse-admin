@@ -102,11 +102,11 @@ function SnapshotsPage() {
       title: 'Total Data Files',
       key: 'total_data_files',
       align: 'right',
-      render: (_: any, record: SnapshotItem) => (
+      render: (_, record: SnapshotItem) => (
         <MetricWithDelta
-          total={record.summary?.['total-data-files']}
-          added={record.summary?.['added-data-files']}
-          deleted={record.summary?.['deleted-data-files']}
+          total={record.summary?.['total-data-files'] as number}
+          added={record.summary?.['added-data-files'] as number}
+          deleted={record.summary?.['deleted-data-files'] as number}
           formatter={formatNumber}
         />
       ),
@@ -116,11 +116,11 @@ function SnapshotsPage() {
       title: 'Total Records',
       key: 'total_records',
       align: 'right',
-      render: (_: any, record: SnapshotItem) => (
+      render: (_, record: SnapshotItem) => (
         <MetricWithDelta
-          total={record.summary?.['total-records']}
-          added={record.summary?.['added-records']}
-          deleted={record.summary?.['deleted-records']}
+          total={record.summary?.['total-records'] as number}
+          added={record.summary?.['added-records'] as number}
+          deleted={record.summary?.['deleted-records'] as number}
           formatter={formatNumber}
         />
       ),
@@ -130,11 +130,11 @@ function SnapshotsPage() {
       title: 'Total Data Size',
       key: 'total_data_size',
       align: 'right',
-      render: (_: any, record: SnapshotItem) => (
+      render: (_, record: SnapshotItem) => (
         <MetricWithDelta
-          total={record.summary?.['total-files-size']}
-          added={record.summary?.['added-files-size']}
-          deleted={record.summary?.['removed-files-size']}
+          total={record.summary?.['total-files-size'] as number}
+          added={record.summary?.['added-files-size'] as number}
+          deleted={record.summary?.['removed-files-size'] as number}
           formatter={formatBytes}
         />
       ),

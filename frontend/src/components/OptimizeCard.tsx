@@ -15,7 +15,7 @@ import {
 import type { Dayjs } from 'dayjs';
 import { optimizeTable, type OptimizeResponse } from '../api/schema';
 import { formatNumber } from '../utils/format';
-import { useMessageApi } from './MessageProvider';
+import { useMessageApi } from '../context/MessageContext';
 
 const { Paragraph } = Typography;
 const { RangePicker } = DatePicker;

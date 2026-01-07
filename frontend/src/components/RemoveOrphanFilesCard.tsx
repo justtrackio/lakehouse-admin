@@ -13,7 +13,7 @@ import {
 } from 'antd';
 import { removeOrphanFiles, type RemoveOrphanFilesResponse } from '../api/schema';
 import { formatNumber } from '../utils/format';
-import { useMessageApi } from './MessageProvider';
+import { useMessageApi } from '../context/MessageContext';
 
 const { Paragraph } = Typography;
 

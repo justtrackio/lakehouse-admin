@@ -4,7 +4,7 @@ import { Card, Typography, Table, Spin, Alert, Button } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { fetchTables, ListTableItem, refreshFull } from '../api/schema';
 import { formatNumber, formatBytes } from '../utils/format';
-import { useMessageApi } from '../components/MessageProvider';
+import { useMessageApi } from '../context/MessageContext';
 
 const { Title, Paragraph } = Typography;
 

@@ -72,7 +72,7 @@ export interface SnapshotItem {
   parent_id: string;
   operation: string;
   manifest_list: string;
-  summary: Record<string, any>;
+  summary: Record<string, unknown>;
 }
 
 export async function fetchSnapshots(tableName: string): Promise<SnapshotItem[]> {
@@ -104,7 +104,7 @@ export async function expireSnapshots(
 export interface RemoveOrphanFilesResponse {
   table: string;
   retention_days: number;
-  metrics: Record<string, any>;
+  metrics: Record<string, unknown>;
   status: string;
 }
 
@@ -124,7 +124,7 @@ export interface OptimizeResponse {
   table: string;
   file_size_threshold_mb: number;
   where: string;
-  metrics: Record<string, any>;
+  metrics: Record<string, unknown>;
   status: string;
 }
 
