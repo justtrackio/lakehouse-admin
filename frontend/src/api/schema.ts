@@ -152,3 +152,11 @@ export interface RefreshFullResponse {
 export async function refreshFull(): Promise<RefreshFullResponse> {
   return apiClient.get<RefreshFullResponse>('/api/refresh/full');
 }
+
+export interface RefreshTableResponse {
+  name: string;
+}
+
+export async function refreshTable(tableName: string): Promise<RefreshTableResponse> {
+  return apiClient.get<RefreshTableResponse>(`/api/refresh/table?table=${tableName}`);
+}

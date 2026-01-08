@@ -36,13 +36,12 @@ func (h *HandlerRefresh) RefreshTables(ctx context.Context) (httpserver.Response
 
 func (h *HandlerRefresh) RefreshTable(ctx context.Context, input *TableSelectInput) (httpserver.Response, error) {
 	var err error
-	var desc *TableDescription
 
-	if desc, err = h.service.RefreshTable(ctx, input.Table); err != nil {
-		return nil, fmt.Errorf("could not list snapshots: %w", err)
+	if err = h.service.RefreshTableFull(ctx, input.Table); err != nil {
+		return nil, fmt.Errorf("could not refresh table: %w", err)
 	}
 
-	return httpserver.NewJsonResponse(desc), nil
+	return httpserver.NewJsonResponse(map[string]string{"status": "ok"}), nil
 }
 
 func (h *HandlerRefresh) RefreshPartitions(ctx context.Context, input *TableSelectInput) (httpserver.Response, error) {

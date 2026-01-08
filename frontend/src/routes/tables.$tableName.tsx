@@ -1,16 +1,19 @@
 import { createFileRoute, Link, Outlet, useRouterState } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Alert,
   Breadcrumb,
+  Button,
   Card,
   Space,
   Spin,
   Tabs,
   Typography,
 } from 'antd';
-import { fetchTableDetails, TableDetails } from '../api/schema';
+import { ReloadOutlined } from '@ant-design/icons';
+import { fetchTableDetails, TableDetails, refreshTable } from '../api/schema';
 import { formatNumber, formatBytes } from '../utils/format';
+import { useMessageApi } from '../context/MessageContext';
 
 const { Title, Text } = Typography;
 
@@ -23,6 +26,8 @@ function TableLayout() {
   const navigate = Route.useNavigate();
   const routerState = useRouterState();
   const pathname = routerState.location.pathname;
+  const messageApi = useMessageApi();
+  const queryClient = useQueryClient();
 
   const {
     data: table,
@@ -32,6 +37,20 @@ function TableLayout() {
   } = useQuery<TableDetails, Error>({
     queryKey: ['table', tableName],
     queryFn: () => fetchTableDetails(tableName),
+  });
+
+  const refreshTableMutation = useMutation({
+    mutationFn: () => refreshTable(tableName),
+    onSuccess: () => {
+      messageApi.success(`Successfully refreshed table ${tableName}`);
+      queryClient.invalidateQueries({ queryKey: ['table', tableName] });
+      queryClient.invalidateQueries({ queryKey: ['partitions', tableName] });
+      queryClient.invalidateQueries({ queryKey: ['snapshots', tableName] });
+      queryClient.invalidateQueries({ queryKey: ['tables'] }); // Also update the main list
+    },
+    onError: (error: Error) => {
+      messageApi.error(`Failed to refresh table: ${error.message}`);
+    },
   });
 
   if (isLoading) {
@@ -121,9 +140,18 @@ function TableLayout() {
         <Breadcrumb items={breadcrumbItems} />
 
         <Card>
-          <Title level={3} style={{ marginBottom: 8 }}>
-            {table.name}
-          </Title>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <Title level={3} style={{ marginBottom: 8, marginTop: 0 }}>
+              {table.name}
+            </Title>
+            <Button
+              icon={<ReloadOutlined />}
+              onClick={() => refreshTableMutation.mutate()}
+              loading={refreshTableMutation.isPending}
+            >
+              Refresh Table
+            </Button>
+          </div>
           <Space direction="horizontal" size="large">
             <Text type="secondary">
               Snapshots: {formatNumber(table.snapshot_count)}

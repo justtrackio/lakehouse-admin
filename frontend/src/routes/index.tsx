@@ -106,13 +106,15 @@ function IndexComponent() {
             Below is the list of tables discovered in your lakehouse.
           </Paragraph>
         </div>
-        <Button
-          type="primary"
-          onClick={() => refreshMutation.mutate()}
-          loading={refreshMutation.isPending}
-        >
-          Full Refresh
-        </Button>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <Button
+            type="primary"
+            onClick={() => refreshMutation.mutate()}
+            loading={refreshMutation.isPending}
+          >
+            Full Refresh
+          </Button>
+        </div>
       </div>
 
       {isLoading && (
