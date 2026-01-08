@@ -1,3 +1,4 @@
 !config.dist.yml
 config.*.yml
+public/*
 /lakehouse-admin

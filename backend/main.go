@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	_ "embed"
+	"embed"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gosoline-project/httpserver"
@@ -13,6 +13,9 @@ import (
 
 //go:embed config.dist.yml
 var configDist []byte
+
+//go:embed public
+var publicFs embed.FS
 
 func main() {
 	application.New(
@@ -26,6 +29,7 @@ func main() {
 		//application.WithModuleFactory("refresh", NewModuleRefresh),
 		application.WithModuleFactory("http", httpserver.NewServer("default", func(ctx context.Context, config cfg.Config, logger log.Logger, router *httpserver.Router) error {
 			router.Use(cors.Default())
+			router.UseFactory(httpserver.CreateEmbeddedStaticServe(publicFs, "public", "/api"))
 
 			router.Group("/api/maintenance").HandleWith(httpserver.With(NewHandlerMaintenance, func(r *httpserver.Router, handler *HandlerMaintenance) {
 				r.POST("/:table/expire-snapshots", httpserver.Bind(handler.ExpireSnapshots))

@@ -46,4 +46,4 @@ sqlc:
       path: build/migrations
 
 trino:
-  dsn: https://lakehouse-admin@trino.prod-marketing.justtrack-ops.io?catalog=lakehouse&schema=main
+  dsn: https://user@host?catalog=lakehouse&schema=main
