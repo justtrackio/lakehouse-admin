@@ -12,27 +12,100 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  build:
+  # Job 1: Build frontend (architecture-independent)
+  frontend:
     runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: bun install --frozen-lockfile
+
+      - name: Build frontend
+        working-directory: frontend
+        run: bun run build
+
+      - name: Upload frontend dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          retention-days: 1
+
+  # Job 2: Build Go binaries for each architecture (cross-compilation)
+  binaries:
+    runs-on: ubuntu-latest
+    needs: frontend
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download frontend dist
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: backend/public
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache-dependency-path: backend/go.sum
+
+      - name: Build binary for ${{ matrix.arch }}
+        working-directory: backend
+        env:
+          CGO_ENABLED: "0"
+          GOOS: linux
+          GOARCH: ${{ matrix.arch }}
+        run: |
+          mkdir -p ../dist/${{ matrix.arch }}
+          go build -o ../dist/${{ matrix.arch }}/lakehouse-admin .
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: lakehouse-admin-${{ matrix.arch }}
+          path: dist/${{ matrix.arch }}/lakehouse-admin
+          retention-days: 1
+
+  # Job 3: Build and push architecture-specific Docker images
+  images:
+    runs-on: ubuntu-latest
+    needs: binaries
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
     permissions:
       contents: read
       packages: write
-      # id-token: write # required if using OIDC/cosign
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Set up QEMU for multi-platform support (arm64/amd64)
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+      - name: Download binary for ${{ matrix.arch }}
+        uses: actions/download-artifact@v4
+        with:
+          name: lakehouse-admin-${{ matrix.arch }}
+          path: dist/${{ matrix.arch }}
 
-      # Set up Docker Buildx for advanced build features
+      - name: Make binary executable
+        run: chmod +x dist/${{ matrix.arch }}/lakehouse-admin
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # Login against GHCR except on PRs
-      # https://github.com/docker/login-action
       - name: Log into registry ${{ env.REGISTRY }}
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
@@ -41,13 +114,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Extract metadata (tags, labels) for Docker
-      # https://github.com/docker/metadata-action
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # Suffix all tags with the architecture
+          flavor: |
+            suffix=-${{ matrix.arch }}
           tags: |
             type=schedule
             type=raw,value=latest,enable={{is_default_branch}}
@@ -58,17 +132,61 @@ jobs:
             type=semver,pattern={{major}}
             type=sha,format=short
 
-      # Build and push Docker image with Buildx (don't push on PR)
-      # https://github.com/docker/build-push-action
       - name: Build and push Docker image
-        id: build-and-push
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: build/Dockerfile
+          file: build/Dockerfile.release
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          platforms: linux/amd64,linux/arm64
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          platforms: linux/${{ matrix.arch }}
+          build-args: |
+            TARGETARCH=${{ matrix.arch }}
+          provenance: false
+
+  # Job 4: Create and push multi-arch manifest
+  manifest:
+    runs-on: ubuntu-latest
+    needs: images
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Log into registry ${{ env.REGISTRY }}
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=schedule
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha,format=short
+
+      - name: Create and push multi-arch manifests
+        run: |
+          # Get all tags from metadata output (newline-separated)
+          TAGS="${{ steps.meta.outputs.tags }}"
+
+          # Process each tag
+          echo "$TAGS" | while read -r TAG; do
+            if [ -n "$TAG" ]; then
+              echo "Creating manifest for: $TAG"
+              docker buildx imagetools create -t "$TAG" \
+                "${TAG}-amd64" \
+                "${TAG}-arm64"
+            fi
+          done

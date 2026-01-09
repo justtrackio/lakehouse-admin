@@ -1,0 +1,30 @@
+# Dockerfile.release - Packaging-only Dockerfile for CI multi-arch builds
+# This Dockerfile contains NO RUN commands, allowing Buildx to assemble
+# images for any target platform without QEMU emulation.
+#
+# Prerequisites (provided by CI workflow):
+#   - Pre-built lakehouse-admin binary at: dist/<arch>/lakehouse-admin
+#   - Migrations in repo at: backend/build/migrations/
+#
+# Usage:
+#   docker buildx build --platform linux/amd64 \
+#     --build-arg TARGETARCH=amd64 \
+#     -f build/Dockerfile.release .
+
+FROM gcr.io/distroless/static-debian12
+
+ARG TARGETARCH
+
+WORKDIR /app
+
+# Copy the pre-built binary for the target architecture
+COPY dist/${TARGETARCH}/lakehouse-admin ./lakehouse-admin
+
+# Copy database migrations from the repository
+COPY backend/build/migrations ./build/migrations
+
+# Expose the application port
+EXPOSE 8081
+
+# Run the binary
+ENTRYPOINT ["./lakehouse-admin"]
