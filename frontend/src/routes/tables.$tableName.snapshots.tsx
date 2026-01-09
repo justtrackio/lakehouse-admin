@@ -1,7 +1,9 @@
+import { useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import {
   Alert,
+  Button,
   Space,
   Spin,
   Table,
@@ -12,6 +14,7 @@ import type { ColumnsType } from 'antd/es/table';
 import { fetchSnapshots, SnapshotItem } from '../api/schema';
 import { formatTimestamp, formatBytes, formatNumber } from '../utils/format';
 import MetricWithDelta from "../components/MetricWithDelta";
+import SnapshotSummaryModal from "../components/SnapshotSummaryModal";
 
 const { Title, Text } = Typography;
 
@@ -21,6 +24,7 @@ export const Route = createFileRoute('/tables/$tableName/snapshots')({
 
 function SnapshotsPage() {
   const { tableName } = Route.useParams();
+  const [selectedSnapshot, setSelectedSnapshot] = useState<SnapshotItem | null>(null);
 
   const {
     data: snapshots,
@@ -141,6 +145,24 @@ function SnapshotsPage() {
       ),
       width: 180,
     },
+    {
+      title: 'Actions',
+      key: 'actions',
+      fixed: 'right',
+      width: 100,
+      render: (_, record: SnapshotItem) => {
+        const hasSummary = record.summary && Object.keys(record.summary).length > 0;
+        return (
+          <Button
+            size="small"
+            disabled={!hasSummary}
+            onClick={() => setSelectedSnapshot(record)}
+          >
+            Summary
+          </Button>
+        );
+      },
+    },
   ];
 
   return (
@@ -158,7 +180,7 @@ function SnapshotsPage() {
           message="No snapshots"
           description="No snapshot data found for this table."
         />
-      ) : (
+      )       : (
         <Table<SnapshotItem>
           rowKey={(row) => row.snapshot_id}
           columns={columns}
@@ -167,6 +189,11 @@ function SnapshotsPage() {
           scroll={{ x: 'max-content' }}
         />
       )}
+
+      <SnapshotSummaryModal
+        snapshot={selectedSnapshot}
+        onClose={() => setSelectedSnapshot(null)}
+      />
     </Space>
   );
 }
