@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-contrib/cors"
 	"github.com/gosoline-project/httpserver"
+	"github.com/gosoline-project/sqlh"
 	"github.com/justtrackio/gosoline/pkg/application"
 	"github.com/justtrackio/gosoline/pkg/cfg"
 	"github.com/justtrackio/gosoline/pkg/log"
@@ -31,10 +32,10 @@ func main() {
 			router.Use(cors.Default())
 			router.UseFactory(httpserver.CreateEmbeddedStaticServe(publicFs, "public", "/api"))
 
-			router.Group("/api/maintenance").HandleWith(httpserver.With(NewHandlerMaintenance, func(r *httpserver.Router, handler *HandlerMaintenance) {
-				r.POST("/:table/expire-snapshots", httpserver.Bind(handler.ExpireSnapshots))
-				r.POST("/:table/remove-orphan-files", httpserver.Bind(handler.RemoveOrphanFiles))
-				r.POST("/:table/optimize", httpserver.Bind(handler.Optimize))
+			router.Group("/api/maintenance").HandleWith(sqlh.WithTx(NewHandlerMaintenance, func(r *httpserver.Router, handler *HandlerMaintenance) {
+				r.POST("/:table/expire-snapshots", sqlh.BindTx(handler.ExpireSnapshots))
+				r.POST("/:table/remove-orphan-files", sqlh.BindTx(handler.RemoveOrphanFiles))
+				r.POST("/:table/optimize", sqlh.BindTx(handler.Optimize))
 			}))
 
 			router.Group("/api/metadata").HandleWith(httpserver.With(NewHandlerMetadata, func(r *httpserver.Router, handler *HandlerMetadata) {
@@ -42,12 +43,12 @@ func main() {
 				r.GET("/snapshots", httpserver.Bind(handler.ListSnapshots))
 			}))
 
-			router.Group("/api/refresh").HandleWith(httpserver.With(NewHandlerRefresh, func(r *httpserver.Router, handler *HandlerRefresh) {
-				r.GET("/tables", httpserver.BindN(handler.RefreshTables))
-				r.GET("/table", httpserver.Bind(handler.RefreshTable))
-				r.GET("/table/partitions", httpserver.Bind(handler.RefreshPartitions))
-				r.GET("/table/snapshots", httpserver.Bind(handler.RefreshSnapshots))
-				r.GET("/full", httpserver.BindN(handler.RefreshFull))
+			router.Group("/api/refresh").HandleWith(sqlh.WithTx(NewHandlerRefresh, func(r *httpserver.Router, handler *HandlerRefresh) {
+				r.GET("/tables", sqlh.BindTxN(handler.RefreshTables))
+				r.GET("/table", sqlh.BindTx(handler.RefreshTable))
+				r.GET("/table/partitions", sqlh.BindTx(handler.RefreshPartitions))
+				r.GET("/table/snapshots", sqlh.BindTx(handler.RefreshSnapshots))
+				r.GET("/full", sqlh.BindTxN(handler.RefreshFull))
 			}))
 
 			router.Group("/api/browse").HandleWith(httpserver.With(NewHandlerBrowse, func(r *httpserver.Router, handler *HandlerBrowse) {

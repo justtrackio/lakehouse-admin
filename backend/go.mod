@@ -8,11 +8,12 @@ require (
 	github.com/apache/spark-connect-go v0.1.1-0.20250826122459-0e3d565b63e6
 	github.com/aws/aws-sdk-go-v2 v1.41.0
 	github.com/gin-contrib/cors v1.6.0
-	github.com/gosoline-project/httpserver v0.1.1-0.20251112195400-921a1d555921
-	github.com/gosoline-project/sqlc v0.0.0-20260108121603-54c188b274eb
+	github.com/gosoline-project/httpserver v0.1.1-0.20260109134823-7aa2fb1e31bd
+	github.com/gosoline-project/sqlc v0.0.0-20260109132457-2b57a9f35d57
+	github.com/gosoline-project/sqlh v0.0.0-20260109135300-57679fe09319
 	github.com/jmoiron/sqlx v1.3.4
-	github.com/justtrackio/gosoline v0.54.2-0.20260108122837-37627dd31590
-	github.com/spf13/cast v1.7.1
+	github.com/justtrackio/gosoline v0.54.2
+	github.com/spf13/cast v1.10.0
 	github.com/trinodb/trino-go-client v0.330.0
 	golang.org/x/sync v0.18.0
 )
@@ -141,6 +142,7 @@ require (
 	github.com/googleapis/enterprise-certificate-proxy v0.3.6 // indirect
 	github.com/googleapis/gax-go/v2 v2.15.0 // indirect
 	github.com/gookit/color v1.5.4 // indirect
+	github.com/gosoline-project/sqlr v0.0.0-20260109134651-ae6baf770d19 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.1 // indirect
 	github.com/hamba/avro/v2 v2.30.0 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
@@ -167,6 +169,7 @@ require (
 	github.com/jessevdk/go-flags v1.6.1 // indirect
 	github.com/jinzhu/gorm v1.9.16 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
+	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/karlseguin/ccache v0.0.0-20181227155450-692cd618b264 // indirect
@@ -282,6 +285,8 @@ require (
 	google.golang.org/protobuf v1.36.9 // indirect
 	gopkg.in/tomb.v2 v2.0.0-20161208151619-d5d1b5820637 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
+	gorm.io/driver/mysql v1.6.0 // indirect
+	gorm.io/gorm v1.31.1 // indirect
 	k8s.io/api v0.35.0 // indirect
 	k8s.io/apimachinery v0.35.0 // indirect
 	k8s.io/client-go v0.35.0 // indirect

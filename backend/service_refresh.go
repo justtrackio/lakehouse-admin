@@ -53,16 +53,16 @@ func (s *ServiceRefresh) ListTables(ctx context.Context) ([]string, error) {
 	return s.iceberg.ListTables(ctx)
 }
 
-func (s *ServiceRefresh) RefreshAllTables(ctx context.Context) ([]string, error) {
+func (s *ServiceRefresh) RefreshAllTables(cttx sqlc.Tx) ([]string, error) {
 	var err error
 	var tables []string
 
-	if tables, err = s.iceberg.ListTables(ctx); err != nil {
+	if tables, err = s.iceberg.ListTables(cttx); err != nil {
 		return nil, fmt.Errorf("could not list tables: %w", err)
 	}
 
 	sem := semaphore.NewWeighted(10)
-	cfn, ctx := coffin.WithContext(ctx)
+	cfn, ctx := coffin.WithContext(cttx)
 
 	cfn.GoWithContext(ctx, func(ctx context.Context) error {
 		for _, table := range tables {
@@ -72,7 +72,8 @@ func (s *ServiceRefresh) RefreshAllTables(ctx context.Context) ([]string, error)
 				}
 				defer sem.Release(1)
 
-				if _, err = s.RefreshTable(ctx, table); err != nil {
+				cttx = cttx.WithContext(ctx)
+				if _, err = s.RefreshTable(cttx, table); err != nil {
 					return fmt.Errorf("could not refresh table %s: %w", table, err)
 				}
 
@@ -86,33 +87,33 @@ func (s *ServiceRefresh) RefreshAllTables(ctx context.Context) ([]string, error)
 	return tables, cfn.Wait()
 }
 
-func (s *ServiceRefresh) RefreshTable(ctx context.Context, table string) (*TableDescription, error) {
+func (s *ServiceRefresh) RefreshTable(cttx sqlc.Tx, table string) (*TableDescription, error) {
 	var err error
 	var desc *TableDescription
 
-	if desc, err = s.iceberg.DescribeTable(ctx, table); err != nil {
+	if desc, err = s.iceberg.DescribeTable(cttx, table); err != nil {
 		return nil, fmt.Errorf("could not describe table: %w", err)
 	}
 
-	insert := s.sqlClient.Q().Into("tables").Records(desc).Replace()
-	if _, err = insert.Exec(ctx); err != nil {
+	insert := cttx.Q().Into("tables").Records(desc).Replace()
+	if _, err = insert.Exec(cttx); err != nil {
 		return nil, fmt.Errorf("could not save table description: %w", err)
 	}
 
-	s.logger.Info(ctx, "refreshed table %s", table)
+	s.logger.Info(cttx, "refreshed table %s", table)
 
 	return desc, nil
 }
 
-func (s *ServiceRefresh) RefreshPartitions(ctx context.Context, table string) ([]Partition, error) {
+func (s *ServiceRefresh) RefreshPartitions(cttx sqlc.Tx, table string) ([]Partition, error) {
 	var err error
 	var result []IcebergPartition
 
-	if _, err = s.sqlClient.Q().Delete("partitions").Where(sqlc.Eq{"table": table}).Exec(ctx); err != nil {
+	if _, err = cttx.Q().Delete("partitions").Where(sqlc.Eq{"table": table}).Exec(cttx); err != nil {
 		return nil, fmt.Errorf("could not delete existing partitions: %w", err)
 	}
 
-	if result, err = s.iceberg.ListPartitions(ctx, table); err != nil {
+	if result, err = s.iceberg.ListPartitions(cttx, table); err != nil {
 		return nil, fmt.Errorf("could not list partitions: %w", err)
 	}
 
@@ -132,27 +133,27 @@ func (s *ServiceRefresh) RefreshPartitions(ctx context.Context, table string) ([
 
 	chunks := funk.Chunk(partitions, 100)
 	for _, chunk := range chunks {
-		insert := s.sqlClient.Q().Into("partitions").Records(chunk)
+		insert := cttx.Q().Into("partitions").Records(chunk)
 
-		if _, err = insert.Exec(ctx); err != nil {
+		if _, err = insert.Exec(cttx); err != nil {
 			return nil, fmt.Errorf("could not save partitions: %w", err)
 		}
 	}
 
-	s.logger.Info(ctx, "refreshed %d partitions for table %s", len(partitions), table)
+	s.logger.Info(cttx, "refreshed %d partitions for table %s", len(partitions), table)
 
 	return partitions, nil
 }
 
-func (s *ServiceRefresh) RefreshSnapshots(ctx context.Context, table string) ([]Snapshot, error) {
+func (s *ServiceRefresh) RefreshSnapshots(cttx sqlc.Tx, table string) ([]Snapshot, error) {
 	var err error
 	var result []IcebergSnapshot
 
-	if _, err = s.sqlClient.Q().Delete("snapshots").Where(sqlc.Eq{"table": table}).Exec(ctx); err != nil {
+	if _, err = cttx.Q().Delete("snapshots").Where(sqlc.Eq{"table": table}).Exec(cttx); err != nil {
 		return nil, fmt.Errorf("could not delete existing snapshots: %w", err)
 	}
 
-	if result, err = s.iceberg.ListSnapshots(ctx, table); err != nil {
+	if result, err = s.iceberg.ListSnapshots(cttx, table); err != nil {
 		return nil, fmt.Errorf("could not list snapshots: %w", err)
 	}
 
@@ -169,67 +170,51 @@ func (s *ServiceRefresh) RefreshSnapshots(ctx context.Context, table string) ([]
 
 	chunks := funk.Chunk(snapshots, 100)
 	for _, chunk := range chunks {
-		insert := s.sqlClient.Q().Into("snapshots").Replace().Records(chunk)
+		insert := cttx.Q().Into("snapshots").Replace().Records(chunk)
 
-		if _, err = insert.Exec(ctx); err != nil {
+		if _, err = insert.Exec(cttx); err != nil {
 			return nil, fmt.Errorf("could not save snapshots: %w", err)
 		}
 	}
 
-	s.logger.Info(ctx, "refreshed %d snapshots for table %s", len(snapshots), table)
+	s.logger.Info(cttx, "refreshed %d snapshots for table %s", len(snapshots), table)
 
 	return snapshots, nil
 }
 
-func (s *ServiceRefresh) RefreshFull(ctx context.Context) ([]string, error) {
+func (s *ServiceRefresh) RefreshFull(cttx sqlc.Tx) ([]string, error) {
 	var err error
 	var tables []string
 
-	if tables, err = s.iceberg.ListTables(ctx); err != nil {
+	if tables, err = s.iceberg.ListTables(cttx); err != nil {
 		return nil, fmt.Errorf("could not list tables: %w", err)
 	}
 
-	s.logger.Info(ctx, "starting full refresh for %d tables", len(tables))
+	s.logger.Info(cttx, "starting full refresh for %d tables", len(tables))
 
-	sem := semaphore.NewWeighted(10)
-	cfn, ctx := coffin.WithContext(ctx)
-
-	cfn.GoWithContext(ctx, func(ctx context.Context) error {
-		for _, table := range tables {
-			cfn.GoWithContext(ctx, func(ctx context.Context) error {
-				if err = sem.Acquire(ctx, 1); err != nil {
-					return fmt.Errorf("could not acquire semaphore: %w", err)
-				}
-				defer sem.Release(1)
-
-				if err = s.RefreshTableFull(ctx, table); err != nil {
-					return fmt.Errorf("could not refresh table %s: %w", table, err)
-				}
-
-				return nil
-			})
+	for _, table := range tables {
+		if err = s.RefreshTableFull(cttx, table); err != nil {
+			return nil, fmt.Errorf("could not refresh table %s: %w", table, err)
 		}
+	}
 
-		return nil
-	})
-
-	return tables, cfn.Wait()
+	return tables, nil
 }
 
-func (s *ServiceRefresh) RefreshTableFull(ctx context.Context, table string) error {
+func (s *ServiceRefresh) RefreshTableFull(cttx sqlc.Tx, table string) error {
 	var err error
 
-	s.logger.Info(ctx, "refreshing table %s", table)
+	s.logger.Info(cttx, "refreshing table %s", table)
 
-	if _, err = s.RefreshTable(ctx, table); err != nil {
+	if _, err = s.RefreshTable(cttx, table); err != nil {
 		return fmt.Errorf("could not refresh table %s: %w", table, err)
 	}
 
-	if _, err = s.RefreshPartitions(ctx, table); err != nil {
+	if _, err = s.RefreshPartitions(cttx, table); err != nil {
 		return fmt.Errorf("could not refresh partitions for table %s: %w", table, err)
 	}
 
-	if _, err = s.RefreshSnapshots(ctx, table); err != nil {
+	if _, err = s.RefreshSnapshots(cttx, table); err != nil {
 		return fmt.Errorf("could not refresh snapshots for table %s: %w", table, err)
 	}
 

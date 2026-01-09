@@ -34,9 +34,9 @@ func (s *ServiceMetadata) GetTableSummary(ctx context.Context, desc TableDescrip
 
 	sel := s.sqlClient.Q().From("partitions").As("p").
 		Column(sqlc.Col("*").Count().As("partition_count")).
-		Column(sqlc.Col("p.file_count").Sum().As("file_count")).
-		Column(sqlc.Col("p.record_count").Sum().As("record_count")).
-		Column(sqlc.Col("p.total_data_file_size_in_bytes").Sum().As("total_data_file_size_in_bytes")).
+		Column(sqlc.Coalesce(sqlc.Col("p.file_count").Sum(), 0).As("file_count")).
+		Column(sqlc.Coalesce(sqlc.Col("p.record_count").Sum(), 0).As("record_count")).
+		Column(sqlc.Coalesce(sqlc.Col("p.total_data_file_size_in_bytes").Sum(), 0).As("total_data_file_size_in_bytes")).
 		Where(sqlc.Col("p.table").Eq(desc.Name))
 
 	if err := sel.Get(ctx, summary); err != nil {

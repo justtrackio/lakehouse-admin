@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/gosoline-project/httpserver"
+	"github.com/gosoline-project/sqlc"
 	"github.com/justtrackio/gosoline/pkg/cfg"
 	"github.com/justtrackio/gosoline/pkg/log"
 )
@@ -26,48 +27,48 @@ type HandlerRefresh struct {
 	service *ServiceRefresh
 }
 
-func (h *HandlerRefresh) RefreshTables(ctx context.Context) (httpserver.Response, error) {
-	if _, err := h.service.RefreshAllTables(ctx); err != nil {
+func (h *HandlerRefresh) RefreshTables(cttx sqlc.Tx) (httpserver.Response, error) {
+	if _, err := h.service.RefreshAllTables(cttx); err != nil {
 		return nil, fmt.Errorf("could not refresh all tables: %w", err)
 	}
 
 	return httpserver.NewJsonResponse(map[string]string{"status": "ok"}), nil
 }
 
-func (h *HandlerRefresh) RefreshTable(ctx context.Context, input *TableSelectInput) (httpserver.Response, error) {
+func (h *HandlerRefresh) RefreshTable(cttx sqlc.Tx, input *TableSelectInput) (httpserver.Response, error) {
 	var err error
 
-	if err = h.service.RefreshTableFull(ctx, input.Table); err != nil {
+	if err = h.service.RefreshTableFull(cttx, input.Table); err != nil {
 		return nil, fmt.Errorf("could not refresh table: %w", err)
 	}
 
 	return httpserver.NewJsonResponse(map[string]string{"status": "ok"}), nil
 }
 
-func (h *HandlerRefresh) RefreshPartitions(ctx context.Context, input *TableSelectInput) (httpserver.Response, error) {
+func (h *HandlerRefresh) RefreshPartitions(cttx sqlc.Tx, input *TableSelectInput) (httpserver.Response, error) {
 	var err error
 	var partitions []Partition
 
-	if partitions, err = h.service.RefreshPartitions(ctx, input.Table); err != nil {
+	if partitions, err = h.service.RefreshPartitions(cttx, input.Table); err != nil {
 		return nil, fmt.Errorf("could not list snapshots: %w", err)
 	}
 
 	return httpserver.NewJsonResponse(partitions), nil
 }
 
-func (h *HandlerRefresh) RefreshSnapshots(ctx context.Context, input *TableSelectInput) (httpserver.Response, error) {
+func (h *HandlerRefresh) RefreshSnapshots(cttx sqlc.Tx, input *TableSelectInput) (httpserver.Response, error) {
 	var err error
 	var snapshots []Snapshot
 
-	if snapshots, err = h.service.RefreshSnapshots(ctx, input.Table); err != nil {
+	if snapshots, err = h.service.RefreshSnapshots(cttx, input.Table); err != nil {
 		return nil, fmt.Errorf("could not refresh snapshots: %w", err)
 	}
 
 	return httpserver.NewJsonResponse(snapshots), nil
 }
 
-func (h *HandlerRefresh) RefreshFull(ctx context.Context) (httpserver.Response, error) {
-	if _, err := h.service.RefreshFull(ctx); err != nil {
+func (h *HandlerRefresh) RefreshFull(cttx sqlc.Tx) (httpserver.Response, error) {
+	if _, err := h.service.RefreshFull(cttx); err != nil {
 		return nil, fmt.Errorf("could not complete full refresh: %w", err)
 	}
 
