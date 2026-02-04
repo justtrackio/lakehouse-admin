@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Alert,
   Button,
@@ -25,6 +25,7 @@ interface OptimizeCardProps {
 }
 
 export function OptimizeCard({ tableName }: OptimizeCardProps) {
+  const queryClient = useQueryClient();
   const [form] = Form.useForm();
   const [result, setResult] = useState<OptimizeResponse | null>(null);
   const messageApi = useMessageApi();
@@ -52,6 +53,7 @@ export function OptimizeCard({ tableName }: OptimizeCardProps) {
     onSuccess: (data) => {
       setResult(data);
       messageApi.success(`Successfully optimized table ${data.table}`);
+      queryClient.invalidateQueries({ queryKey: ['maintenanceHistory', tableName] });
     },
     onError: (error: Error) => {
       messageApi.error(`Failed to optimize table: ${error.message}`);

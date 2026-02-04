@@ -4,6 +4,7 @@ import { Space } from 'antd';
 import { ExpireSnapshotsCard } from '../components/ExpireSnapshotsCard';
 import { RemoveOrphanFilesCard } from '../components/RemoveOrphanFilesCard';
 import { OptimizeCard } from '../components/OptimizeCard';
+import { MaintenanceHistoryTable } from '../components/MaintenanceHistoryTable';
 import { fetchTableDetails } from '../api/schema';
 
 export const Route = createFileRoute('/tables/$tableName/maintenance')({
@@ -20,6 +21,7 @@ function MaintenancePage() {
 
   return (
     <Space direction="vertical" style={{ width: '100%' }} size="large">
+      <MaintenanceHistoryTable tableName={tableName} />
       <ExpireSnapshotsCard
         tableName={tableName}
         snapshotCount={tableDetails?.snapshot_count}

@@ -38,6 +38,7 @@ export interface TableDetails {
   file_count: number;
   record_count: number;
   total_data_file_size_in_bytes: number;
+  updated_at: string;
 }
 
 export async function fetchTableDetails(tableName: string): Promise<TableDetails> {
@@ -159,4 +160,36 @@ export interface RefreshTableResponse {
 
 export async function refreshTable(tableName: string): Promise<RefreshTableResponse> {
   return apiClient.get<RefreshTableResponse>(`/api/refresh/table?table=${tableName}`);
+}
+
+export interface MaintenanceHistoryEntry {
+  id: number;
+  table: string;
+  kind: string;
+  status: string;
+  started_at: string;
+  finished_at: string | null;
+  error_message: string | null;
+  input: Record<string, unknown>;
+  result: Record<string, unknown>;
+}
+
+export interface PaginatedMaintenanceHistory {
+  items: MaintenanceHistoryEntry[];
+  total: number;
+}
+
+export async function fetchMaintenanceHistory(
+  tableName?: string,
+  limit: number = 20,
+  offset: number = 0,
+): Promise<PaginatedMaintenanceHistory> {
+  const params = new URLSearchParams();
+  if (tableName) {
+    params.append('table', tableName);
+  }
+  params.append('limit', limit.toString());
+  params.append('offset', offset.toString());
+
+  return apiClient.get<PaginatedMaintenanceHistory>(`/api/maintenance/history?${params.toString()}`);
 }

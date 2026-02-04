@@ -32,6 +32,12 @@ type OptimizeInput struct {
 	BatchSize           string   `json:"batch_size"`
 }
 
+type ListHistoryInput struct {
+	Table  string `form:"table"`
+	Limit  int    `form:"limit"`
+	Offset int    `form:"offset"`
+}
+
 func NewHandlerMaintenance(ctx context.Context, config cfg.Config, logger log.Logger) (*HandlerMaintenance, error) {
 	var err error
 	var serviceMaintenance *ServiceMaintenance
@@ -83,6 +89,23 @@ func (h *HandlerMaintenance) ExpireSnapshots(cttx sqlc.Tx, input *ExpireSnapshot
 	return httpserver.NewJsonResponse(result), nil
 }
 
+func (h *HandlerMaintenance) RemoveOrphanFiles(cttx sqlc.Tx, input *RemoveOrphanFilesInput) (httpserver.Response, error) {
+	var err error
+	var result *RemoveOrphanFilesResult
+
+	// Handle retention days logic
+	retentionDays := input.RetentionDays
+	if retentionDays < minRetentionDays {
+		retentionDays = minRetentionDays
+	}
+
+	if result, err = h.serviceMaintenance.RemoveOrphanFiles(cttx, input.Table, retentionDays); err != nil {
+		return nil, fmt.Errorf("could not remove orphan files: %w", err)
+	}
+
+	return httpserver.NewJsonResponse(result), nil
+}
+
 func (h *HandlerMaintenance) Optimize(cttx sqlc.Tx, input *OptimizeInput) (httpserver.Response, error) {
 	var err error
 	var result *OptimizeResult
@@ -110,18 +133,22 @@ func (h *HandlerMaintenance) Optimize(cttx sqlc.Tx, input *OptimizeInput) (https
 	return httpserver.NewJsonResponse(result), nil
 }
 
-func (h *HandlerMaintenance) RemoveOrphanFiles(cttx sqlc.Tx, input *RemoveOrphanFilesInput) (httpserver.Response, error) {
+func (h *HandlerMaintenance) ListHistory(cttx sqlc.Tx, input *ListHistoryInput) (httpserver.Response, error) {
 	var err error
-	var result *RemoveOrphanFilesResult
+	var result *PaginatedMaintenanceHistory
 
-	// Handle retention days logic
-	retentionDays := input.RetentionDays
-	if retentionDays < minRetentionDays {
-		retentionDays = minRetentionDays
+	limit := input.Limit
+	if limit <= 0 {
+		limit = 20
 	}
 
-	if result, err = h.serviceMaintenance.RemoveOrphanFiles(cttx, input.Table, retentionDays); err != nil {
-		return nil, fmt.Errorf("could not remove orphan files: %w", err)
+	offset := input.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
+	if result, err = h.serviceMaintenance.ListHistory(cttx, input.Table, limit, offset); err != nil {
+		return nil, fmt.Errorf("could not list history: %w", err)
 	}
 
 	return httpserver.NewJsonResponse(result), nil

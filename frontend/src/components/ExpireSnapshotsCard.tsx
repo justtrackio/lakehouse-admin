@@ -40,6 +40,7 @@ export function ExpireSnapshotsCard({
       messageApi.success(`Successfully expired snapshots for table ${data.table}`);
       queryClient.invalidateQueries({ queryKey: ['table', tableName] });
       queryClient.invalidateQueries({ queryKey: ['snapshots', tableName] });
+      queryClient.invalidateQueries({ queryKey: ['maintenanceHistory', tableName] });
     },
     onError: (error: Error) => {
       messageApi.error(`Failed to expire snapshots: ${error.message}`);

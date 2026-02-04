@@ -26,6 +26,10 @@ function RootComponent() {
                 key: 'home',
                 label: <Link to="/">Home</Link>,
               },
+              {
+                key: 'history',
+                label: <Link to="/maintenance/history">History</Link>,
+              },
             ]}
           />
         </Header>

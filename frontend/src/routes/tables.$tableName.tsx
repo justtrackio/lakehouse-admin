@@ -12,7 +12,7 @@ import {
 } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import { fetchTableDetails, TableDetails, refreshTable } from '../api/schema';
-import { formatNumber, formatBytes } from '../utils/format';
+import { formatNumber, formatBytes, formatDateTime } from '../utils/format';
 import { useMessageApi } from '../context/MessageContext';
 
 const { Title, Text } = Typography;
@@ -144,13 +144,18 @@ function TableLayout() {
             <Title level={3} style={{ marginBottom: 8, marginTop: 0 }}>
               {table.name}
             </Title>
-            <Button
-              icon={<ReloadOutlined />}
-              onClick={() => refreshTableMutation.mutate()}
-              loading={refreshTableMutation.isPending}
-            >
-              Refresh Table
-            </Button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+              <Text type="secondary" style={{ fontSize: '14px' }}>
+                Last refreshed: {table.updated_at ? formatDateTime(table.updated_at) : '-'}
+              </Text>
+              <Button
+                icon={<ReloadOutlined />}
+                onClick={() => refreshTableMutation.mutate()}
+                loading={refreshTableMutation.isPending}
+              >
+                Refresh Table
+              </Button>
+            </div>
           </div>
           <Space direction="horizontal" size="large">
             <Text type="secondary">

@@ -188,6 +188,15 @@ function PartitionsPage() {
       render: (value: number) => formatNumber(value),
     },
     {
+      title: 'Avg File Size',
+      key: 'avg_file_size',
+      align: 'right',
+      render: (_, record) => {
+        if (record.file_count === 0) return '-';
+        return formatBytes(record.total_data_file_size_in_bytes / record.file_count);
+      },
+    },
+    {
       title: 'Total Size',
       dataIndex: 'total_data_file_size_in_bytes',
       key: 'total_data_file_size_in_bytes',

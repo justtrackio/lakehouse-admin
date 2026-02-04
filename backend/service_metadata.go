@@ -30,6 +30,7 @@ func (s *ServiceMetadata) GetTableSummary(ctx context.Context, desc TableDescrip
 	summary := &TableSummary{
 		Name:       desc.Name,
 		Partitions: desc.Partitions.Get(),
+		UpdatedAt:  desc.UpdatedAt,
 	}
 
 	sel := s.sqlClient.Q().From("partitions").As("p").

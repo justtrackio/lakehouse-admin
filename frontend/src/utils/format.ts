@@ -35,3 +35,13 @@ export function formatTimestamp(timestamp: string): string {
   const date = new Date(timestamp);
   return date.toISOString();
 }
+
+/**
+ * Formats an ISO timestamp into a human-readable date time string.
+ * @param timestamp - ISO 8601 timestamp string
+ * @returns Formatted date time string (e.g., "2026-02-04 19:07:55")
+ */
+export function formatDateTime(timestamp: string): string {
+  const date = new Date(timestamp);
+  return date.toISOString().replace('T', ' ').replace(/\.\d+Z$/, '');
+}

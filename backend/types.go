@@ -79,4 +79,34 @@ type TableSummary struct {
 	FileCount                int64            `json:"file_count" db:"file_count"`
 	RecordCount              int64            `json:"record_count" db:"record_count"`
 	TotalDataFileSizeInBytes int64            `json:"total_data_file_size_in_bytes" db:"total_data_file_size_in_bytes"`
+	UpdatedAt                time.Time        `json:"updated_at" db:"updated_at"`
+}
+
+type MaintenanceHistory struct {
+	Id           int64                                   `json:"id" db:"id"`
+	Table        string                                  `json:"table" db:"table"`
+	Kind         string                                  `json:"kind" db:"kind"`
+	StartedAt    time.Time                               `json:"started_at" db:"started_at"`
+	FinishedAt   *time.Time                              `json:"finished_at" db:"finished_at"`
+	Status       string                                  `json:"status" db:"status"`
+	ErrorMessage *string                                 `json:"error_message" db:"error_message"`
+	Input        db.JSON[map[string]any, db.NonNullable] `json:"input" db:"input"`
+	Result       db.JSON[map[string]any, db.NonNullable] `json:"result" db:"result"`
+}
+
+type sMaintenanceHistory struct {
+	Id           int64          `json:"id" db:"id"`
+	Table        string         `json:"table" db:"table"`
+	Kind         string         `json:"kind" db:"kind"`
+	StartedAt    time.Time      `json:"started_at" db:"started_at"`
+	FinishedAt   *time.Time     `json:"finished_at" db:"finished_at"`
+	Status       string         `json:"status" db:"status"`
+	ErrorMessage *string        `json:"error_message" db:"error_message"`
+	Input        map[string]any `json:"input" db:"input"`
+	Result       map[string]any `json:"result" db:"result"`
+}
+
+type PaginatedMaintenanceHistory struct {
+	Items []sMaintenanceHistory `json:"items"`
+	Total int64                 `json:"total"`
 }

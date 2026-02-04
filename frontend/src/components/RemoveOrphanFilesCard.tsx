@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Alert,
   Button,
@@ -22,6 +22,7 @@ interface RemoveOrphanFilesCardProps {
 }
 
 export function RemoveOrphanFilesCard({ tableName }: RemoveOrphanFilesCardProps) {
+  const queryClient = useQueryClient();
   const [form] = Form.useForm();
   const [result, setResult] = useState<RemoveOrphanFilesResponse | null>(null);
   const messageApi = useMessageApi();
@@ -35,6 +36,7 @@ export function RemoveOrphanFilesCard({ tableName }: RemoveOrphanFilesCardProps)
     onSuccess: (data) => {
       setResult(data);
       messageApi.success(`Successfully removed orphan files for table ${data.table}`);
+      queryClient.invalidateQueries({ queryKey: ['maintenanceHistory', tableName] });
     },
     onError: (error: Error) => {
       messageApi.error(`Failed to remove orphan files: ${error.message}`);
