@@ -2,6 +2,7 @@ import { Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Table, Tag, Typography, Modal, Button, Tooltip } from 'antd';
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table';
+import { FilterValue } from 'antd/es/table/interface';
 import { useState } from 'react';
 import { MaintenanceTask, fetchMaintenanceTasks } from '../api/schema';
 
@@ -21,19 +22,41 @@ export function MaintenanceTasksTable({ tableName }: MaintenanceTasksTableProps)
     pageSize: 10,
   });
 
+  const [selectedKinds, setSelectedKinds] = useState<string[]>([]);
+  const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
+
   const { data, isLoading, isError, error } = useQuery({
-    queryKey: ['maintenanceTasks', tableName, pagination.current, pagination.pageSize],
+    queryKey: ['maintenanceTasks', tableName, pagination.current, pagination.pageSize, selectedKinds, selectedStatuses],
     queryFn: () =>
       fetchMaintenanceTasks(
         tableName,
         pagination.pageSize || 10,
         ((pagination.current || 1) - 1) * (pagination.pageSize || 10),
+        selectedKinds,
+        selectedStatuses,
       ),
     refetchInterval: 5000,
   });
 
-  const handleTableChange = (newPagination: TablePaginationConfig) => {
-    setPagination(newPagination);
+  const handleTableChange = (
+    newPagination: TablePaginationConfig,
+    filters: Record<string, FilterValue | null>,
+  ) => {
+    
+    // Handle filters
+    const newKinds = (filters.kind as string[]) || [];
+    const newStatuses = (filters.status as string[]) || [];
+    
+    const kindsChanged = JSON.stringify(newKinds.sort()) !== JSON.stringify(selectedKinds.sort());
+    const statusesChanged = JSON.stringify(newStatuses.sort()) !== JSON.stringify(selectedStatuses.sort());
+
+    if (kindsChanged || statusesChanged) {
+        setSelectedKinds(newKinds);
+        setSelectedStatuses(newStatuses);
+        setPagination({ ...newPagination, current: 1 });
+    } else {
+        setPagination(newPagination);
+    }
   };
 
   const showDetails = (title: string, content: string | Record<string, unknown>) => {
@@ -59,6 +82,12 @@ export function MaintenanceTasksTable({ tableName }: MaintenanceTasksTableProps)
       dataIndex: 'kind',
       key: 'kind',
       render: (kind: string) => <Tag color="blue">{kind}</Tag>,
+      filters: [
+        { text: 'Optimize', value: 'optimize' },
+        { text: 'Expire Snapshots', value: 'expire_snapshots' },
+        { text: 'Remove Orphan Files', value: 'remove_orphan_files' },
+      ],
+      filteredValue: selectedKinds,
     },
     {
       title: 'Status',
@@ -87,6 +116,13 @@ export function MaintenanceTasksTable({ tableName }: MaintenanceTasksTableProps)
            </div>
         );
       },
+      filters: [
+        { text: 'Queued', value: 'queued' },
+        { text: 'Running', value: 'running' },
+        { text: 'Success', value: 'success' },
+        { text: 'Error', value: 'error' },
+      ],
+      filteredValue: selectedStatuses,
     },
     {
       title: 'Queued At',

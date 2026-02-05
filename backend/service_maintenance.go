@@ -215,12 +215,22 @@ func (s *ServiceMaintenance) CompleteTask(ctx context.Context, id int64, result 
 	return nil
 }
 
-func (s *ServiceMaintenance) ListTasks(ctx context.Context, table string, limit int, offset int) (*PaginatedMaintenanceTask, error) {
+func (s *ServiceMaintenance) ListTasks(ctx context.Context, table string, kinds []string, statuses []string, limit int, offset int) (*PaginatedMaintenanceTask, error) {
+	var err error
 	var result []MaintenanceTask
 	var count struct {
 		Total int64 `db:"total"`
 	}
-	var err error
+
+	kindsAny := make([]any, len(kinds))
+	for i, k := range kinds {
+		kindsAny[i] = k
+	}
+	statusesAny := make([]any, len(statuses))
+	for i, st := range statuses {
+		statusesAny[i] = st
+	}
+
 
 	if limit <= 0 {
 		limit = 20
@@ -235,6 +245,12 @@ func (s *ServiceMaintenance) ListTasks(ctx context.Context, table string, limit 
 	if table != "" {
 		cnt = cnt.Where(sqlc.Eq{"table": table})
 	}
+	if len(kindsAny) > 0 {
+		cnt = cnt.Where(sqlc.Col("kind").In(kindsAny...))
+	}
+	if len(statusesAny) > 0 {
+		cnt = cnt.Where(sqlc.Col("status").In(statusesAny...))
+	}
 
 	if err = cnt.Get(ctx, &count); err != nil {
 		return nil, fmt.Errorf("could not get maintenance task count: %w", err)
@@ -245,6 +261,12 @@ func (s *ServiceMaintenance) ListTasks(ctx context.Context, table string, limit 
 
 	if table != "" {
 		sel = sel.Where(sqlc.Eq{"table": table})
+	}
+	if len(kindsAny) > 0 {
+		sel = sel.Where(sqlc.Col("kind").In(kindsAny...))
+	}
+	if len(statusesAny) > 0 {
+		sel = sel.Where(sqlc.Col("status").In(statusesAny...))
 	}
 
 	sel = sel.Limit(limit).Offset(offset)

@@ -29,9 +29,11 @@ type OptimizeInput struct {
 }
 
 type ListTasksInput struct {
-	Table  string `form:"table"`
-	Limit  int    `form:"limit"`
-	Offset int    `form:"offset"`
+	Table  string   `form:"table"`
+	Kind   []string `form:"kind"`
+	Status []string `form:"status"`
+	Limit  int      `form:"limit"`
+	Offset int      `form:"offset"`
 }
 
 type TaskQueuedResponse struct {
@@ -107,7 +109,7 @@ func (h *HandlerMaintenance) ListTasks(cttx sqlc.Tx, input *ListTasksInput) (htt
 	var err error
 	var result *PaginatedMaintenanceTask
 
-	if result, err = h.serviceMaintenance.ListTasks(cttx, input.Table, input.Limit, input.Offset); err != nil {
+	if result, err = h.serviceMaintenance.ListTasks(cttx, input.Table, input.Kind, input.Status, input.Limit, input.Offset); err != nil {
 		return nil, fmt.Errorf("could not list tasks: %w", err)
 	}
 

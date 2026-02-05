@@ -170,10 +170,18 @@ export async function fetchMaintenanceTasks(
   tableName?: string,
   limit: number = 20,
   offset: number = 0,
+  kinds?: string[],
+  statuses?: string[],
 ): Promise<PaginatedMaintenanceTask> {
   const params = new URLSearchParams();
   if (tableName) {
     params.append('table', tableName);
+  }
+  if (kinds) {
+    kinds.forEach((k) => params.append('kind', k));
+  }
+  if (statuses) {
+    statuses.forEach((s) => params.append('status', s));
   }
   params.append('limit', limit.toString());
   params.append('offset', offset.toString());
