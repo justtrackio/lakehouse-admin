@@ -82,11 +82,12 @@ type TableSummary struct {
 	UpdatedAt                time.Time        `json:"updated_at" db:"updated_at"`
 }
 
-type MaintenanceHistory struct {
+type MaintenanceTask struct {
 	Id           int64                                   `json:"id" db:"id"`
 	Table        string                                  `json:"table" db:"table"`
 	Kind         string                                  `json:"kind" db:"kind"`
 	StartedAt    time.Time                               `json:"started_at" db:"started_at"`
+	PickedUpAt   *time.Time                              `json:"picked_up_at" db:"picked_up_at"`
 	FinishedAt   *time.Time                              `json:"finished_at" db:"finished_at"`
 	Status       string                                  `json:"status" db:"status"`
 	ErrorMessage *string                                 `json:"error_message" db:"error_message"`
@@ -94,11 +95,12 @@ type MaintenanceHistory struct {
 	Result       db.JSON[map[string]any, db.NonNullable] `json:"result" db:"result"`
 }
 
-type sMaintenanceHistory struct {
+type sMaintenanceTask struct {
 	Id           int64          `json:"id" db:"id"`
 	Table        string         `json:"table" db:"table"`
 	Kind         string         `json:"kind" db:"kind"`
 	StartedAt    time.Time      `json:"started_at" db:"started_at"`
+	PickedUpAt   *time.Time     `json:"picked_up_at" db:"picked_up_at"`
 	FinishedAt   *time.Time     `json:"finished_at" db:"finished_at"`
 	Status       string         `json:"status" db:"status"`
 	ErrorMessage *string        `json:"error_message" db:"error_message"`
@@ -106,7 +108,7 @@ type sMaintenanceHistory struct {
 	Result       map[string]any `json:"result" db:"result"`
 }
 
-type PaginatedMaintenanceHistory struct {
-	Items []sMaintenanceHistory `json:"items"`
-	Total int64                 `json:"total"`
+type PaginatedMaintenanceTask struct {
+	Items []sMaintenanceTask `json:"items"`
+	Total int64              `json:"total"`
 }

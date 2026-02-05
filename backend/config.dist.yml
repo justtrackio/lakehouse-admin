@@ -30,6 +30,13 @@ k8s:
 log:
   level: info
 
+refresh:
+  interval: 1h
+
+maintenance:
+  worker_count: 1
+  poll_interval: 1s
+
 spark:
   endpoint: sc://spark-connect-server-svc.spark:15002
 

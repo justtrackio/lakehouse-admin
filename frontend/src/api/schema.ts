@@ -80,11 +80,8 @@ export async function fetchSnapshots(tableName: string): Promise<SnapshotItem[]>
   return apiClient.get<SnapshotItem[]>(`/api/metadata/snapshots?table=${tableName}`);
 }
 
-export interface ExpireSnapshotsResponse {
-  table: string;
-  retention_days: number;
-  retain_last: number;
-  clean_expired_metadata: boolean;
+export interface TaskQueuedResponse {
+  task_id: number;
   status: string;
 }
 
@@ -92,8 +89,8 @@ export async function expireSnapshots(
   tableName: string,
   retentionDays: number,
   retainLast: number,
-): Promise<ExpireSnapshotsResponse> {
-  return apiClient.post<ExpireSnapshotsResponse>(
+): Promise<TaskQueuedResponse> {
+  return apiClient.post<TaskQueuedResponse>(
     `/api/maintenance/${tableName}/expire-snapshots`,
     {
       retention_days: retentionDays,
@@ -102,18 +99,11 @@ export async function expireSnapshots(
   );
 }
 
-export interface RemoveOrphanFilesResponse {
-  table: string;
-  retention_days: number;
-  metrics: Record<string, unknown>;
-  status: string;
-}
-
 export async function removeOrphanFiles(
   tableName: string,
   retentionDays: number,
-): Promise<RemoveOrphanFilesResponse> {
-  return apiClient.post<RemoveOrphanFilesResponse>(
+): Promise<TaskQueuedResponse> {
+  return apiClient.post<TaskQueuedResponse>(
     `/api/maintenance/${tableName}/remove-orphan-files`,
     {
       retention_days: retentionDays,
@@ -121,10 +111,8 @@ export async function removeOrphanFiles(
   );
 }
 
-export interface OptimizeResponse {
-  table: string;
-  file_size_threshold_mb: number;
-  where: string;
+export interface OptimizeTaskQueuedResponse {
+  task_ids: number[];
   status: string;
 }
 
@@ -133,15 +121,13 @@ export async function optimizeTable(
   fileSizeThresholdMb: number,
   from?: string,
   to?: string,
-  batchSize?: string,
-): Promise<OptimizeResponse> {
-  return apiClient.post<OptimizeResponse>(
+): Promise<OptimizeTaskQueuedResponse> {
+  return apiClient.post<OptimizeTaskQueuedResponse>(
     `/api/maintenance/${tableName}/optimize`,
     {
       file_size_threshold_mb: fileSizeThresholdMb,
       from: from,
       to: to,
-      batch_size: batchSize,
     }
   );
 }
@@ -162,28 +148,29 @@ export async function refreshTable(tableName: string): Promise<RefreshTableRespo
   return apiClient.get<RefreshTableResponse>(`/api/refresh/table?table=${tableName}`);
 }
 
-export interface MaintenanceHistoryEntry {
+export interface MaintenanceTask {
   id: number;
   table: string;
   kind: string;
   status: string;
   started_at: string;
+  picked_up_at: string | null;
   finished_at: string | null;
   error_message: string | null;
   input: Record<string, unknown>;
   result: Record<string, unknown>;
 }
 
-export interface PaginatedMaintenanceHistory {
-  items: MaintenanceHistoryEntry[];
+export interface PaginatedMaintenanceTask {
+  items: MaintenanceTask[];
   total: number;
 }
 
-export async function fetchMaintenanceHistory(
+export async function fetchMaintenanceTasks(
   tableName?: string,
   limit: number = 20,
   offset: number = 0,
-): Promise<PaginatedMaintenanceHistory> {
+): Promise<PaginatedMaintenanceTask> {
   const params = new URLSearchParams();
   if (tableName) {
     params.append('table', tableName);
@@ -191,5 +178,5 @@ export async function fetchMaintenanceHistory(
   params.append('limit', limit.toString());
   params.append('offset', offset.toString());
 
-  return apiClient.get<PaginatedMaintenanceHistory>(`/api/maintenance/history?${params.toString()}`);
+  return apiClient.get<PaginatedMaintenanceTask>(`/api/maintenance/tasks?${params.toString()}`);
 }

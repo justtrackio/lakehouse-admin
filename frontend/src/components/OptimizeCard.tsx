@@ -1,20 +1,17 @@
-import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Alert,
   Button,
   Card,
   DatePicker,
-  Descriptions,
   Form,
   Slider,
   Space,
   Typography,
   Popconfirm,
-  Select,
 } from 'antd';
 import type { Dayjs } from 'dayjs';
-import { optimizeTable, type OptimizeResponse } from '../api/schema';
+import { optimizeTable } from '../api/schema';
 import { useMessageApi } from '../context/MessageContext';
 
 const { Paragraph } = Typography;
@@ -27,7 +24,6 @@ interface OptimizeCardProps {
 export function OptimizeCard({ tableName }: OptimizeCardProps) {
   const queryClient = useQueryClient();
   const [form] = Form.useForm();
-  const [result, setResult] = useState<OptimizeResponse | null>(null);
   const messageApi = useMessageApi();
   const fileSizeThreshold = Form.useWatch('file_size_threshold_mb', form);
 
@@ -35,7 +31,6 @@ export function OptimizeCard({ tableName }: OptimizeCardProps) {
     mutationFn: (values: {
       file_size_threshold_mb: number;
       date_range?: [Dayjs, Dayjs] | null;
-      batch_size: string;
     }) => {
       let from: string | undefined;
       let to: string | undefined;
@@ -45,25 +40,21 @@ export function OptimizeCard({ tableName }: OptimizeCardProps) {
         to = values.date_range[1].format('YYYY-MM-DD');
       }
 
-      return optimizeTable(tableName, values.file_size_threshold_mb, from, to, values.batch_size);
-    },
-    onMutate: () => {
-      setResult(null);
+      return optimizeTable(tableName, values.file_size_threshold_mb, from, to);
     },
     onSuccess: (data) => {
-      setResult(data);
-      messageApi.success(`Successfully optimized table ${data.table}`);
-      queryClient.invalidateQueries({ queryKey: ['maintenanceHistory', tableName] });
+      const count = data.task_ids.length;
+      messageApi.success(`Enqueued ${count} optimize task${count === 1 ? '' : 's'} (IDs: ${data.task_ids.slice(0, 3).join(', ')}${count > 3 ? '...' : ''})`);
+      queryClient.invalidateQueries({ queryKey: ['maintenanceTasks', tableName] });
     },
     onError: (error: Error) => {
-      messageApi.error(`Failed to optimize table: ${error.message}`);
+      messageApi.error(`Failed to enqueue optimize task: ${error.message}`);
     },
   });
 
   const onFinish = (values: {
     file_size_threshold_mb: number;
     date_range?: [Dayjs, Dayjs] | null;
-    batch_size: string;
   }) => {
     mutation.mutate(values);
   };
@@ -83,7 +74,6 @@ export function OptimizeCard({ tableName }: OptimizeCardProps) {
           initialValues={{
             file_size_threshold_mb: 128,
             date_range: null,
-            batch_size: 'monthly',
           }}
           disabled={mutation.isPending}
         >
@@ -112,23 +102,6 @@ export function OptimizeCard({ tableName }: OptimizeCardProps) {
             >
               <RangePicker allowClear />
             </Form.Item>
-
-            <Form.Item
-              label="Batch Size"
-              name="batch_size"
-              rules={[{ required: true, message: 'Please select a batch size!' }]}
-              extra="Size of optimization chunks."
-            >
-              <Select
-                style={{ width: 120 }}
-                options={[
-                  { value: 'daily', label: 'Daily' },
-                  { value: 'weekly', label: 'Weekly' },
-                  { value: 'monthly', label: 'Monthly' },
-                  { value: 'yearly', label: 'Yearly' },
-                ]}
-              />
-            </Form.Item>
           </Space>
 
           <div style={{ marginTop: 16 }}>
@@ -154,23 +127,6 @@ export function OptimizeCard({ tableName }: OptimizeCardProps) {
             message="Operation Failed"
             description={mutation.error.message}
           />
-        )}
-
-        {result && (
-          <div style={{ marginTop: 16 }}>
-            <Descriptions
-              title="Last Result"
-              bordered
-              size="small"
-              column={1}
-              style={{ marginBottom: 16 }}
-            >
-              <Descriptions.Item label="Table">{result.table}</Descriptions.Item>
-              <Descriptions.Item label="Threshold">{result.file_size_threshold_mb} MB</Descriptions.Item>
-              {result.where && <Descriptions.Item label="Filter">{result.where}</Descriptions.Item>}
-              <Descriptions.Item label="Status">{result.status}</Descriptions.Item>
-            </Descriptions>
-          </div>
         )}
       </Space>
     </Card>

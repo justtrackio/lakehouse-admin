@@ -1,17 +1,17 @@
 import { Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Table, Tag, Typography, Modal, Button } from 'antd';
+import { Alert, Table, Tag, Typography, Modal, Button, Tooltip } from 'antd';
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table';
 import { useState } from 'react';
-import { MaintenanceHistoryEntry, fetchMaintenanceHistory } from '../api/schema';
+import { MaintenanceTask, fetchMaintenanceTasks } from '../api/schema';
 
 const { Title } = Typography;
 
-interface MaintenanceHistoryTableProps {
+interface MaintenanceTasksTableProps {
   tableName?: string;
 }
 
-export function MaintenanceHistoryTable({ tableName }: MaintenanceHistoryTableProps) {
+export function MaintenanceTasksTable({ tableName }: MaintenanceTasksTableProps) {
   const [viewModalOpen, setViewModalOpen] = useState(false);
   const [viewModalTitle, setViewModalTitle] = useState('');
   const [viewModalContent, setViewModalContent] = useState<string | Record<string, unknown>>('');
@@ -22,9 +22,9 @@ export function MaintenanceHistoryTable({ tableName }: MaintenanceHistoryTablePr
   });
 
   const { data, isLoading, isError, error } = useQuery({
-    queryKey: ['maintenanceHistory', tableName, pagination.current, pagination.pageSize],
+    queryKey: ['maintenanceTasks', tableName, pagination.current, pagination.pageSize],
     queryFn: () =>
-      fetchMaintenanceHistory(
+      fetchMaintenanceTasks(
         tableName,
         pagination.pageSize || 10,
         ((pagination.current || 1) - 1) * (pagination.pageSize || 10),
@@ -42,7 +42,7 @@ export function MaintenanceHistoryTable({ tableName }: MaintenanceHistoryTablePr
     setViewModalOpen(true);
   };
 
-  const columns: ColumnsType<MaintenanceHistoryEntry> = [
+  const columns: ColumnsType<MaintenanceTask> = [
     {
       title: 'Table',
       dataIndex: 'table',
@@ -69,6 +69,7 @@ export function MaintenanceHistoryTable({ tableName }: MaintenanceHistoryTablePr
         if (status === 'success') color = 'success';
         if (status === 'error') color = 'error';
         if (status === 'running') color = 'processing';
+        if (status === 'queued') color = 'default';
         
         return (
            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -88,19 +89,33 @@ export function MaintenanceHistoryTable({ tableName }: MaintenanceHistoryTablePr
       },
     },
     {
-      title: 'Started At',
+      title: 'Queued At',
       dataIndex: 'started_at',
       key: 'started_at',
       render: (text: string) => new Date(text).toLocaleString(),
     },
     {
-      title: 'Duration',
-      key: 'duration',
+      title: 'Wait Time',
+      key: 'wait_time',
       render: (_, record) => {
-        if (!record.finished_at) return '-';
+        if (!record.picked_up_at) return <Tag>Queued</Tag>;
         const start = new Date(record.started_at).getTime();
+        const pickedUp = new Date(record.picked_up_at).getTime();
+        const diff = pickedUp - start;
+        return <Tooltip title={`Picked up at ${new Date(record.picked_up_at).toLocaleString()}`}>{`${(diff / 1000).toFixed(2)}s`}</Tooltip>;
+      },
+    },
+    {
+      title: 'Execution Time',
+      key: 'execution_time',
+      render: (_, record) => {
+        if (!record.picked_up_at || !record.finished_at) {
+            if (record.status === 'running') return <Tag color="processing">Running</Tag>;
+            return '-';
+        }
+        const pickedUp = new Date(record.picked_up_at).getTime();
         const end = new Date(record.finished_at).getTime();
-        const diff = end - start;
+        const diff = end - pickedUp;
         return `${(diff / 1000).toFixed(2)}s`;
       },
     },
@@ -117,9 +132,9 @@ export function MaintenanceHistoryTable({ tableName }: MaintenanceHistoryTablePr
       title: 'Result',
       key: 'result',
       render: (_, record) => (
-         <Button size="small" onClick={() => showDetails('Operation Result', record.result)}>
-           View
-         </Button>
+        <Button size="small" onClick={() => showDetails('Operation Result', record.result)}>
+          View
+        </Button>
       ),
     },
   ];
@@ -128,7 +143,7 @@ export function MaintenanceHistoryTable({ tableName }: MaintenanceHistoryTablePr
     return (
       <Alert
         type="error"
-        message="Failed to load maintenance history"
+        message="Failed to load maintenance tasks"
         description={error instanceof Error ? error.message : 'Unknown error'}
         showIcon
       />
@@ -137,7 +152,7 @@ export function MaintenanceHistoryTable({ tableName }: MaintenanceHistoryTablePr
 
   return (
     <div style={{ marginTop: 24 }}>
-      <Title level={4}>{tableName ? 'Maintenance History' : 'Global Maintenance History'}</Title>
+      <Title level={4}>{tableName ? 'Maintenance Tasks' : 'Global Maintenance Tasks'}</Title>
       <Table
         columns={columns}
         dataSource={data?.items || []}

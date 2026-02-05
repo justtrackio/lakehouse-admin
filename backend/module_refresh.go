@@ -11,6 +11,10 @@ import (
 	"github.com/justtrackio/gosoline/pkg/log"
 )
 
+type RefreshSettings struct {
+	Interval time.Duration `cfg:"interval"`
+}
+
 func NewModuleRefresh(ctx context.Context, config cfg.Config, logger log.Logger) (kernel.Module, error) {
 	logger = logger.WithChannel("refresh")
 
@@ -26,10 +30,16 @@ func NewModuleRefresh(ctx context.Context, config cfg.Config, logger log.Logger)
 		return nil, fmt.Errorf("could not create sqlc client: %w", err)
 	}
 
+	settings := &RefreshSettings{}
+	if err = config.UnmarshalKey("refresh", settings); err != nil {
+		return nil, fmt.Errorf("could not unmarshal refresh settings: %w", err)
+	}
+
 	return &ModuleRefresh{
 		logger:    logger,
 		service:   service,
 		sqlClient: sqlClient,
+		settings:  settings,
 	}, nil
 }
 
@@ -37,28 +47,35 @@ type ModuleRefresh struct {
 	logger    log.Logger
 	service   *ServiceRefresh
 	sqlClient sqlc.Client
+	settings  *RefreshSettings
 }
 
 func (m *ModuleRefresh) Run(ctx context.Context) error {
+	ticker := time.NewTicker(m.settings.Interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			m.runRefreshCycle(ctx)
+		}
+	}
+}
+
+func (m *ModuleRefresh) runRefreshCycle(ctx context.Context) {
 	var err error
 	var tables []string
-	var lastUpdatedAt time.Time
+
+	m.logger.Info(ctx, "starting periodic table refresh")
 
 	if tables, err = m.service.ListTables(ctx); err != nil {
-		return fmt.Errorf("could not list tables: %w", err)
+		m.logger.Error(ctx, "could not list tables for refresh: %s", err)
+		return
 	}
 
 	for _, table := range tables {
-		if lastUpdatedAt, err = m.service.LastUpdatedAt(ctx, table); err != nil {
-			return fmt.Errorf("could not get table %s from db: %w", table, err)
-		}
-
-		if time.Since(lastUpdatedAt) < 10*time.Minute {
-			m.logger.Info(ctx, "skipping refresh for table %s, last updated at %s", table, lastUpdatedAt.Format(time.RFC3339))
-
-			continue
-		}
-
 		err = m.sqlClient.WithTx(ctx, func(cttx sqlc.Tx) error {
 			if err = m.service.RefreshTableFull(cttx, table); err != nil {
 				return fmt.Errorf("could not refresh table %s: %w", table, err)
@@ -66,7 +83,11 @@ func (m *ModuleRefresh) Run(ctx context.Context) error {
 
 			return nil
 		})
+
+		if err != nil {
+			m.logger.Error(ctx, "failed to refresh table %s: %s", table, err)
+		}
 	}
 
-	return nil
+	m.logger.Info(ctx, "finished periodic table refresh")
 }

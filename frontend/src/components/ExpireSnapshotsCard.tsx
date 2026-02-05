@@ -37,13 +37,11 @@ export function ExpireSnapshotsCard({
     mutationFn: (values: { retention_days: number; retain_last: number }) =>
       expireSnapshots(tableName, values.retention_days, values.retain_last),
     onSuccess: (data) => {
-      messageApi.success(`Successfully expired snapshots for table ${data.table}`);
-      queryClient.invalidateQueries({ queryKey: ['table', tableName] });
-      queryClient.invalidateQueries({ queryKey: ['snapshots', tableName] });
-      queryClient.invalidateQueries({ queryKey: ['maintenanceHistory', tableName] });
+      messageApi.success(`Expire snapshots task enqueued (Task ID: ${data.task_id})`);
+      queryClient.invalidateQueries({ queryKey: ['maintenanceTasks', tableName] });
     },
     onError: (error: Error) => {
-      messageApi.error(`Failed to expire snapshots: ${error.message}`);
+      messageApi.error(`Failed to enqueue expire snapshots task: ${error.message}`);
     },
   });
 

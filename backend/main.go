@@ -27,6 +27,7 @@ func main() {
 		application.WithConfigSanitizers(cfg.TimeSanitizer),
 		application.WithLoggerHandlersFromConfig,
 		application.WithUTCClock(true),
+		application.WithModuleFactory("maintenance", NewModuleMaintenance),
 		application.WithModuleFactory("refresh", NewModuleRefresh),
 		application.WithModuleFactory("http", httpserver.NewServer("default", func(ctx context.Context, config cfg.Config, logger log.Logger, router *httpserver.Router) error {
 			router.Use(cors.Default())
@@ -36,7 +37,7 @@ func main() {
 				r.POST("/:table/expire-snapshots", sqlh.BindTx(handler.ExpireSnapshots))
 				r.POST("/:table/remove-orphan-files", sqlh.BindTx(handler.RemoveOrphanFiles))
 				r.POST("/:table/optimize", sqlh.BindTx(handler.Optimize))
-				r.GET("/history", sqlh.BindTx(handler.ListHistory))
+				r.GET("/tasks", sqlh.BindTx(handler.ListTasks))
 			}))
 
 			router.Group("/api/metadata").HandleWith(httpserver.With(NewHandlerMetadata, func(r *httpserver.Router, handler *HandlerMetadata) {

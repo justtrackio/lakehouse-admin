@@ -12,7 +12,7 @@ require (
 	github.com/gosoline-project/sqlc v0.0.0-20260109132457-2b57a9f35d57
 	github.com/gosoline-project/sqlh v0.0.0-20260109135300-57679fe09319
 	github.com/jmoiron/sqlx v1.3.4
-	github.com/justtrackio/gosoline v0.54.2
+	github.com/justtrackio/gosoline v0.54.8
 	github.com/spf13/cast v1.10.0
 	github.com/trinodb/trino-go-client v0.330.0
 	golang.org/x/sync v0.18.0
@@ -106,6 +106,7 @@ require (
 	github.com/elastic/go-elasticsearch/v7 v7.2.1-0.20190714143206-f1e755531ff4 // indirect
 	github.com/envoyproxy/go-control-plane/envoy v1.32.4 // indirect
 	github.com/envoyproxy/protoc-gen-validate v1.2.1 // indirect
+	github.com/ettle/strcase v0.2.0 // indirect
 	github.com/fatih/color v1.18.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.10 // indirect

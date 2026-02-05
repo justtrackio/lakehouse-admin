@@ -1,18 +1,15 @@
-import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Alert,
   Button,
   Card,
-  Descriptions,
   Form,
   Slider,
   Space,
   Typography,
   Popconfirm,
 } from 'antd';
-import { removeOrphanFiles, type RemoveOrphanFilesResponse } from '../api/schema';
-import { formatNumber } from '../utils/format';
+import { removeOrphanFiles } from '../api/schema';
 import { useMessageApi } from '../context/MessageContext';
 
 const { Paragraph } = Typography;
@@ -24,22 +21,17 @@ interface RemoveOrphanFilesCardProps {
 export function RemoveOrphanFilesCard({ tableName }: RemoveOrphanFilesCardProps) {
   const queryClient = useQueryClient();
   const [form] = Form.useForm();
-  const [result, setResult] = useState<RemoveOrphanFilesResponse | null>(null);
   const messageApi = useMessageApi();
   const retentionDays = Form.useWatch('retention_days', form);
 
   const mutation = useMutation({
     mutationFn: (values: { retention_days: number }) => removeOrphanFiles(tableName, values.retention_days),
-    onMutate: () => {
-      setResult(null);
-    },
     onSuccess: (data) => {
-      setResult(data);
-      messageApi.success(`Successfully removed orphan files for table ${data.table}`);
-      queryClient.invalidateQueries({ queryKey: ['maintenanceHistory', tableName] });
+      messageApi.success(`Remove orphan files task enqueued (Task ID: ${data.task_id})`);
+      queryClient.invalidateQueries({ queryKey: ['maintenanceTasks', tableName] });
     },
     onError: (error: Error) => {
-      messageApi.error(`Failed to remove orphan files: ${error.message}`);
+      messageApi.error(`Failed to enqueue remove orphan files task: ${error.message}`);
     },
   });
 
@@ -103,38 +95,6 @@ export function RemoveOrphanFilesCard({ tableName }: RemoveOrphanFilesCardProps)
             message="Operation Failed"
             description={mutation.error.message}
           />
-        )}
-
-        {result && (
-          <div style={{ marginTop: 16 }}>
-            <Descriptions
-              title="Last Result"
-              bordered
-              size="small"
-              column={1}
-              style={{ marginBottom: 16 }}
-            >
-              <Descriptions.Item label="Table">{result.table}</Descriptions.Item>
-              <Descriptions.Item label="Retention Days">
-                {result.retention_days}
-              </Descriptions.Item>
-              <Descriptions.Item label="Status">{result.status}</Descriptions.Item>
-            </Descriptions>
-
-            <Descriptions title="Metrics" bordered size="small" column={1}>
-              {Object.keys(result.metrics || {}).length === 0 ? (
-                <Descriptions.Item label="Info">No metrics returned</Descriptions.Item>
-              ) : (
-                Object.entries(result.metrics || {})
-                  .sort(([a], [b]) => a.localeCompare(b))
-                  .map(([key, value]) => (
-                    <Descriptions.Item key={key} label={key}>
-                      {typeof value === 'number' ? formatNumber(value) : String(value)}
-                    </Descriptions.Item>
-                  ))
-              )}
-            </Descriptions>
-          </div>
         )}
       </Space>
     </Card>
