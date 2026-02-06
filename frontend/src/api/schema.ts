@@ -52,6 +52,7 @@ export interface ListPartitionItem {
   record_count: number;
   total_data_file_size_in_bytes: number;
   needs_optimize: boolean;
+  needs_optimize_count: number;
 }
 
 export interface ListPartitionsResponse {

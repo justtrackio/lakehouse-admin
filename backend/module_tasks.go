@@ -79,9 +79,9 @@ func ProvideModuleTasks(ctx context.Context, config cfg.Config, logger log.Logge
 
 type ModuleTasks struct {
 	logger                     log.Logger
-	serviceTaskQueue           *ServiceTaskQueue
-	serviceMaintenanceExecutor *ServiceMaintenanceExecutor
-	serviceRefresh             *ServiceRefresh
+	serviceTaskQueue           TaskClaimer
+	serviceMaintenanceExecutor MaintenanceExecutor
+	serviceRefresh             SnapshotRefresher
 	sqlClient                  sqlc.Client
 	pollInterval               time.Duration
 	sem                        semaphore.Semaphore
@@ -154,7 +154,7 @@ func (m *ModuleTasks) processTask(ctx context.Context, task *Task) error {
 	case "optimize":
 		result, err = m.processOptimize(ctx, task.Table, input)
 	default:
-		return fmt.Errorf("unknown task kind: %s", task.Kind)
+		err = fmt.Errorf("unknown task kind: %s", task.Kind)
 	}
 
 	if completeErr := m.serviceTaskQueue.CompleteTask(ctx, task.Id, result, err); completeErr != nil {

@@ -25,7 +25,7 @@ export function TaskStatusIndicator() {
           </Badge>
         )}
         {data.queued > 0 && (
-          <Badge count={data.queued} style={{ backgroundColor: '#8c8c8c' }}>
+          <Badge count={data.queued} overflowCount={1000} style={{ backgroundColor: '#8c8c8c' }}>
             <ClockCircleOutlined style={{ fontSize: '20px', color: '#8c8c8c' }} />
           </Badge>
         )}

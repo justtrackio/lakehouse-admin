@@ -3,6 +3,7 @@ module github.com/justtrackio/lakehouse-admin
 go 1.25.0
 
 require (
+	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/apache/arrow-go/v18 v18.4.1
 	github.com/apache/iceberg-go v0.4.0
 	github.com/apache/spark-connect-go v0.1.1-0.20250826122459-0e3d565b63e6
@@ -13,7 +14,9 @@ require (
 	github.com/gosoline-project/sqlh v0.0.0-20260109135300-57679fe09319
 	github.com/jmoiron/sqlx v1.3.4
 	github.com/justtrackio/gosoline v0.54.8
+	github.com/marusama/semaphore/v2 v2.5.0
 	github.com/spf13/cast v1.10.0
+	github.com/stretchr/testify v1.11.1
 	github.com/trinodb/trino-go-client v0.330.0
 	golang.org/x/sync v0.18.0
 )
@@ -183,7 +186,6 @@ require (
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/lib/pq v1.10.9 // indirect
 	github.com/lithammer/fuzzysearch v1.1.8 // indirect
-	github.com/marusama/semaphore/v2 v2.5.0 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-runewidth v0.0.16 // indirect
@@ -231,7 +233,6 @@ require (
 	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/spiffe/go-spiffe/v2 v2.5.0 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
-	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/substrait-io/substrait v0.69.0 // indirect
 	github.com/substrait-io/substrait-go/v4 v4.4.0 // indirect
 	github.com/substrait-io/substrait-protobuf/go v0.71.0 // indirect

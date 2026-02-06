@@ -96,7 +96,7 @@ function TasksPage() {
             </Button>
           </Popconfirm>
         </div>
-        <MaintenanceTasksTable />
+        <MaintenanceTasksTable pageSize={100} />
       </Space>
     </div>
   );

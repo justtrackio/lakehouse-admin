@@ -10,16 +10,17 @@ const { Title } = Typography;
 
 interface MaintenanceTasksTableProps {
   tableName?: string;
+  pageSize?: number;
 }
 
-export function MaintenanceTasksTable({ tableName }: MaintenanceTasksTableProps) {
+export function MaintenanceTasksTable({ tableName, pageSize }: MaintenanceTasksTableProps) {
   const [viewModalOpen, setViewModalOpen] = useState(false);
   const [viewModalTitle, setViewModalTitle] = useState('');
   const [viewModalContent, setViewModalContent] = useState<string | Record<string, unknown>>('');
 
   const [pagination, setPagination] = useState<TablePaginationConfig>({
     current: 1,
-    pageSize: 10,
+    pageSize: pageSize ?? 10,
   });
 
   const [selectedKinds, setSelectedKinds] = useState<string[]>([]);

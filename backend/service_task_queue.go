@@ -64,9 +64,11 @@ func (s *ServiceTaskQueue) ClaimTask(ctx context.Context) (*Task, error) {
 	// Optimistic locking loop
 	for i := 0; i < 3; i++ {
 		var task Task
-		// 1. Find oldest queued task
+		// 1. Find oldest queued task that doesn't have another task running for the same table
+		// Use raw SQL for the NOT IN subquery since sqlc's NotIn() only supports scalar values
 		err = s.sqlClient.Q().From("tasks").
 			Where(sqlc.Eq{"status": "queued"}).
+			Where("`table` NOT IN (SELECT `table` FROM `tasks` WHERE `status` = ?)", "running").
 			OrderBy(sqlc.Col("started_at").Asc()).
 			Limit(1).
 			Get(ctx, &task)

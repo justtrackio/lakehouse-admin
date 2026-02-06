@@ -2,6 +2,7 @@ import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Alert,
+  Badge,
   Button,
   Popconfirm,
   Space,
@@ -193,6 +194,22 @@ function PartitionsPage() {
   // Build partition breadcrumb
   const partitionBreadcrumb: React.ReactNode[] = [];
   const filterKeys = Object.keys(partitionFilters || {});
+  
+  // Add root link to navigate back to first partition level (no filters)
+  if (filterKeys.length > 0) {
+    partitionBreadcrumb.push(
+      <Link
+        key="root"
+        to="/tables/$tableName/partitions"
+        params={{ tableName }}
+        search={{}}
+      >
+        {tableName}
+      </Link>
+    );
+    partitionBreadcrumb.push(' / ');
+  }
+  
   for (let i = 0; i < filterKeys.length; i++) {
     const key = filterKeys[i];
     const value = partitionFilters![key];
@@ -271,7 +288,7 @@ function PartitionsPage() {
       align: 'center',
       width: 120,
       render: (_, record) => {
-        if (!record.needs_optimize || currentPartition.hidden.type !== 'day') {
+        if (!record.needs_optimize) {
           return null;
         }
 
@@ -284,13 +301,15 @@ function PartitionsPage() {
             cancelText="Cancel"
             disabled={optimizeMutation.isPending}
           >
-            <Button 
-              type="primary" 
-              size="small" 
-              loading={optimizeMutation.isPending}
-            >
-              Optimize
-            </Button>
+            <Badge count={record.needs_optimize_count} showZero={false} overflowCount={10000} >
+              <Button 
+                type="primary" 
+                size="small" 
+                loading={optimizeMutation.isPending}
+              >
+                Optimize
+              </Button>
+            </Badge>
           </Popconfirm>
         );
       },

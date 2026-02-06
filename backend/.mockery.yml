@@ -1,0 +1,17 @@
+all: false
+dir: '{{.InterfaceDir}}'
+filename: 'mock_{{.InterfaceName}}_test.go'
+force-file-write: true
+formatter: goimports
+inpackage: true
+log-level: info
+structname: 'Mock{{.InterfaceName}}'
+pkgname: '{{.SrcPackageName}}'
+recursive: false
+template: testify
+packages:
+  github.com/justtrackio/lakehouse-admin:
+    interfaces:
+      TaskClaimer:
+      MaintenanceExecutor:
+      SnapshotRefresher:
