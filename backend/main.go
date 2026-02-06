@@ -39,6 +39,12 @@ func main() {
 				r.POST("/:table/optimize", httpserver.Bind(handler.Optimize))
 				r.GET("", httpserver.Bind(handler.ListTasks))
 				r.GET("/counts", httpserver.BindN(handler.TaskCounts))
+				r.DELETE("", httpserver.BindN(handler.FlushTasks))
+			}))
+
+			router.Group("/api/settings").HandleWith(httpserver.With(NewHandlerSettings, func(r *httpserver.Router, handler *HandlerSettings) {
+				r.GET("/task-concurrency", httpserver.BindN(handler.GetTaskConcurrency))
+				r.PUT("/task-concurrency", httpserver.Bind(handler.SetTaskConcurrency))
 			}))
 
 			router.Group("/api/metadata").HandleWith(httpserver.With(NewHandlerMetadata, func(r *httpserver.Router, handler *HandlerMetadata) {

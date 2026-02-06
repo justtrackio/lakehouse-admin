@@ -199,3 +199,23 @@ export interface TaskCountsResponse {
 export async function fetchTaskCounts(): Promise<TaskCountsResponse> {
   return apiClient.get<TaskCountsResponse>('/api/tasks/counts');
 }
+
+export interface TaskConcurrencyResponse {
+  value: number;
+}
+
+export async function fetchTaskConcurrency(): Promise<TaskConcurrencyResponse> {
+  return apiClient.get<TaskConcurrencyResponse>('/api/settings/task-concurrency');
+}
+
+export async function setTaskConcurrency(value: number): Promise<TaskConcurrencyResponse> {
+  return apiClient.put<TaskConcurrencyResponse>('/api/settings/task-concurrency', { value });
+}
+
+export interface FlushTasksResponse {
+  deleted: number;
+}
+
+export async function flushTasks(): Promise<FlushTasksResponse> {
+  return apiClient.delete<FlushTasksResponse>('/api/tasks');
+}

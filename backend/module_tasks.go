@@ -7,16 +7,23 @@ import (
 
 	"github.com/gosoline-project/sqlc"
 	"github.com/justtrackio/gosoline/pkg/cfg"
+	"github.com/justtrackio/gosoline/pkg/coffin"
 	"github.com/justtrackio/gosoline/pkg/kernel"
 	"github.com/justtrackio/gosoline/pkg/log"
+	"github.com/marusama/semaphore/v2"
 	"github.com/spf13/cast"
 )
 
 func NewModuleTasks(ctx context.Context, config cfg.Config, logger log.Logger) (kernel.Module, error) {
+	return ProvideModuleTasks(ctx, config, logger)
+}
+
+func ProvideModuleTasks(ctx context.Context, config cfg.Config, logger log.Logger) (*ModuleTasks, error) {
 	var err error
 	var serviceTaskQueue *ServiceTaskQueue
 	var serviceMaintenanceExecutor *ServiceMaintenanceExecutor
 	var serviceRefresh *ServiceRefresh
+	var serviceSettings *ServiceSettings
 	var sqlClient sqlc.Client
 
 	if serviceTaskQueue, err = NewServiceTaskQueue(ctx, config, logger); err != nil {
@@ -31,13 +38,25 @@ func NewModuleTasks(ctx context.Context, config cfg.Config, logger log.Logger) (
 		return nil, fmt.Errorf("could not create refresh service: %w", err)
 	}
 
+	if serviceSettings, err = NewServiceSettings(ctx, config, logger); err != nil {
+		return nil, fmt.Errorf("could not create settings service: %w", err)
+	}
+
 	if sqlClient, err = sqlc.ProvideClient(ctx, config, logger, "default"); err != nil {
 		return nil, fmt.Errorf("could not create sqlg client: %w", err)
 	}
 
-	workerCount, _ := config.GetInt("tasks.worker_count")
-	if workerCount < 1 {
-		workerCount = 1
+	// Get default from config
+	defaultWorkerCount, _ := config.GetInt("tasks.worker_count")
+	if defaultWorkerCount < 1 {
+		defaultWorkerCount = 1
+	}
+
+	// Try to load from database, fall back to config default
+	workerCount, err := serviceSettings.GetIntSetting(ctx, "task_concurrency", defaultWorkerCount)
+	if err != nil {
+		logger.Warn(ctx, "could not load task concurrency from settings, using default: %s", err)
+		workerCount = defaultWorkerCount
 	}
 
 	pollInterval, _ := config.GetDuration("tasks.poll_interval")
@@ -45,15 +64,17 @@ func NewModuleTasks(ctx context.Context, config cfg.Config, logger log.Logger) (
 		pollInterval = time.Second
 	}
 
-	return &ModuleTasks{
+	module := &ModuleTasks{
 		logger:                     logger.WithChannel("task_worker"),
 		serviceTaskQueue:           serviceTaskQueue,
 		serviceMaintenanceExecutor: serviceMaintenanceExecutor,
 		serviceRefresh:             serviceRefresh,
 		sqlClient:                  sqlClient,
-		workerCount:                workerCount,
 		pollInterval:               pollInterval,
-	}, nil
+		sem:                        semaphore.New(workerCount),
+	}
+
+	return module, nil
 }
 
 type ModuleTasks struct {
@@ -62,49 +83,66 @@ type ModuleTasks struct {
 	serviceMaintenanceExecutor *ServiceMaintenanceExecutor
 	serviceRefresh             *ServiceRefresh
 	sqlClient                  sqlc.Client
-	workerCount                int
 	pollInterval               time.Duration
+	sem                        semaphore.Semaphore
 }
 
 func (m *ModuleTasks) Run(ctx context.Context) error {
-	m.logger.Info(ctx, "starting task worker pool with %d workers", m.workerCount)
+	m.logger.Info(ctx, "starting task worker pool with %d workers", m.sem.GetLimit())
 
-	for i := 0; i < m.workerCount; i++ {
-		go m.workerLoop(ctx, i)
-	}
-
-	<-ctx.Done()
-	return nil
-}
-
-func (m *ModuleTasks) workerLoop(ctx context.Context, workerId int) {
 	ticker := time.NewTicker(m.pollInterval)
 	defer ticker.Stop()
 
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			// Try to claim a task
-			task, err := m.serviceTaskQueue.ClaimTask(ctx)
-			if err != nil {
-				m.logger.Error(ctx, "worker %d: failed to claim task: %s", workerId, err)
-				continue
-			}
-			if task == nil {
-				continue // No task
-			}
+	cfn, ctx := coffin.WithContext(ctx)
+	cfn.GoWithContext(ctx, func(ctx context.Context) error {
+		for {
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-ticker.C:
+				if ok := m.sem.TryAcquire(1); !ok {
+					continue
+				}
 
-			m.logger.Info(ctx, "worker %d: picked up task %d (%s for %s)", workerId, task.Id, task.Kind, task.Table)
-			m.processTask(ctx, task)
+				// Try to claim a task
+				task, err := m.serviceTaskQueue.ClaimTask(ctx)
+				if err != nil {
+					m.sem.Release(1)
+					m.logger.Error(ctx, "failed to claim task: %s", err)
+					continue
+				}
+
+				if task == nil {
+					m.sem.Release(1)
+					continue // No task
+				}
+
+				m.logger.Info(ctx, "picked up task %d (%s for %s)", task.Id, task.Kind, task.Table)
+				cfn.GoWithContext(ctx, func(ctx context.Context) error {
+					defer m.sem.Release(1)
+
+					if err := m.processTask(ctx, task); err != nil {
+						m.logger.Error(ctx, "failed to process task %d: %s", task.Id, err)
+					}
+
+					return nil
+				})
+			}
 		}
-	}
+	})
+
+	return cfn.Wait()
 }
 
-func (m *ModuleTasks) processTask(ctx context.Context, task *Task) {
-	var result map[string]any
+func (m *ModuleTasks) workerLoop(ctx context.Context) {
+	ticker := time.NewTicker(m.pollInterval)
+	defer ticker.Stop()
+
+}
+
+func (m *ModuleTasks) processTask(ctx context.Context, task *Task) error {
 	var err error
+	var result map[string]any
 
 	input := task.Input.Get()
 
@@ -116,7 +154,7 @@ func (m *ModuleTasks) processTask(ctx context.Context, task *Task) {
 	case "optimize":
 		result, err = m.processOptimize(ctx, task.Table, input)
 	default:
-		err = fmt.Errorf("unknown task kind: %s", task.Kind)
+		return fmt.Errorf("unknown task kind: %s", task.Kind)
 	}
 
 	if completeErr := m.serviceTaskQueue.CompleteTask(ctx, task.Id, result, err); completeErr != nil {
@@ -128,6 +166,8 @@ func (m *ModuleTasks) processTask(ctx context.Context, task *Task) {
 		}
 		m.logger.Info(ctx, "task %d finished with status: %s", task.Id, status)
 	}
+
+	return nil
 }
 
 func (m *ModuleTasks) processExpireSnapshots(ctx context.Context, table string, input map[string]any) (map[string]any, error) {
@@ -192,4 +232,13 @@ func (m *ModuleTasks) processOptimize(ctx context.Context, table string, input m
 		"where":                  res.Where,
 		"status":                 res.Status,
 	}, nil
+}
+
+// SetWorkerCount dynamically adjusts the number of workers in the pool
+func (m *ModuleTasks) SetWorkerCount(newCount int) {
+	if newCount < 1 {
+		newCount = 1
+	}
+
+	m.sem.SetLimit(newCount)
 }

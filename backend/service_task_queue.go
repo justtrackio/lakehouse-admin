@@ -241,3 +241,20 @@ func (s *ServiceTaskQueue) ListTasks(ctx context.Context, table string, kinds []
 		Total: count.Total,
 	}, nil
 }
+
+func (s *ServiceTaskQueue) FlushTasks(ctx context.Context) (int64, error) {
+	var err error
+	var res sqlc.Result
+	var affected int64
+
+	del := s.sqlClient.Q().Delete("tasks")
+	if res, err = del.Exec(ctx); err != nil {
+		return 0, fmt.Errorf("could not flush tasks: %w", err)
+	}
+
+	if affected, err = res.RowsAffected(); err != nil {
+		return 0, fmt.Errorf("could not get rows affected: %w", err)
+	}
+
+	return affected, nil
+}

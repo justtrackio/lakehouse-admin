@@ -178,3 +178,12 @@ func (s *ServiceTasks) TaskCounts(ctx context.Context) (int64, int64, error) {
 	}
 	return running, queued, nil
 }
+
+// FlushTasks is a pass-through to ServiceTaskQueue.FlushTasks
+func (s *ServiceTasks) FlushTasks(ctx context.Context) (int64, error) {
+	deleted, err := s.serviceTaskQueue.FlushTasks(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("could not flush tasks: %w", err)
+	}
+	return deleted, nil
+}

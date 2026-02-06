@@ -50,6 +50,10 @@ type TaskCountsResponse struct {
 	Queued  int64 `json:"queued"`
 }
 
+type FlushTasksResponse struct {
+	Deleted int64 `json:"deleted"`
+}
+
 func NewHandlerTasks(ctx context.Context, config cfg.Config, logger log.Logger) (*HandlerTasks, error) {
 	var err error
 	var serviceTasks *ServiceTasks
@@ -121,5 +125,16 @@ func (h *HandlerTasks) TaskCounts(ctx context.Context) (httpserver.Response, err
 	return httpserver.NewJsonResponse(&TaskCountsResponse{
 		Running: running,
 		Queued:  queued,
+	}), nil
+}
+
+func (h *HandlerTasks) FlushTasks(ctx context.Context) (httpserver.Response, error) {
+	deleted, err := h.serviceTasks.FlushTasks(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return httpserver.NewJsonResponse(&FlushTasksResponse{
+		Deleted: deleted,
 	}), nil
 }
