@@ -128,6 +128,7 @@ func (s *ServiceRefresh) RefreshPartitions(cttx sqlc.Tx, table string) ([]Partit
 			TotalDataFileSizeInBytes: p.DataFileSizeBytes,
 			LastUpdatedAt:            p.LastUpdatedAt,
 			LastUpdatedSnapshotId:    p.LastSnapshotID,
+			NeedsOptimize:            p.NeedsOptimize,
 		}
 	}
 

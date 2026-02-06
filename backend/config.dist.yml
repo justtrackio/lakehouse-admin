@@ -33,7 +33,7 @@ log:
 refresh:
   interval: 1h
 
-maintenance:
+tasks:
   worker_count: 1
   poll_interval: 1s
 

@@ -121,4 +121,3 @@ func (d *DateTime) parseString(s string) error {
 
 	return fmt.Errorf("invalid datetime %q", s)
 }
-

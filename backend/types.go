@@ -34,6 +34,7 @@ type Partition struct {
 	TotalDataFileSizeInBytes int64                                   `json:"total_data_file_size_in_bytes" db:"total_data_file_size_in_bytes"`
 	LastUpdatedAt            time.Time                               `json:"last_updated_at" db:"last_updated_at"`
 	LastUpdatedSnapshotId    int64                                   `json:"last_updated_snapshot_id" db:"last_updated_snapshot_id"`
+	NeedsOptimize            bool                                    `json:"needs_optimize" db:"needs_optimize"`
 }
 
 type sPartition struct {
@@ -44,6 +45,7 @@ type sPartition struct {
 	TotalDataFileSizeInBytes int64          `json:"total_data_file_size_in_bytes" db:"total_data_file_size_in_bytes"`
 	LastUpdatedAt            time.Time      `json:"last_updated_at" db:"last_updated_at"`
 	LastUpdatedSnapshotId    int64          `json:"last_updated_snapshot_id" db:"last_updated_snapshot_id"`
+	NeedsOptimize            bool           `json:"needs_optimize" db:"needs_optimize"`
 }
 
 type TableDescription struct {
@@ -79,10 +81,11 @@ type TableSummary struct {
 	FileCount                int64            `json:"file_count" db:"file_count"`
 	RecordCount              int64            `json:"record_count" db:"record_count"`
 	TotalDataFileSizeInBytes int64            `json:"total_data_file_size_in_bytes" db:"total_data_file_size_in_bytes"`
+	NeedsOptimize            bool             `json:"needs_optimize" db:"needs_optimize"`
 	UpdatedAt                time.Time        `json:"updated_at" db:"updated_at"`
 }
 
-type MaintenanceTask struct {
+type Task struct {
 	Id           int64                                   `json:"id" db:"id"`
 	Table        string                                  `json:"table" db:"table"`
 	Kind         string                                  `json:"kind" db:"kind"`
@@ -95,7 +98,7 @@ type MaintenanceTask struct {
 	Result       db.JSON[map[string]any, db.NonNullable] `json:"result" db:"result"`
 }
 
-type sMaintenanceTask struct {
+type sTask struct {
 	Id           int64          `json:"id" db:"id"`
 	Table        string         `json:"table" db:"table"`
 	Kind         string         `json:"kind" db:"kind"`
@@ -108,7 +111,7 @@ type sMaintenanceTask struct {
 	Result       map[string]any `json:"result" db:"result"`
 }
 
-type PaginatedMaintenanceTask struct {
-	Items []sMaintenanceTask `json:"items"`
-	Total int64              `json:"total"`
+type PaginatedTasks struct {
+	Items []sTask `json:"items"`
+	Total int64   `json:"total"`
 }

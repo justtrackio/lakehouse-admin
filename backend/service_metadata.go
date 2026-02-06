@@ -38,6 +38,7 @@ func (s *ServiceMetadata) GetTableSummary(ctx context.Context, desc TableDescrip
 		Column(sqlc.Coalesce(sqlc.Col("p.file_count").Sum(), 0).As("file_count")).
 		Column(sqlc.Coalesce(sqlc.Col("p.record_count").Sum(), 0).As("record_count")).
 		Column(sqlc.Coalesce(sqlc.Col("p.total_data_file_size_in_bytes").Sum(), 0).As("total_data_file_size_in_bytes")).
+		Column(sqlc.Col("p.needs_optimize").Max().As("needs_optimize")).
 		Where(sqlc.Col("p.table").Eq(desc.Name))
 
 	if err := sel.Get(ctx, summary); err != nil {

@@ -19,6 +19,7 @@ export interface ListTableItem {
   file_count: number;
   record_count: number;
   total_data_file_size_in_bytes: number;
+  needs_optimize: boolean;
 }
 
 export interface ListTablesResponse {
@@ -50,6 +51,7 @@ export interface ListPartitionItem {
   file_count: number;
   record_count: number;
   total_data_file_size_in_bytes: number;
+  needs_optimize: boolean;
 }
 
 export interface ListPartitionsResponse {
@@ -91,7 +93,7 @@ export async function expireSnapshots(
   retainLast: number,
 ): Promise<TaskQueuedResponse> {
   return apiClient.post<TaskQueuedResponse>(
-    `/api/maintenance/${tableName}/expire-snapshots`,
+    `/api/tasks/${tableName}/expire-snapshots`,
     {
       retention_days: retentionDays,
       retain_last: retainLast,
@@ -104,7 +106,7 @@ export async function removeOrphanFiles(
   retentionDays: number,
 ): Promise<TaskQueuedResponse> {
   return apiClient.post<TaskQueuedResponse>(
-    `/api/maintenance/${tableName}/remove-orphan-files`,
+    `/api/tasks/${tableName}/remove-orphan-files`,
     {
       retention_days: retentionDays,
     }
@@ -123,7 +125,7 @@ export async function optimizeTable(
   to?: string,
 ): Promise<OptimizeTaskQueuedResponse> {
   return apiClient.post<OptimizeTaskQueuedResponse>(
-    `/api/maintenance/${tableName}/optimize`,
+    `/api/tasks/${tableName}/optimize`,
     {
       file_size_threshold_mb: fileSizeThresholdMb,
       from: from,
@@ -148,7 +150,7 @@ export async function refreshTable(tableName: string): Promise<RefreshTableRespo
   return apiClient.get<RefreshTableResponse>(`/api/refresh/table?table=${tableName}`);
 }
 
-export interface MaintenanceTask {
+export interface Task {
   id: number;
   table: string;
   kind: string;
@@ -161,18 +163,18 @@ export interface MaintenanceTask {
   result: Record<string, unknown>;
 }
 
-export interface PaginatedMaintenanceTask {
-  items: MaintenanceTask[];
+export interface PaginatedTasks {
+  items: Task[];
   total: number;
 }
 
-export async function fetchMaintenanceTasks(
+export async function fetchTasks(
   tableName?: string,
   limit: number = 20,
   offset: number = 0,
   kinds?: string[],
   statuses?: string[],
-): Promise<PaginatedMaintenanceTask> {
+): Promise<PaginatedTasks> {
   const params = new URLSearchParams();
   if (tableName) {
     params.append('table', tableName);
@@ -186,5 +188,14 @@ export async function fetchMaintenanceTasks(
   params.append('limit', limit.toString());
   params.append('offset', offset.toString());
 
-  return apiClient.get<PaginatedMaintenanceTask>(`/api/maintenance/tasks?${params.toString()}`);
+  return apiClient.get<PaginatedTasks>(`/api/tasks?${params.toString()}`);
+}
+
+export interface TaskCountsResponse {
+  running: number;
+  queued: number;
+}
+
+export async function fetchTaskCounts(): Promise<TaskCountsResponse> {
+  return apiClient.get<TaskCountsResponse>('/api/tasks/counts');
 }

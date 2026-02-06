@@ -105,4 +105,3 @@ func TestDateTime_Scan(t *testing.T) {
 		t.Fatalf("unexpected time: %v", d.Time)
 	}
 }
-

@@ -7,11 +7,11 @@ import { OptimizeCard } from '../components/OptimizeCard';
 import { MaintenanceTasksTable } from '../components/MaintenanceTasksTable';
 import { fetchTableDetails } from '../api/schema';
 
-export const Route = createFileRoute('/tables/$tableName/maintenance')({
-  component: MaintenancePage,
+export const Route = createFileRoute('/tables/$tableName/tasks')({
+  component: TasksPage,
 });
 
-function MaintenancePage() {
+function TasksPage() {
   const { tableName } = Route.useParams();
 
   const { data: tableDetails, isLoading } = useQuery({

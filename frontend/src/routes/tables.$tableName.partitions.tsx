@@ -1,7 +1,9 @@
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Alert,
+  Button,
+  Popconfirm,
   Space,
   Spin,
   Table,
@@ -11,10 +13,12 @@ import type { ColumnsType } from 'antd/es/table';
 import {
   fetchTableDetails,
   fetchPartitionValues,
+  optimizeTable,
   TableDetails,
   ListPartitionItem,
 } from '../api/schema';
 import { formatNumber, formatBytes } from '../utils/format';
+import { useMessageApi } from '../context/MessageContext';
 
 const { Title, Text } = Typography;
 
@@ -35,6 +39,8 @@ function PartitionsPage() {
   const { tableName } = Route.useParams();
   const { partitions: partitionFilters } = Route.useSearch();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const messageApi = useMessageApi();
 
   const {
     data: table,
@@ -128,6 +134,62 @@ function PartitionsPage() {
     });
   };
 
+  // Derive date range from partition context for optimize task
+  const deriveDateRange = (partitionName: string): { from: string; to: string } => {
+    const filters = partitionFilters || {};
+    
+    // Build the full date context by combining filters with the current level's value
+    const fullContext = {
+      ...filters,
+      [currentPartition.name]: partitionName,
+    };
+
+    // Extract year, month, day from the full context
+    const year = fullContext.year;
+    const month = fullContext.month;
+    const day = fullContext.day;
+
+    if (day) {
+      // Day level: optimize just this day
+      const date = `${year}-${month}-${day}`;
+      return { from: date, to: date };
+    } else if (month) {
+      // Month level: optimize the entire month
+      const fromDate = `${year}-${month}-01`;
+      // Calculate last day of month
+      const lastDay = new Date(parseInt(year), parseInt(month), 0).getDate();
+      const toDate = `${year}-${month}-${lastDay.toString().padStart(2, '0')}`;
+      return { from: fromDate, to: toDate };
+    } else if (year) {
+      // Year level: optimize the entire year
+      const fromDate = `${year}-01-01`;
+      const toDate = `${year}-12-31`;
+      return { from: fromDate, to: toDate };
+    }
+
+    // Fallback (should not happen for day-partitioned tables)
+    throw new Error('Cannot derive date range from partition context');
+  };
+
+  const optimizeMutation = useMutation({
+    mutationFn: (partitionName: string) => {
+      const { from, to } = deriveDateRange(partitionName);
+      const fileSizeThresholdMb = 128;
+      return optimizeTable(tableName, fileSizeThresholdMb, from, to);
+    },
+    onSuccess: (data, partitionName) => {
+      const count = data.task_ids.length;
+      messageApi.success(
+        `Enqueued ${count} optimize task${count === 1 ? '' : 's'} for partition ${partitionName} (IDs: ${data.task_ids.slice(0, 3).join(', ')}${count > 3 ? '...' : ''})`
+      );
+      queryClient.invalidateQueries({ queryKey: ['tasks', tableName] });
+      queryClient.invalidateQueries({ queryKey: ['partitions', tableName, partitionFilters] });
+    },
+    onError: (error: Error, partitionName) => {
+      messageApi.error(`Failed to enqueue optimize task for partition ${partitionName}: ${error.message}`);
+    },
+  });
+
   // Build partition breadcrumb
   const partitionBreadcrumb: React.ReactNode[] = [];
   const filterKeys = Object.keys(partitionFilters || {});
@@ -202,6 +264,36 @@ function PartitionsPage() {
       key: 'total_data_file_size_in_bytes',
       align: 'right',
       render: (value: number) => formatBytes(value),
+    },
+    {
+      title: '',
+      key: 'actions',
+      align: 'center',
+      width: 120,
+      render: (_, record) => {
+        if (!record.needs_optimize || currentPartition.hidden.type !== 'day') {
+          return null;
+        }
+
+        return (
+          <Popconfirm
+            title="Optimize partition"
+            description={`Are you sure you want to optimize partition ${record.name}?`}
+            onConfirm={() => optimizeMutation.mutate(record.name)}
+            okText="Yes, optimize"
+            cancelText="Cancel"
+            disabled={optimizeMutation.isPending}
+          >
+            <Button 
+              type="primary" 
+              size="small" 
+              loading={optimizeMutation.isPending}
+            >
+              Optimize
+            </Button>
+          </Popconfirm>
+        );
+      },
     },
   ];
 

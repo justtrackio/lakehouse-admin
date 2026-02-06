@@ -27,17 +27,18 @@ func main() {
 		application.WithConfigSanitizers(cfg.TimeSanitizer),
 		application.WithLoggerHandlersFromConfig,
 		application.WithUTCClock(true),
-		application.WithModuleFactory("maintenance", NewModuleMaintenance),
+		application.WithModuleFactory("tasks", NewModuleTasks),
 		application.WithModuleFactory("refresh", NewModuleRefresh),
 		application.WithModuleFactory("http", httpserver.NewServer("default", func(ctx context.Context, config cfg.Config, logger log.Logger, router *httpserver.Router) error {
 			router.Use(cors.Default())
 			router.UseFactory(httpserver.CreateEmbeddedStaticServe(publicFs, "public", "/api"))
 
-			router.Group("/api/maintenance").HandleWith(sqlh.WithTx(NewHandlerMaintenance, func(r *httpserver.Router, handler *HandlerMaintenance) {
-				r.POST("/:table/expire-snapshots", sqlh.BindTx(handler.ExpireSnapshots))
-				r.POST("/:table/remove-orphan-files", sqlh.BindTx(handler.RemoveOrphanFiles))
-				r.POST("/:table/optimize", sqlh.BindTx(handler.Optimize))
-				r.GET("/tasks", sqlh.BindTx(handler.ListTasks))
+			router.Group("/api/tasks").HandleWith(httpserver.With(NewHandlerTasks, func(r *httpserver.Router, handler *HandlerTasks) {
+				r.POST("/:table/expire-snapshots", httpserver.Bind(handler.ExpireSnapshots))
+				r.POST("/:table/remove-orphan-files", httpserver.Bind(handler.RemoveOrphanFiles))
+				r.POST("/:table/optimize", httpserver.Bind(handler.Optimize))
+				r.GET("", httpserver.Bind(handler.ListTasks))
+				r.GET("/counts", httpserver.BindN(handler.TaskCounts))
 			}))
 
 			router.Group("/api/metadata").HandleWith(httpserver.With(NewHandlerMetadata, func(r *httpserver.Router, handler *HandlerMetadata) {

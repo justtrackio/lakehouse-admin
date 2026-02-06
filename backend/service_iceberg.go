@@ -108,6 +108,7 @@ func (s *ServiceIceberg) ListPartitions(ctx context.Context, logicalName string)
 			RecordCount:       stats.RecordCount,
 			FileCount:         stats.FileCount,
 			DataFileSizeBytes: stats.DataFileSizeBytes,
+			NeedsOptimize:     stats.SmallFileCount > 1,
 			LastUpdatedAt:     time.UnixMilli(stats.LastUpdatedAt),
 			LastSnapshotID:    stats.LastSnapshotID,
 		}

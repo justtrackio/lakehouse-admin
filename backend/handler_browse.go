@@ -23,6 +23,7 @@ type ListPartitionItem struct {
 	FileCount                int64  `json:"file_count" db:"file_count"`
 	RecordCount              int64  `json:"record_count" db:"record_count"`
 	TotalDataFileSizeInBytes int64  `json:"total_data_file_size_in_bytes" db:"total_data_file_size_in_bytes"`
+	NeedsOptimize            bool   `json:"needs_optimize" db:"needs_optimize"`
 }
 
 type ListPartitionsInput struct {
@@ -122,6 +123,7 @@ func (h *HandlerBrowse) ListPartitions(ctx context.Context, input *ListPartition
 		Column(sqlc.Col("p.file_count").Sum().As("file_count")).
 		Column(sqlc.Col("p.record_count").Sum().As("record_count")).
 		Column(sqlc.Col("p.total_data_file_size_in_bytes").Sum().As("total_data_file_size_in_bytes")).
+		Column(sqlc.Col("p.needs_optimize").Max().As("needs_optimize")).
 		Where(where).
 		GroupBy(sqlc.Lit(1)).
 		OrderBy(sqlc.Lit(1).Asc())

@@ -28,7 +28,7 @@ export function RemoveOrphanFilesCard({ tableName }: RemoveOrphanFilesCardProps)
     mutationFn: (values: { retention_days: number }) => removeOrphanFiles(tableName, values.retention_days),
     onSuccess: (data) => {
       messageApi.success(`Remove orphan files task enqueued (Task ID: ${data.task_id})`);
-      queryClient.invalidateQueries({ queryKey: ['maintenanceTasks', tableName] });
+      queryClient.invalidateQueries({ queryKey: ['tasks', tableName] });
     },
     onError: (error: Error) => {
       messageApi.error(`Failed to enqueue remove orphan files task: ${error.message}`);

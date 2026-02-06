@@ -120,20 +120,16 @@ func (s *ServiceMaintenanceExecutor) ExecuteRemoveOrphanFiles(ctx context.Contex
 }
 
 // ExecuteOptimize runs the actual Trino logic without DB logging
-func (s *ServiceMaintenanceExecutor) ExecuteOptimize(ctx context.Context, table string, fileSizeThresholdMb int, from DateTime, to DateTime) (*OptimizeResult, error) {
+func (s *ServiceMaintenanceExecutor) ExecuteOptimize(ctx context.Context, table string, fileSizeThresholdMb int, from time.Time, to time.Time) (*OptimizeResult, error) {
 	if fileSizeThresholdMb < 1 {
 		return nil, fmt.Errorf("file size threshold must be at least 1")
 	}
 
 	var desc *TableDescription
 	var partitionColumn string
-	var startDate, endDate time.Time
 	var err error
 
-	startDate = from.Time
-	endDate = to.Time
-
-	if startDate.After(endDate) {
+	if from.After(to) {
 		return nil, fmt.Errorf("from date must be before or equal to to date")
 	}
 
@@ -155,10 +151,10 @@ func (s *ServiceMaintenanceExecutor) ExecuteOptimize(ctx context.Context, table 
 	qualifiedTable := qualifiedTableName("lakehouse", "main", table)
 
 	// Single optimize execution for the given range
-	whereClause := fmt.Sprintf("date(%s) >= date '%s' AND date(%s) <= date '%s'", partitionColumn, startDate.Format(time.DateOnly), partitionColumn, endDate.Format(time.DateOnly))
+	whereClause := fmt.Sprintf("date(%s) >= date '%s' AND date(%s) <= date '%s'", partitionColumn, from.Format(time.DateOnly), partitionColumn, to.Format(time.DateOnly))
 	query := fmt.Sprintf("ALTER TABLE %s EXECUTE optimize(file_size_threshold => %s) WHERE %s", qualifiedTable, quoteLiteral(threshold), whereClause)
 
-	s.logger.Info(ctx, "optimizing table %s range %s to %s", table, startDate.Format(time.DateOnly), endDate.Format(time.DateOnly))
+	s.logger.Info(ctx, "optimizing table %s range %s to %s", table, from.Format(time.DateOnly), to.Format(time.DateOnly))
 
 	if err = s.trino.Exec(ctx, query); err != nil {
 		return nil, fmt.Errorf("could not optimize table %s (range %s): %w", table, whereClause, err)

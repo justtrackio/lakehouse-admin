@@ -1,10 +1,10 @@
 import { Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Table, Tag, Typography, Modal, Button, Tooltip } from 'antd';
+import { Alert, Table, Tag, Typography, Modal, Button } from 'antd';
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table';
 import { FilterValue } from 'antd/es/table/interface';
 import { useState } from 'react';
-import { MaintenanceTask, fetchMaintenanceTasks } from '../api/schema';
+import { Task, fetchTasks } from '../api/schema';
 
 const { Title } = Typography;
 
@@ -26,9 +26,9 @@ export function MaintenanceTasksTable({ tableName }: MaintenanceTasksTableProps)
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
 
   const { data, isLoading, isError, error } = useQuery({
-    queryKey: ['maintenanceTasks', tableName, pagination.current, pagination.pageSize, selectedKinds, selectedStatuses],
+    queryKey: ['tasks', tableName, pagination.current, pagination.pageSize, selectedKinds, selectedStatuses],
     queryFn: () =>
-      fetchMaintenanceTasks(
+      fetchTasks(
         tableName,
         pagination.pageSize || 10,
         ((pagination.current || 1) - 1) * (pagination.pageSize || 10),
@@ -65,14 +65,14 @@ export function MaintenanceTasksTable({ tableName }: MaintenanceTasksTableProps)
     setViewModalOpen(true);
   };
 
-  const columns: ColumnsType<MaintenanceTask> = [
+  const columns: ColumnsType<Task> = [
     {
       title: 'Table',
       dataIndex: 'table',
       key: 'table',
       hidden: !!tableName, // Hide if showing history for a specific table
       render: (text: string) => (
-        <Link to="/tables/$tableName/maintenance" params={{ tableName: text }}>
+        <Link to="/tables/$tableName/tasks" params={{ tableName: text }}>
           {text}
         </Link>
       ),
@@ -131,15 +131,10 @@ export function MaintenanceTasksTable({ tableName }: MaintenanceTasksTableProps)
       render: (text: string) => new Date(text).toLocaleString(),
     },
     {
-      title: 'Wait Time',
-      key: 'wait_time',
-      render: (_, record) => {
-        if (!record.picked_up_at) return <Tag>Queued</Tag>;
-        const start = new Date(record.started_at).getTime();
-        const pickedUp = new Date(record.picked_up_at).getTime();
-        const diff = pickedUp - start;
-        return <Tooltip title={`Picked up at ${new Date(record.picked_up_at).toLocaleString()}`}>{`${(diff / 1000).toFixed(2)}s`}</Tooltip>;
-      },
+      title: 'Finished At',
+      dataIndex: 'finished_at',
+      key: 'finished_at',
+      render: (text: string | null) => (text ? new Date(text).toLocaleString() : '-'),
     },
     {
       title: 'Execution Time',
@@ -188,7 +183,7 @@ export function MaintenanceTasksTable({ tableName }: MaintenanceTasksTableProps)
 
   return (
     <div style={{ marginTop: 24 }}>
-      <Title level={4}>{tableName ? 'Maintenance Tasks' : 'Global Maintenance Tasks'}</Title>
+      <Title level={4}>{tableName ? 'Tasks' : 'Global Tasks'}</Title>
       <Table
         columns={columns}
         dataSource={data?.items || []}

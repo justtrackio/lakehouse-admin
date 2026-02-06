@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Card, Typography, Table, Spin, Alert, Button } from 'antd';
+import { Card, Typography, Table, Spin, Alert, Button, Tooltip } from 'antd';
+import { CheckCircleOutlined, WarningOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { fetchTables, ListTableItem, refreshFull } from '../api/schema';
 import { formatNumber, formatBytes } from '../utils/format';
@@ -94,6 +95,26 @@ function IndexComponent() {
       key: 'total_data_file_size_in_bytes',
       align: 'right',
       render: (value: number) => formatBytes(value),
+    },
+    {
+      title: 'Status',
+      key: 'status',
+      align: 'center',
+      width: 80,
+      render: (_value, record) => {
+        if (record.needs_optimize) {
+          return (
+            <Tooltip title="Needs Optimization">
+              <WarningOutlined style={{ color: '#faad14', fontSize: '18px' }} />
+            </Tooltip>
+          );
+        }
+        return (
+          <Tooltip title="Healthy">
+            <CheckCircleOutlined style={{ color: '#52c41a', fontSize: '18px' }} />
+          </Tooltip>
+        );
+      },
     },
   ];
 

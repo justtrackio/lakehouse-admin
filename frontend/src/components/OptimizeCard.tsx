@@ -45,7 +45,7 @@ export function OptimizeCard({ tableName }: OptimizeCardProps) {
     onSuccess: (data) => {
       const count = data.task_ids.length;
       messageApi.success(`Enqueued ${count} optimize task${count === 1 ? '' : 's'} (IDs: ${data.task_ids.slice(0, 3).join(', ')}${count > 3 ? '...' : ''})`);
-      queryClient.invalidateQueries({ queryKey: ['maintenanceTasks', tableName] });
+      queryClient.invalidateQueries({ queryKey: ['tasks', tableName] });
     },
     onError: (error: Error) => {
       messageApi.error(`Failed to enqueue optimize task: ${error.message}`);

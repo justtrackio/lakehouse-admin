@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -99,6 +100,7 @@ type IcebergPartitionStats struct {
 	RecordCount       int64
 	FileCount         int64
 	DataFileSizeBytes int64
+	SmallFileCount    int64
 	LastUpdatedAt     int64
 	LastSnapshotID    int64
 }
@@ -107,6 +109,8 @@ type IcebergPartitionStats struct {
 // that match the TableDescription.Partitions names (year, month, day for time transforms,
 // or column name for identity transforms).
 func (c *IcebergClient) ListPartitions(ctx context.Context, logicalName string) ([]IcebergPartitionStats, error) {
+	// Hardcoded threshold: 128 MB
+	const smallFileThresholdBytes int64 = 128 * 1024 * 1024
 	tbl, err := c.LoadTable(ctx, logicalName)
 	if err != nil {
 		return nil, fmt.Errorf("could not load table: %w", err)
@@ -155,6 +159,10 @@ func (c *IcebergClient) ListPartitions(ctx context.Context, logicalName string) 
 		stats.RecordCount += file.Count()
 		stats.FileCount++
 		stats.DataFileSizeBytes += file.FileSizeBytes()
+
+		if file.FileSizeBytes() < smallFileThresholdBytes {
+			stats.SmallFileCount++
+		}
 	}
 
 	result := make([]IcebergPartitionStats, 0, len(partitionMap))
@@ -171,9 +179,15 @@ func (c *IcebergClient) partitionKeyString(partition map[int]any) string {
 		return "unpartitioned"
 	}
 
-	parts := make([]string, 0, len(partition))
-	for fieldID, val := range partition {
-		parts = append(parts, fmt.Sprintf("%d=%v", fieldID, val))
+	keys := make([]int, 0, len(partition))
+	for k := range partition {
+		keys = append(keys, k)
+	}
+	sort.Ints(keys)
+
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		parts = append(parts, fmt.Sprintf("%d=%v", k, partition[k]))
 	}
 
 	return strings.Join(parts, "|")
