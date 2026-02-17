@@ -1,17 +1,16 @@
 all: false
-dir: '{{.InterfaceDir}}'
-filename: 'mock_{{.InterfaceName}}_test.go'
+dir: '{{.InterfaceDir}}/mocks'
+filename: '{{.InterfaceName}}.go'
 force-file-write: true
 formatter: goimports
-inpackage: true
+generate: true
+include-auto-generated: false
 log-level: info
 structname: 'Mock{{.InterfaceName}}'
-pkgname: '{{.SrcPackageName}}'
-recursive: false
+pkgname: 'mocks'
+recursive: true
 template: testify
 packages:
   github.com/justtrackio/lakehouse-admin:
-    interfaces:
-      TaskClaimer:
-      MaintenanceExecutor:
-      SnapshotRefresher:
+    config:
+      all: true

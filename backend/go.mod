@@ -1,6 +1,6 @@
 module github.com/justtrackio/lakehouse-admin
 
-go 1.25.0
+go 1.25.7
 
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2

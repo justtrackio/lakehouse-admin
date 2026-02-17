@@ -10,6 +10,7 @@ import (
 	"github.com/justtrackio/gosoline/pkg/application"
 	"github.com/justtrackio/gosoline/pkg/cfg"
 	"github.com/justtrackio/gosoline/pkg/log"
+	"github.com/justtrackio/lakehouse-admin/internal"
 )
 
 //go:embed config.dist.yml
@@ -27,13 +28,13 @@ func main() {
 		application.WithConfigSanitizers(cfg.TimeSanitizer),
 		application.WithLoggerHandlersFromConfig,
 		application.WithUTCClock(true),
-		application.WithModuleFactory("tasks", NewModuleTasks),
-		application.WithModuleFactory("refresh", NewModuleRefresh),
+		application.WithModuleFactory("tasks", internal.NewModuleTasks),
+		application.WithModuleFactory("refresh", internal.NewModuleRefresh),
 		application.WithModuleFactory("http", httpserver.NewServer("default", func(ctx context.Context, config cfg.Config, logger log.Logger, router *httpserver.Router) error {
 			router.Use(cors.Default())
 			router.UseFactory(httpserver.CreateEmbeddedStaticServe(publicFs, "public", "/api"))
 
-			router.Group("/api/tasks").HandleWith(httpserver.With(NewHandlerTasks, func(r *httpserver.Router, handler *HandlerTasks) {
+			router.Group("/api/tasks").HandleWith(httpserver.With(internal.NewHandlerTasks, func(r *httpserver.Router, handler *internal.HandlerTasks) {
 				r.POST("/:table/expire-snapshots", httpserver.Bind(handler.ExpireSnapshots))
 				r.POST("/:table/remove-orphan-files", httpserver.Bind(handler.RemoveOrphanFiles))
 				r.POST("/:table/optimize", httpserver.Bind(handler.Optimize))
@@ -42,17 +43,17 @@ func main() {
 				r.DELETE("", httpserver.BindN(handler.FlushTasks))
 			}))
 
-			router.Group("/api/settings").HandleWith(httpserver.With(NewHandlerSettings, func(r *httpserver.Router, handler *HandlerSettings) {
+			router.Group("/api/settings").HandleWith(httpserver.With(internal.NewHandlerSettings, func(r *httpserver.Router, handler *internal.HandlerSettings) {
 				r.GET("/task-concurrency", httpserver.BindN(handler.GetTaskConcurrency))
 				r.PUT("/task-concurrency", httpserver.Bind(handler.SetTaskConcurrency))
 			}))
 
-			router.Group("/api/metadata").HandleWith(httpserver.With(NewHandlerMetadata, func(r *httpserver.Router, handler *HandlerMetadata) {
+			router.Group("/api/metadata").HandleWith(httpserver.With(internal.NewHandlerMetadata, func(r *httpserver.Router, handler *internal.HandlerMetadata) {
 				r.GET("/partitions", httpserver.Bind(handler.ListPartitions))
 				r.GET("/snapshots", httpserver.Bind(handler.ListSnapshots))
 			}))
 
-			router.Group("/api/refresh").HandleWith(sqlh.WithTx(NewHandlerRefresh, func(r *httpserver.Router, handler *HandlerRefresh) {
+			router.Group("/api/refresh").HandleWith(sqlh.WithTx(internal.NewHandlerRefresh, func(r *httpserver.Router, handler *internal.HandlerRefresh) {
 				r.GET("/tables", sqlh.BindTxN(handler.RefreshTables))
 				r.GET("/table", sqlh.BindTx(handler.RefreshTable))
 				r.GET("/table/partitions", sqlh.BindTx(handler.RefreshPartitions))
@@ -60,13 +61,13 @@ func main() {
 				r.GET("/full", sqlh.BindTxN(handler.RefreshFull))
 			}))
 
-			router.Group("/api/browse").HandleWith(httpserver.With(NewHandlerBrowse, func(r *httpserver.Router, handler *HandlerBrowse) {
+			router.Group("/api/browse").HandleWith(httpserver.With(internal.NewHandlerBrowse, func(r *httpserver.Router, handler *internal.HandlerBrowse) {
 				r.GET("/tables", httpserver.BindN(handler.ListTables))
 				r.GET("/:table", httpserver.Bind(handler.TableSummary))
 				r.POST("/:table/partitions", httpserver.Bind(handler.ListPartitions))
 			}))
 
-			router.Group("/api/iceberg").HandleWith(httpserver.With(NewHandlerIceberg, func(r *httpserver.Router, handler *HandlerIceberg) {
+			router.Group("/api/iceberg").HandleWith(httpserver.With(internal.NewHandlerIceberg, func(r *httpserver.Router, handler *internal.HandlerIceberg) {
 				r.GET("/tables", httpserver.BindN(handler.ListTables))
 				r.GET("/:table", httpserver.Bind(handler.DescribeTable))
 				r.GET("/snapshots", httpserver.Bind(handler.ListSnapshots))
