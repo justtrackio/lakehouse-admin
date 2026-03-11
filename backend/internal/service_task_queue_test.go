@@ -62,8 +62,9 @@ func (s *ServiceTaskQueueSuite) SetupTest() {
 }
 
 func (s *ServiceTaskQueueSuite) TearDownTest() {
-	s.NoError(s.mock.ExpectationsWereMet())
+	s.mock.ExpectClose()
 	s.NoError(s.sqlDB.Close())
+	s.NoError(s.mock.ExpectationsWereMet())
 }
 
 func TestServiceTaskQueueSuite(t *testing.T) {

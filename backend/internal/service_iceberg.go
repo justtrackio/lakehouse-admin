@@ -13,20 +13,27 @@ import (
 func NewServiceIceberg(ctx context.Context, config cfg.Config, logger log.Logger) (*ServiceIceberg, error) {
 	var err error
 	var client *IcebergClient
+	var settings *IcebergSettings
 
 	if client, err = ProvideIcebergClient(ctx, config, logger); err != nil {
 		return nil, fmt.Errorf("could not create iceberg client: %w", err)
 	}
 
+	if settings, err = ReadIcebergSettings(config); err != nil {
+		return nil, fmt.Errorf("could not unmarshal iceberg settings: %w", err)
+	}
+
 	return &ServiceIceberg{
-		logger: logger.WithChannel("iceberg"),
-		client: client,
+		logger:   logger.WithChannel("iceberg"),
+		client:   client,
+		settings: settings,
 	}, nil
 }
 
 type ServiceIceberg struct {
-	logger log.Logger
-	client *IcebergClient
+	logger   log.Logger
+	client   *IcebergClient
+	settings *IcebergSettings
 }
 
 func (s *ServiceIceberg) ListSnapshots(ctx context.Context, logicalName string) ([]IcebergSnapshot, error) {
@@ -95,20 +102,27 @@ func (s *ServiceIceberg) DescribeTable(ctx context.Context, logicalName string) 
 }
 
 func (s *ServiceIceberg) ListPartitions(ctx context.Context, logicalName string) ([]IcebergPartition, error) {
-	partitionStats, err := s.client.ListPartitions(ctx, logicalName)
-	if err != nil {
+	var err error
+	var partitionStats []IcebergPartitionStats
+	var needsOptimization bool
+
+	if partitionStats, err = s.client.ListPartitions(ctx, logicalName); err != nil {
 		return nil, fmt.Errorf("could not list partitions from iceberg: %w", err)
 	}
 
 	result := make([]IcebergPartition, len(partitionStats))
 	for i, stats := range partitionStats {
+		if needsOptimization, err = s.partitionNeedsOptimize(stats); err != nil {
+			return nil, fmt.Errorf("could not determine optimization for partition %s: %w", stats.Partition.String(), err)
+		}
+
 		result[i] = IcebergPartition{
 			Partition:         stats.Partition,
 			SpecID:            stats.SpecID,
 			RecordCount:       stats.RecordCount,
 			FileCount:         stats.FileCount,
 			DataFileSizeBytes: stats.DataFileSizeBytes,
-			NeedsOptimize:     stats.SmallFileCount > 1,
+			NeedsOptimize:     needsOptimization,
 			LastUpdatedAt:     time.UnixMilli(stats.LastUpdatedAt),
 			LastSnapshotID:    stats.LastSnapshotID,
 		}
@@ -117,4 +131,30 @@ func (s *ServiceIceberg) ListPartitions(ctx context.Context, logicalName string)
 	s.logger.Info(ctx, "listed %d partitions for table %s", len(result), logicalName)
 
 	return result, nil
+}
+
+func (s *ServiceIceberg) partitionNeedsOptimize(stats IcebergPartitionStats) (bool, error) {
+	var err error
+	var date *time.Time
+
+	needsOptimize := stats.SmallFileCount > 1
+
+	if !needsOptimize {
+		return false, nil
+	}
+
+	if date, err = stats.Partition.GetDate(); err != nil {
+		return false, fmt.Errorf("could not get date from partition: %w", err)
+	}
+
+	if date == nil {
+		return needsOptimize, nil
+	}
+
+	age := time.Since(*date)
+	if age < s.settings.NeedsOptimizeDelay {
+		return false, nil
+	}
+
+	return needsOptimize, nil
 }

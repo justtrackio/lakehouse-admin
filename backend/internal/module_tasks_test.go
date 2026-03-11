@@ -68,7 +68,9 @@ func (s *ModuleTasksSuite) SetupTest() {
 
 func (s *ModuleTasksSuite) TearDownTest() {
 	if s.sqlDB != nil {
+		s.mock.ExpectClose()
 		s.NoError(s.sqlDB.Close())
+		s.NoError(s.mock.ExpectationsWereMet())
 	}
 }
 
@@ -123,7 +125,7 @@ func (s *ModuleTasksSuite) TestProcessTask_ExpireSnapshots() {
 		}).
 		Return(nil)
 
-	// Mock WithTx to call the function immediately
+	// RefreshSnapshots runs inside a transaction.
 	s.mock.ExpectBegin()
 	s.mock.ExpectCommit()
 
@@ -172,10 +174,6 @@ func (s *ModuleTasksSuite) TestProcessTask_RemoveOrphanFiles() {
 			s.Equal("ok", result["status"])
 		}).
 		Return(nil)
-
-	// Mock WithTx to call the function immediately
-	s.mock.ExpectBegin()
-	s.mock.ExpectCommit()
 
 	err := s.module.ProcessTask(ctx, task)
 
@@ -228,10 +226,6 @@ func (s *ModuleTasksSuite) TestProcessTask_Optimize() {
 		}).
 		Return(nil)
 
-	// Mock WithTx to call the function immediately
-	s.mock.ExpectBegin()
-	s.mock.ExpectCommit()
-
 	err := s.module.ProcessTask(ctx, task)
 
 	s.NoError(err)
@@ -261,10 +255,6 @@ func (s *ModuleTasksSuite) TestProcessTask_UnknownKind() {
 			s.Nil(result) // result is nil for unknown kinds
 		}).
 		Return(nil)
-
-	// Mock WithTx to call the function immediately
-	s.mock.ExpectBegin()
-	s.mock.ExpectCommit()
 
 	err := s.module.ProcessTask(ctx, task)
 
@@ -308,10 +298,6 @@ func (s *ModuleTasksSuite) TestProcessTask_ExecutionError() {
 			s.Nil(result)
 		}).
 		Return(nil)
-
-	// Mock WithTx to call the function immediately
-	s.mock.ExpectBegin()
-	s.mock.ExpectCommit()
 
 	err := s.module.ProcessTask(ctx, task)
 

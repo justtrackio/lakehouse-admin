@@ -124,7 +124,7 @@ func (h *HandlerBrowse) ListPartitions(ctx context.Context, input *ListPartition
 		Column(sqlc.Col("p.file_count").Sum().As("file_count")).
 		Column(sqlc.Col("p.record_count").Sum().As("record_count")).
 		Column(sqlc.Col("p.total_data_file_size_in_bytes").Sum().As("total_data_file_size_in_bytes")).
-		Column(sqlc.Col("p.needs_optimize").Max().As("needs_optimize")).
+		Column(sqlc.Coalesce(sqlc.Col("p.needs_optimize").Max(), false).As("needs_optimize")).
 		Column(sqlc.Col("p.needs_optimize").Sum().As("needs_optimize_count")).
 		Where(where).
 		GroupBy(sqlc.Lit(1)).

@@ -27,7 +27,17 @@ const (
 )
 
 type IcebergSettings struct {
-	DefaultDatabase string `cfg:"default_database" default:"main"`
+	DefaultDatabase    string        `cfg:"default_database" default:"main"`
+	NeedsOptimizeDelay time.Duration `cfg:"needs_optimize_delay" default:"24h"`
+}
+
+func ReadIcebergSettings(config cfg.Config) (*IcebergSettings, error) {
+	settings := &IcebergSettings{}
+	if err := config.UnmarshalKey("iceberg", settings); err != nil {
+		return nil, fmt.Errorf("could not unmarshal iceberg settings: %w", err)
+	}
+
+	return settings, nil
 }
 
 type icebergCtxKey struct{}
@@ -36,9 +46,9 @@ func ProvideIcebergClient(ctx context.Context, config cfg.Config, logger log.Log
 	return appctx.Provide(ctx, icebergCtxKey{}, func() (*IcebergClient, error) {
 		var err error
 		var awsCfg aws.Config
+		var settings *IcebergSettings
 
-		settings := &IcebergSettings{}
-		if err = config.UnmarshalKey("iceberg", settings); err != nil {
+		if settings, err = ReadIcebergSettings(config); err != nil {
 			return nil, fmt.Errorf("could not unmarshal iceberg settings: %w", err)
 		}
 
@@ -98,18 +108,6 @@ func (c *IcebergClient) ListSnapshots(ctx context.Context, logicalName string) (
 	snapshots := metadata.Snapshots()
 
 	return snapshots, nil
-}
-
-type IcebergPartitionStats struct {
-	Partition         map[string]any
-	RawPartition      map[int]any
-	SpecID            int32
-	RecordCount       int64
-	FileCount         int64
-	DataFileSizeBytes int64
-	SmallFileCount    int64
-	LastUpdatedAt     int64
-	LastSnapshotID    int64
 }
 
 // ListPartitions returns partition stats with browse-compatible keys

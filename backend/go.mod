@@ -9,11 +9,11 @@ require (
 	github.com/apache/spark-connect-go v0.1.1-0.20250826122459-0e3d565b63e6
 	github.com/aws/aws-sdk-go-v2 v1.41.0
 	github.com/gin-contrib/cors v1.6.0
-	github.com/gosoline-project/httpserver v0.1.1-0.20260109134823-7aa2fb1e31bd
-	github.com/gosoline-project/sqlc v0.0.0-20260109132457-2b57a9f35d57
-	github.com/gosoline-project/sqlh v0.0.0-20260109135300-57679fe09319
+	github.com/gosoline-project/httpserver v0.2.0
+	github.com/gosoline-project/sqlc v0.2.0
+	github.com/gosoline-project/sqlh v0.3.0
 	github.com/jmoiron/sqlx v1.3.4
-	github.com/justtrackio/gosoline v0.54.8
+	github.com/justtrackio/gosoline v0.57.2
 	github.com/marusama/semaphore/v2 v2.5.0
 	github.com/spf13/cast v1.10.0
 	github.com/stretchr/testify v1.11.1
@@ -84,7 +84,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sso v1.29.6 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.35.1 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.38.6 // indirect
-	github.com/aws/aws-xray-sdk-go v1.7.0 // indirect
+	github.com/aws/aws-xray-sdk-go/v2 v2.0.0 // indirect
 	github.com/aws/smithy-go v1.24.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bytedance/gopkg v0.1.3 // indirect
@@ -106,7 +106,6 @@ require (
 	github.com/docker/docker v28.5.0+incompatible // indirect
 	github.com/docker/go-connections v0.6.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
-	github.com/elastic/go-elasticsearch/v7 v7.2.1-0.20190714143206-f1e755531ff4 // indirect
 	github.com/envoyproxy/go-control-plane/envoy v1.32.4 // indirect
 	github.com/envoyproxy/protoc-gen-validate v1.2.1 // indirect
 	github.com/ettle/strcase v0.2.0 // indirect
@@ -127,7 +126,6 @@ require (
 	github.com/go-playground/mold/v4 v4.2.0 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
 	github.com/go-playground/validator/v10 v10.27.0 // indirect
-	github.com/go-redis/redis/v8 v8.11.5 // indirect
 	github.com/go-resty/resty/v2 v2.7.1-0.20230308051516-1578007c3c8d // indirect
 	github.com/go-sql-driver/mysql v1.9.3 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
@@ -135,7 +133,6 @@ require (
 	github.com/goccy/go-yaml v1.18.0 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.0 // indirect
 	github.com/golang-migrate/migrate/v4 v4.18.1 // indirect
-	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/golang/snappy v1.0.0 // indirect
 	github.com/google/flatbuffers v25.2.10+incompatible // indirect
 	github.com/google/go-querystring v1.1.0 // indirect
@@ -146,7 +143,7 @@ require (
 	github.com/googleapis/enterprise-certificate-proxy v0.3.6 // indirect
 	github.com/googleapis/gax-go/v2 v2.15.0 // indirect
 	github.com/gookit/color v1.5.4 // indirect
-	github.com/gosoline-project/sqlr v0.0.0-20260109134651-ae6baf770d19 // indirect
+	github.com/gosoline-project/sqlr v0.3.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.1 // indirect
 	github.com/hamba/avro/v2 v2.30.0 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
@@ -173,7 +170,6 @@ require (
 	github.com/jessevdk/go-flags v1.6.1 // indirect
 	github.com/jinzhu/gorm v1.9.16 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
-	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/karlseguin/ccache v0.0.0-20181227155450-692cd618b264 // indirect
@@ -198,7 +194,6 @@ require (
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
-	github.com/onsi/gomega v1.38.2 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.1 // indirect
 	github.com/opencontainers/runc v1.3.1 // indirect
@@ -222,13 +217,13 @@ require (
 	github.com/pterm/pterm v0.12.81 // indirect
 	github.com/quic-go/qpack v0.5.1 // indirect
 	github.com/quic-go/quic-go v0.54.1 // indirect
+	github.com/redis/go-redis/v9 v9.17.3 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
 	github.com/segmentio/go-camelcase v0.0.0-20160726192923-7085f1e3c734 // indirect
 	github.com/segmentio/go-snakecase v1.2.0 // indirect
 	github.com/selm0/ladon v0.0.0-20231114080549-31144de4b38d // indirect
 	github.com/sethvargo/go-retry v0.2.4 // indirect
-	github.com/sha1sum/aws_signing_client v0.0.0-20170514202702-9088e4c7b34b // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/spiffe/go-spiffe/v2 v2.5.0 // indirect
@@ -288,8 +283,6 @@ require (
 	google.golang.org/protobuf v1.36.9 // indirect
 	gopkg.in/tomb.v2 v2.0.0-20161208151619-d5d1b5820637 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	gorm.io/driver/mysql v1.6.0 // indirect
-	gorm.io/gorm v1.31.1 // indirect
 	k8s.io/api v0.35.0 // indirect
 	k8s.io/apimachinery v0.35.0 // indirect
 	k8s.io/client-go v0.35.0 // indirect
