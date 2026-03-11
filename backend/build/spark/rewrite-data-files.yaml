@@ -1,0 +1,94 @@
+apiVersion: spark.apache.org/v1
+kind: SparkApplication
+metadata:
+  name: rewrite-data-files
+  namespace: lakehouse-admin
+spec:
+  deploymentMode: ClusterMode
+  pyFiles: https://raw.githubusercontent.com/justtrackio/lakehouse-admin/spark-rewrite/spark/iceberg_rewrite_data_files.py
+  sparkConf:
+    spark.dynamicAllocation.enabled: "true"
+    spark.dynamicAllocation.shuffleTracking.enabled: "true"
+    spark.dynamicAllocation.initialExecutors: "1"
+    spark.dynamicAllocation.minExecutors: "1"
+    spark.dynamicAllocation.maxExecutors: "5"
+    spark.driver.cores: "1"
+    spark.driver.memory: 1g
+    spark.executor.cores: "1"
+    spark.executor.memory: 1g
+    spark.executor.memoryOverhead: 512m
+    spark.driver.memoryOverhead: 512m
+    spark.driver.extraJavaOptions: -Divy.home=/tmp/.ivy2 -Divy.cache.dir=/tmp/.ivy2/cache
+    spark.jars.packages: org.apache.iceberg:iceberg-spark-runtime-4.0_2.13:1.10.0,org.apache.iceberg:iceberg-aws-bundle:1.10.0
+    spark.jars.ivy: /tmp/.ivy2
+    spark.kubernetes.authenticate.driver.serviceAccountName: gateway
+    spark.kubernetes.container.image: apache/spark:4.0.1
+    spark.kubernetes.container.image.pullPolicy: IfNotPresent
+    spark.kubernetes.namespace: lakehouse-admin
+    spark.sql.catalog.lakehouse: org.apache.iceberg.spark.SparkCatalog
+    spark.sql.catalog.lakehouse.io-impl: org.apache.iceberg.aws.s3.S3FileIO
+    spark.sql.catalog.lakehouse.type: glue
+    spark.sql.catalog.lakehouse.warehouse: s3://lakehouse-047452524847-eu-central-1
+    spark.sql.defaultCatalog: lakehouse
+    spark.sql.extensions: org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions
+  applicationTolerations:
+    instanceConfig:
+      initExecutors: 1
+      minExecutors: 1
+      maxExecutors: 5
+    resourceRetainPolicy: OnFailure
+  driverSpec:
+    podTemplateSpec:
+      spec:
+        serviceAccountName: gateway
+        containers:
+          - name: spark-kubernetes-driver
+            env:
+              - name: HOME
+                value: /tmp
+              - name: ICEBERG_CATALOG
+                value: lakehouse
+              - name: ICEBERG_DATABASE
+                value: main
+              - name: ICEBERG_TABLE
+                value: viewevent
+              - name: ICEBERG_WHERE_COLUMN
+                value: createdat
+              - name: ICEBERG_WHERE_FROM
+                value: 2026-02-01
+              - name: ICEBERG_WHERE_UNTIL
+                value: 2026-03-01
+              - name: TARGET_FILE_SIZE_BYTES
+                value: "536870912"
+              - name: MIN_INPUT_FILES
+                value: "2"
+              - name: PARTIAL_PROGRESS_ENABLED
+                value: "true"
+              - name: PARTIAL_PROGRESS_MAX_COMMITS
+                value: "10"
+            resources:
+              requests:
+                cpu: "1"
+                memory: 1536Mi
+              limits:
+                cpu: 1200m
+                memory: 1536Mi
+  executorSpec:
+    podTemplateSpec:
+      spec:
+        serviceAccountName: gateway
+        containers:
+          - name: spark-kubernetes-executor
+            env:
+              - name: HOME
+                value: /tmp
+            resources:
+              requests:
+                cpu: "1"
+                memory: 1536Mi
+              limits:
+                cpu: "1"
+                memory: 1536Mi
+  runtimeVersions:
+    scalaVersion: "2.13"
+    sparkVersion: "4.0.1"

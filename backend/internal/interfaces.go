@@ -2,22 +2,42 @@ package internal
 
 import (
 	"context"
-	"time"
 
 	"github.com/gosoline-project/sqlc"
+	"k8s.io/client-go/tools/cache"
+)
+
+type TaskKind string
+
+const (
+	TaskKindExpireSnapshots   TaskKind = "expire_snapshots"
+	TaskKindRemoveOrphanFiles TaskKind = "remove_orphan_files"
+	TaskKindOptimize          TaskKind = "optimize"
+)
+
+type TaskEngine string
+
+const (
+	TaskEngineTrino TaskEngine = "trino"
+	TaskEngineSpark TaskEngine = "spark"
 )
 
 // TaskClaimer abstracts task queue operations used by the task worker.
 type TaskClaimer interface {
 	ClaimTask(ctx context.Context) (*Task, error)
+	UpdateTaskResult(ctx context.Context, id int64, result map[string]any) error
 	CompleteTask(ctx context.Context, id int64, result map[string]any, err error) error
 }
 
-// MaintenanceExecutor abstracts maintenance execution operations.
 type MaintenanceExecutor interface {
-	ExecuteExpireSnapshots(ctx context.Context, table string, retentionDays int, retainLast int) (*ExpireSnapshotsResult, error)
-	ExecuteRemoveOrphanFiles(ctx context.Context, table string, retentionDays int) (*RemoveOrphanFilesResult, error)
-	ExecuteOptimize(ctx context.Context, table string, fileSizeThresholdMb int, from time.Time, to time.Time) (*OptimizeResult, error)
+	Engine() TaskEngine
+	Run(ctx context.Context) error
+	ProcessTask(ctx context.Context, task *Task) error
+}
+
+type SparkApplicationCreator interface {
+	CreateSparkApplication(ctx context.Context, manifest *SparkApplicationManifest) (*SparkApplicationManifest, error)
+	WatchSparkApplications(ctx context.Context) (cache.SharedIndexInformer, error)
 }
 
 // SnapshotRefresher abstracts the snapshot refresh operation.

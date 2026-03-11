@@ -9,6 +9,7 @@ import (
 	"github.com/gosoline-project/sqlh"
 	"github.com/justtrackio/gosoline/pkg/application"
 	"github.com/justtrackio/gosoline/pkg/cfg"
+	"github.com/justtrackio/gosoline/pkg/kernel"
 	"github.com/justtrackio/gosoline/pkg/log"
 	"github.com/justtrackio/lakehouse-admin/internal"
 )
@@ -28,7 +29,9 @@ func main() {
 		application.WithConfigSanitizers(cfg.TimeSanitizer),
 		application.WithLoggerHandlersFromConfig,
 		application.WithUTCClock(true),
-		application.WithModuleFactory("tasks", internal.NewModuleTasks),
+		application.WithModuleFactory("tasks", func(ctx context.Context, config cfg.Config, logger log.Logger) (kernel.Module, error) {
+			return internal.ProvideModuleTasks(ctx, config, logger)
+		}),
 		application.WithModuleFactory("refresh", internal.NewModuleRefresh),
 		application.WithModuleFactory("http", httpserver.NewServer("default", func(ctx context.Context, config cfg.Config, logger log.Logger, router *httpserver.Router) error {
 			router.Use(cors.Default())

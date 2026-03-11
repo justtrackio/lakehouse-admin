@@ -2,7 +2,10 @@ package internal
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/gosoline-project/sqlc"
@@ -12,25 +15,43 @@ import (
 )
 
 type ServiceTaskQueue struct {
-	logger    log.Logger
-	sqlClient sqlc.Client
+	logger                 log.Logger
+	sqlClient              sqlc.Client
+	serviceSettings        *ServiceSettings
+	defaultTaskConcurrency int
 }
 
 func NewServiceTaskQueue(ctx context.Context, config cfg.Config, logger log.Logger) (*ServiceTaskQueue, error) {
 	var err error
 	var sqlClient sqlc.Client
+	var serviceSettings *ServiceSettings
+	defaultTaskConcurrency := 1
 
 	if sqlClient, err = sqlc.ProvideClient(ctx, config, logger, "default"); err != nil {
 		return nil, fmt.Errorf("could not create sqlg client: %w", err)
 	}
 
+	if serviceSettings, err = NewServiceSettings(ctx, config, logger); err != nil {
+		return nil, fmt.Errorf("could not create settings service: %w", err)
+	}
+
+	if defaultTaskConcurrency, err = config.GetInt("tasks.worker_count"); err != nil {
+		defaultTaskConcurrency = 1
+	}
+
+	if defaultTaskConcurrency < 1 {
+		defaultTaskConcurrency = 1
+	}
+
 	return &ServiceTaskQueue{
-		logger:    logger.WithChannel("task_queue"),
-		sqlClient: sqlClient,
+		logger:                 logger.WithChannel("task_queue"),
+		sqlClient:              sqlClient,
+		serviceSettings:        serviceSettings,
+		defaultTaskConcurrency: defaultTaskConcurrency,
 	}, nil
 }
 
-func (s *ServiceTaskQueue) EnqueueTask(ctx context.Context, table string, kind string, input map[string]any) (int64, error) {
+func (s *ServiceTaskQueue) EnqueueTask(ctx context.Context, table string, kind string, engine string, input map[string]any) (int64, error) {
 	var err error
 	var res sqlc.Result
 	var id int64
@@ -38,6 +59,7 @@ func (s *ServiceTaskQueue) EnqueueTask(ctx context.Context, table string, kind s
 	entry := &Task{
 		Table:     table,
 		Kind:      kind,
+		Engine:    engine,
 		StartedAt: time.Now(),
 		Status:    "queued",
 		Input:     db.NewJSON(input, db.NonNullable{}),
@@ -57,51 +79,94 @@ func (s *ServiceTaskQueue) EnqueueTask(ctx context.Context, table string, kind s
 }
 
 func (s *ServiceTaskQueue) ClaimTask(ctx context.Context) (*Task, error) {
+	taskConcurrency, err := s.serviceSettings.GetIntSetting(ctx, "task_concurrency", s.defaultTaskConcurrency)
+	if err != nil {
+		return nil, fmt.Errorf("could not load task concurrency setting: %w", err)
+	}
+
+	if taskConcurrency < 1 {
+		taskConcurrency = 1
+	}
+
+	var claimedTask *Task
+
+	for i := 0; i < 3; i++ {
+		err = s.sqlClient.WithTx(ctx, func(cttx sqlc.Tx) error {
+			return s.claimTaskWithConcurrency(cttx, taskConcurrency, &claimedTask)
+		}, &sql.TxOptions{Isolation: sql.LevelSerializable})
+		if err == nil {
+			return claimedTask, nil
+		}
+
+		if !isTaskClaimRetryable(err) {
+			return nil, err
+		}
+	}
+
+	return nil, fmt.Errorf("could not claim task after retries: %w", err)
+}
+
+func (s *ServiceTaskQueue) claimTaskWithConcurrency(ctx sqlc.Tx, taskConcurrency int, claimedTask **Task) error {
 	var err error
 	var res sqlc.Result
 	var affected int64
 
-	// Optimistic locking loop
-	for i := 0; i < 3; i++ {
-		var task Task
-		// 1. Find oldest queued task that doesn't have another task running for the same table
-		// Use raw SQL for the NOT IN subquery since sqlc's NotIn() only supports scalar values
-		err = s.sqlClient.Q().From("tasks").
-			Where(sqlc.Eq{"status": "queued"}).
-			Where("`table` NOT IN (SELECT `table` FROM `tasks` WHERE `status` = ?)", "running").
-			OrderBy(sqlc.Col("started_at").Asc()).
-			Limit(1).
-			Get(ctx, &task)
-		if err != nil {
-			// If we can't find a task, we assume the queue is empty.
-			return nil, nil
-		}
-
-		// 2. Try to claim it atomically
-		now := time.Now()
-		upd := s.sqlClient.Q().Update("tasks").
-			Set("status", "running").
-			Set("picked_up_at", &now).
-			Where(sqlc.Eq{"id": task.Id, "status": "queued"})
-
-		if res, err = upd.Exec(ctx); err != nil {
-			return nil, fmt.Errorf("could not update task status to running: %w", err)
-		}
-
-		if affected, err = res.RowsAffected(); err != nil {
-			return nil, fmt.Errorf("could not get rows affected: %w", err)
-		}
-
-		if affected > 0 {
-			task.Status = "running"
-			task.PickedUpAt = &now
-
-			return &task, nil
-		}
-		// If affected == 0, another worker claimed it between Step 1 and 2. Retry.
+	var runningCount struct {
+		Count int `db:"count"`
 	}
 
-	return nil, nil
+	stmt := ctx.Q().From("tasks").Column(sqlc.Col("*").Count().As("count")).Where(sqlc.Eq{"status": "running"})
+	if err := stmt.Get(ctx, &runningCount); err != nil {
+		return fmt.Errorf("could not count running tasks: %w", err)
+	}
+
+	if runningCount.Count >= taskConcurrency {
+		*claimedTask = nil
+		return nil
+	}
+
+	var task Task
+	stmt = ctx.Q().From("tasks").Where(sqlc.Eq{"status": "queued"}).OrderBy(sqlc.Col("started_at").Asc()).Limit(1)
+	if err := stmt.Get(ctx, &task); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			*claimedTask = nil
+			return nil
+		}
+
+		return fmt.Errorf("could not select queued task: %w", err)
+	}
+
+	now := time.Now()
+	upd := ctx.Q().Update("tasks").Set("status", "running").Set("picked_up_at", &now).Where(sqlc.Eq{"id": task.Id, "status": "queued"})
+	if res, err = upd.Exec(ctx); err != nil {
+		return fmt.Errorf("could not update task status to running: %w", err)
+	}
+
+	if affected, err = res.RowsAffected(); err != nil {
+		return fmt.Errorf("could not get rows affected: %w", err)
+	}
+
+	if affected == 0 {
+		return fmt.Errorf("queued task %d could not be claimed due to concurrent update", task.Id)
+	}
+
+	task.Status = "running"
+	task.PickedUpAt = &now
+	*claimedTask = &task
+
+	return nil
+}
+
+func isTaskClaimRetryable(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	errMessage := err.Error()
+
+	errMessage = strings.ToLower(errMessage)
+
+	return strings.Contains(errMessage, "deadlock") || strings.Contains(errMessage, "concurrent update")
 }
 
 func (s *ServiceTaskQueue) CompleteTask(ctx context.Context, id int64, result map[string]any, err error) error {
@@ -114,16 +179,52 @@ func (s *ServiceTaskQueue) CompleteTask(ctx context.Context, id int64, result ma
 		errMsg = &msg
 	}
 
+	var task Task
+	if getErr := s.sqlClient.Q().From("tasks").Where(sqlc.Eq{"id": id}).Limit(1).Get(ctx, &task); getErr != nil {
+		return fmt.Errorf("could not load task for completion: %w", getErr)
+	}
+
+	mergedResult := task.Result.Get()
+	if mergedResult == nil {
+		mergedResult = make(map[string]any)
+	}
+
+	for key, value := range result {
+		mergedResult[key] = value
+	}
+
 	now := time.Now()
 	upd := s.sqlClient.Q().Update("tasks").
 		Set("finished_at", &now).
 		Set("status", status).
 		Set("error_message", errMsg).
+		Set("result", db.NewJSON(mergedResult, db.NonNullable{})).
+		Where(sqlc.Eq{"id": id, "status": "running"})
+
+	res, err := upd.Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("could not complete task: %w", err)
+	}
+
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("could not get rows affected when completing task: %w", err)
+	}
+
+	if affected == 0 {
+		return nil
+	}
+
+	return nil
+}
+
+func (s *ServiceTaskQueue) UpdateTaskResult(ctx context.Context, id int64, result map[string]any) error {
+	upd := s.sqlClient.Q().Update("tasks").
 		Set("result", db.NewJSON(result, db.NonNullable{})).
 		Where(sqlc.Eq{"id": id})
 
 	if _, err := upd.Exec(ctx); err != nil {
-		return fmt.Errorf("could not complete task: %w", err)
+		return fmt.Errorf("could not update task result: %w", err)
 	}
 
 	return nil

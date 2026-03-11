@@ -20,14 +20,9 @@ type SetTaskConcurrencyRequest struct {
 func NewHandlerSettings(ctx context.Context, config cfg.Config, logger log.Logger) (*HandlerSettings, error) {
 	var err error
 	var serviceSettings *ServiceSettings
-	var moduleTasks *ModuleTasks
 
 	if serviceSettings, err = NewServiceSettings(ctx, config, logger); err != nil {
 		return nil, fmt.Errorf("could not create settings service: %w", err)
-	}
-
-	if moduleTasks, err = ProvideModuleTasks(ctx, config, logger); err != nil {
-		return nil, fmt.Errorf("could not create tasks module: %w", err)
 	}
 
 	// Get the default from config as fallback
@@ -41,7 +36,6 @@ func NewHandlerSettings(ctx context.Context, config cfg.Config, logger log.Logge
 
 	return &HandlerSettings{
 		serviceSettings:    serviceSettings,
-		moduleTasks:        moduleTasks,
 		defaultWorkerCount: defaultWorkerCount,
 		logger:             logger.WithChannel("handler_settings"),
 	}, nil
@@ -49,7 +43,6 @@ func NewHandlerSettings(ctx context.Context, config cfg.Config, logger log.Logge
 
 type HandlerSettings struct {
 	serviceSettings    *ServiceSettings
-	moduleTasks        *ModuleTasks
 	defaultWorkerCount int
 	logger             log.Logger
 }
@@ -76,7 +69,6 @@ func (h *HandlerSettings) SetTaskConcurrency(ctx context.Context, input *SetTask
 		return nil, fmt.Errorf("failed to set task concurrency: %w", err)
 	}
 
-	h.moduleTasks.SetWorkerCount(input.Value)
 	h.logger.Info(ctx, "updated task concurrency to %d", input.Value)
 
 	return httpserver.NewJsonResponse(&TaskConcurrencyResponse{

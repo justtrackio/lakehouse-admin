@@ -18,12 +18,14 @@ const (
 type ServiceTasks struct {
 	logger           log.Logger
 	serviceTaskQueue *ServiceTaskQueue
+	engineResolver   *TaskEngineResolver
 	sqlClient        sqlc.Client
 }
 
 func NewServiceTasks(ctx context.Context, config cfg.Config, logger log.Logger) (*ServiceTasks, error) {
 	var err error
 	var serviceTaskQueue *ServiceTaskQueue
+	var engineResolver *TaskEngineResolver
 	var sqlClient sqlc.Client
 
 	if serviceTaskQueue, err = NewServiceTaskQueue(ctx, config, logger); err != nil {
@@ -34,9 +36,14 @@ func NewServiceTasks(ctx context.Context, config cfg.Config, logger log.Logger) 
 		return nil, fmt.Errorf("could not create sql client: %w", err)
 	}
 
+	if engineResolver, err = NewTaskEngineResolver(config); err != nil {
+		return nil, fmt.Errorf("could not create task engine resolver: %w", err)
+	}
+
 	return &ServiceTasks{
 		logger:           logger.WithChannel("tasks"),
 		serviceTaskQueue: serviceTaskQueue,
+		engineResolver:   engineResolver,
 		sqlClient:        sqlClient,
 	}, nil
 }
@@ -57,7 +64,12 @@ func (s *ServiceTasks) EnqueueExpireSnapshots(ctx context.Context, table string,
 		"retain_last":    retainLast,
 	}
 
-	taskId, err := s.serviceTaskQueue.EnqueueTask(ctx, table, "expire_snapshots", taskInput)
+	engine, err := s.engineResolver.Resolve(TaskKindExpireSnapshots)
+	if err != nil {
+		return 0, fmt.Errorf("could not resolve engine for expire snapshots task: %w", err)
+	}
+
+	taskId, err := s.serviceTaskQueue.EnqueueTask(ctx, table, string(TaskKindExpireSnapshots), string(engine), taskInput)
 	if err != nil {
 		return 0, fmt.Errorf("could not enqueue expire snapshots task: %w", err)
 	}
@@ -76,7 +88,12 @@ func (s *ServiceTasks) EnqueueRemoveOrphanFiles(ctx context.Context, table strin
 		"retention_days": retentionDays,
 	}
 
-	taskId, err := s.serviceTaskQueue.EnqueueTask(ctx, table, "remove_orphan_files", taskInput)
+	engine, err := s.engineResolver.Resolve(TaskKindRemoveOrphanFiles)
+	if err != nil {
+		return 0, fmt.Errorf("could not resolve engine for remove orphan files task: %w", err)
+	}
+
+	taskId, err := s.serviceTaskQueue.EnqueueTask(ctx, table, string(TaskKindRemoveOrphanFiles), string(engine), taskInput)
 	if err != nil {
 		return 0, fmt.Errorf("could not enqueue remove orphan files task: %w", err)
 	}
@@ -90,6 +107,10 @@ func (s *ServiceTasks) EnqueueOptimize(ctx context.Context, table string, fileSi
 	var err error
 	var taskId int64
 	var taskIds []int64
+	engine, err := s.engineResolver.Resolve(TaskKindOptimize)
+	if err != nil {
+		return nil, fmt.Errorf("could not resolve engine for optimize task: %w", err)
+	}
 
 	// Apply default threshold
 	if fileSizeThresholdMb < 1 {
@@ -154,7 +175,7 @@ func (s *ServiceTasks) EnqueueOptimize(ctx context.Context, table string, fileSi
 			"to":                     partitionDate, // Single day
 		}
 
-		if taskId, err = s.serviceTaskQueue.EnqueueTask(ctx, table, "optimize", taskInput); err != nil {
+		if taskId, err = s.serviceTaskQueue.EnqueueTask(ctx, table, string(TaskKindOptimize), string(engine), taskInput); err != nil {
 			return nil, fmt.Errorf("could not enqueue optimize task for date %s: %w", dateStr, err)
 		}
 		taskIds = append(taskIds, taskId)

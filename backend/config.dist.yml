@@ -20,10 +20,9 @@ iceberg:
   default_database: main
   needs_optimize_delay: 96h # 4 days
 
-k8s:
-  default:
-    client_mode: in-cluster
-    namespace: lakehouse-admin
+kube:
+  client_mode: "in-cluster"
+  context: "arn:aws:eks:eu-central-1:{aws.account_id}:cluster/{aws.organizational_unit}-marketing"
 
 log:
   level: info
@@ -34,6 +33,10 @@ refresh:
 tasks:
   worker_count: 1
   poll_interval: 1s
+  engines:
+    expire_snapshots: trino
+    remove_orphan_files: trino
+    optimize: spark
 
 spark:
   endpoint: sc://spark-connect-server-svc.spark:15002

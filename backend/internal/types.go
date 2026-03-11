@@ -89,6 +89,7 @@ type Task struct {
 	Id           int64                                   `json:"id" db:"id"`
 	Table        string                                  `json:"table" db:"table"`
 	Kind         string                                  `json:"kind" db:"kind"`
+	Engine       string                                  `json:"engine" db:"engine"`
 	StartedAt    time.Time                               `json:"started_at" db:"started_at"`
 	PickedUpAt   *time.Time                              `json:"picked_up_at" db:"picked_up_at"`
 	FinishedAt   *time.Time                              `json:"finished_at" db:"finished_at"`
@@ -102,6 +103,7 @@ type sTask struct {
 	Id           int64          `json:"id" db:"id"`
 	Table        string         `json:"table" db:"table"`
 	Kind         string         `json:"kind" db:"kind"`
+	Engine       string         `json:"engine" db:"engine"`
 	StartedAt    time.Time      `json:"started_at" db:"started_at"`
 	PickedUpAt   *time.Time     `json:"picked_up_at" db:"picked_up_at"`
 	FinishedAt   *time.Time     `json:"finished_at" db:"finished_at"`
