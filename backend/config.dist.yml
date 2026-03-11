@@ -1,9 +1,6 @@
-env: dev
-
-app_project: applike
-app_family: justtrack
-app_group: justdev
-app_name: lakehouse-admin
+app:
+  env: dev
+  name: lakehouse-admin
 
 cloud:
   aws:
@@ -21,6 +18,7 @@ httpserver:
 
 iceberg:
   default_database: main
+  needs_optimize_delay: 96h # 4 days
 
 k8s:
   default:

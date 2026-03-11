@@ -26,15 +26,15 @@ type sSnapshot struct {
 }
 
 type Partition struct {
-	Table                    string                                  `json:"table" db:"table"`
-	Partition                db.JSON[map[string]any, db.NonNullable] `json:"partition" db:"partition"`
-	SpecId                   int                                     `json:"spec_id" db:"spec_id"`
-	RecordCount              int64                                   `json:"record_count" db:"record_count"`
-	FileCount                int64                                   `json:"file_count" db:"file_count"`
-	TotalDataFileSizeInBytes int64                                   `json:"total_data_file_size_in_bytes" db:"total_data_file_size_in_bytes"`
-	LastUpdatedAt            time.Time                               `json:"last_updated_at" db:"last_updated_at"`
-	LastUpdatedSnapshotId    int64                                   `json:"last_updated_snapshot_id" db:"last_updated_snapshot_id"`
-	NeedsOptimize            bool                                    `json:"needs_optimize" db:"needs_optimize"`
+	Table                    string                                   `json:"table" db:"table"`
+	Partition                db.JSON[PartitionValues, db.NonNullable] `json:"partition" db:"partition"`
+	SpecId                   int                                      `json:"spec_id" db:"spec_id"`
+	RecordCount              int64                                    `json:"record_count" db:"record_count"`
+	FileCount                int64                                    `json:"file_count" db:"file_count"`
+	TotalDataFileSizeInBytes int64                                    `json:"total_data_file_size_in_bytes" db:"total_data_file_size_in_bytes"`
+	LastUpdatedAt            time.Time                                `json:"last_updated_at" db:"last_updated_at"`
+	LastUpdatedSnapshotId    int64                                    `json:"last_updated_snapshot_id" db:"last_updated_snapshot_id"`
+	NeedsOptimize            bool                                     `json:"needs_optimize" db:"needs_optimize"`
 }
 
 type sPartition struct {

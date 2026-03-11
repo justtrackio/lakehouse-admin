@@ -8,7 +8,7 @@ Strict adherence to these guidelines is required to maintain the stability and q
 The `lakehouse-admin` project is a management interface for a Data Lakehouse, providing tools to browse metadata, optimize tables (Iceberg), and manage maintenance tasks.
 
 *   **Backend (`/backend`)**:
-    *   **Language**: Go 1.25+
+    *   **Language**: go 1.24+
     *   **Framework**: `gosoline` (JustTrack's opinionated framework).
     *   **Role**: Serves the REST API, handles background jobs, and communicates with Trino/Spark.
     *   **Data Access**: Uses `sqlx` and `gosoline`'s db helpers.

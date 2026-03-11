@@ -64,6 +64,66 @@ function PartitionsPage() {
     enabled: !!table,
   });
 
+  const partitions = table?.partitions ?? [];
+  const currentLevelIndex = Object.keys(partitionFilters || {}).length;
+  const currentPartition = partitions[currentLevelIndex];
+
+  const deriveDateRange = (partitionName: string): { from: string; to: string } => {
+    if (!currentPartition) {
+      throw new Error('Cannot derive date range without a valid partition context');
+    }
+
+    const filters = partitionFilters || {};
+
+    const fullContext = {
+      ...filters,
+      [currentPartition.name]: partitionName,
+    };
+
+    const year = fullContext.year;
+    const month = fullContext.month;
+    const day = fullContext.day;
+
+    if (day) {
+      const date = `${year}-${month}-${day}`;
+      return { from: date, to: date };
+    }
+
+    if (month) {
+      const fromDate = `${year}-${month}-01`;
+      const lastDay = new Date(parseInt(year), parseInt(month), 0).getDate();
+      const toDate = `${year}-${month}-${lastDay.toString().padStart(2, '0')}`;
+      return { from: fromDate, to: toDate };
+    }
+
+    if (year) {
+      const fromDate = `${year}-01-01`;
+      const toDate = `${year}-12-31`;
+      return { from: fromDate, to: toDate };
+    }
+
+    throw new Error('Cannot derive date range from partition context');
+  };
+
+  const optimizeMutation = useMutation({
+    mutationFn: (partitionName: string) => {
+      const { from, to } = deriveDateRange(partitionName);
+      const fileSizeThresholdMb = 128;
+      return optimizeTable(tableName, fileSizeThresholdMb, from, to);
+    },
+    onSuccess: (data, partitionName) => {
+      const count = data.task_ids.length;
+      messageApi.success(
+        `Enqueued ${count} optimize task${count === 1 ? '' : 's'} for partition ${partitionName} (IDs: ${data.task_ids.slice(0, 3).join(', ')}${count > 3 ? '...' : ''})`
+      );
+      queryClient.invalidateQueries({ queryKey: ['tasks', tableName] });
+      queryClient.invalidateQueries({ queryKey: ['partitions', tableName, partitionFilters] });
+    },
+    onError: (error: Error, partitionName) => {
+      messageApi.error(`Failed to enqueue optimize task for partition ${partitionName}: ${error.message}`);
+    },
+  });
+
   if (isLoadingTable) {
     return (
       <div style={{ textAlign: 'center', padding: '24px 0' }}>
@@ -95,8 +155,6 @@ function PartitionsPage() {
     );
   }
 
-  const partitions = table.partitions ?? [];
-
   if (partitions.length === 0) {
     return (
       <Alert
@@ -107,9 +165,6 @@ function PartitionsPage() {
       />
     );
   }
-
-  const currentLevelIndex = Object.keys(partitionFilters || {}).length;
-  const currentPartition = partitions[currentLevelIndex];
 
   if (!currentPartition) {
     return (
@@ -134,62 +189,6 @@ function PartitionsPage() {
       search: { partitions: newFilters },
     });
   };
-
-  // Derive date range from partition context for optimize task
-  const deriveDateRange = (partitionName: string): { from: string; to: string } => {
-    const filters = partitionFilters || {};
-    
-    // Build the full date context by combining filters with the current level's value
-    const fullContext = {
-      ...filters,
-      [currentPartition.name]: partitionName,
-    };
-
-    // Extract year, month, day from the full context
-    const year = fullContext.year;
-    const month = fullContext.month;
-    const day = fullContext.day;
-
-    if (day) {
-      // Day level: optimize just this day
-      const date = `${year}-${month}-${day}`;
-      return { from: date, to: date };
-    } else if (month) {
-      // Month level: optimize the entire month
-      const fromDate = `${year}-${month}-01`;
-      // Calculate last day of month
-      const lastDay = new Date(parseInt(year), parseInt(month), 0).getDate();
-      const toDate = `${year}-${month}-${lastDay.toString().padStart(2, '0')}`;
-      return { from: fromDate, to: toDate };
-    } else if (year) {
-      // Year level: optimize the entire year
-      const fromDate = `${year}-01-01`;
-      const toDate = `${year}-12-31`;
-      return { from: fromDate, to: toDate };
-    }
-
-    // Fallback (should not happen for day-partitioned tables)
-    throw new Error('Cannot derive date range from partition context');
-  };
-
-  const optimizeMutation = useMutation({
-    mutationFn: (partitionName: string) => {
-      const { from, to } = deriveDateRange(partitionName);
-      const fileSizeThresholdMb = 128;
-      return optimizeTable(tableName, fileSizeThresholdMb, from, to);
-    },
-    onSuccess: (data, partitionName) => {
-      const count = data.task_ids.length;
-      messageApi.success(
-        `Enqueued ${count} optimize task${count === 1 ? '' : 's'} for partition ${partitionName} (IDs: ${data.task_ids.slice(0, 3).join(', ')}${count > 3 ? '...' : ''})`
-      );
-      queryClient.invalidateQueries({ queryKey: ['tasks', tableName] });
-      queryClient.invalidateQueries({ queryKey: ['partitions', tableName, partitionFilters] });
-    },
-    onError: (error: Error, partitionName) => {
-      messageApi.error(`Failed to enqueue optimize task for partition ${partitionName}: ${error.message}`);
-    },
-  });
 
   // Build partition breadcrumb
   const partitionBreadcrumb: React.ReactNode[] = [];
