@@ -326,6 +326,7 @@ func (s *ServiceTaskQueue) ListTasks(ctx context.Context, table string, kinds []
 			Id:           r.Id,
 			Table:        r.Table,
 			Kind:         r.Kind,
+			Engine:       r.Engine,
 			StartedAt:    r.StartedAt,
 			PickedUpAt:   r.PickedUpAt,
 			FinishedAt:   r.FinishedAt,

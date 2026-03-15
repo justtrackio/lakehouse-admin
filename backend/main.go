@@ -37,6 +37,11 @@ func main() {
 			router.Use(cors.Default())
 			router.UseFactory(httpserver.CreateEmbeddedStaticServe(publicFs, "public", "/api"))
 
+			router.Group("/api/maintenance").HandleWith(httpserver.With(internal.NewHandlerMaintenance, func(r *httpserver.Router, handler *internal.HandlerMaintenance) {
+				r.POST("/expire-snapshots", httpserver.Bind(handler.ExpireSnapshots))
+				r.POST("/remove-orphan-files", httpserver.Bind(handler.RemoveOrphanFiles))
+			}))
+
 			router.Group("/api/tasks").HandleWith(httpserver.With(internal.NewHandlerTasks, func(r *httpserver.Router, handler *internal.HandlerTasks) {
 				r.POST("/:table/expire-snapshots", httpserver.Bind(handler.ExpireSnapshots))
 				r.POST("/:table/remove-orphan-files", httpserver.Bind(handler.RemoveOrphanFiles))

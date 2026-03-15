@@ -3,6 +3,7 @@ package internal
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/gosoline-project/sqlc"
@@ -20,6 +21,17 @@ type ServiceTasks struct {
 	serviceTaskQueue *ServiceTaskQueue
 	engineResolver   *TaskEngineResolver
 	sqlClient        sqlc.Client
+}
+
+type BatchEnqueueFailure struct {
+	Table string `json:"table"`
+	Error string `json:"error"`
+}
+
+type BatchEnqueueResult struct {
+	TaskIds       []int64               `json:"task_ids"`
+	EnqueuedCount int64                 `json:"enqueued_count"`
+	FailedTables  []BatchEnqueueFailure `json:"failed_tables"`
 }
 
 func NewServiceTasks(ctx context.Context, config cfg.Config, logger log.Logger) (*ServiceTasks, error) {
@@ -99,6 +111,18 @@ func (s *ServiceTasks) EnqueueRemoveOrphanFiles(ctx context.Context, table strin
 	}
 
 	return taskId, nil
+}
+
+func (s *ServiceTasks) EnqueueExpireSnapshotsBatch(ctx context.Context, tables []string, retentionDays int, retainLast int) (*BatchEnqueueResult, error) {
+	return s.enqueueBatch(ctx, tables, func(cttx context.Context, table string) (int64, error) {
+		return s.EnqueueExpireSnapshots(cttx, table, retentionDays, retainLast)
+	})
+}
+
+func (s *ServiceTasks) EnqueueRemoveOrphanFilesBatch(ctx context.Context, tables []string, retentionDays int) (*BatchEnqueueResult, error) {
+	return s.enqueueBatch(ctx, tables, func(cttx context.Context, table string) (int64, error) {
+		return s.EnqueueRemoveOrphanFiles(cttx, table, retentionDays)
+	})
 }
 
 // EnqueueOptimize queries the partitions table for partitions that need optimization
@@ -182,6 +206,56 @@ func (s *ServiceTasks) EnqueueOptimize(ctx context.Context, table string, fileSi
 	}
 
 	return taskIds, nil
+}
+
+func (s *ServiceTasks) enqueueBatch(ctx context.Context, tables []string, enqueue func(context.Context, string) (int64, error)) (*BatchEnqueueResult, error) {
+	normalizedTables := normalizeBatchTables(tables)
+	if len(normalizedTables) == 0 {
+		return nil, fmt.Errorf("at least one table must be provided")
+	}
+
+	result := &BatchEnqueueResult{
+		TaskIds:      make([]int64, 0, len(normalizedTables)),
+		FailedTables: make([]BatchEnqueueFailure, 0),
+	}
+
+	for _, table := range normalizedTables {
+		taskID, err := enqueue(ctx, table)
+		if err != nil {
+			s.logger.Warn(ctx, "failed to enqueue maintenance task for table %s: %s", table, err)
+			result.FailedTables = append(result.FailedTables, BatchEnqueueFailure{
+				Table: table,
+				Error: err.Error(),
+			})
+			continue
+		}
+
+		result.TaskIds = append(result.TaskIds, taskID)
+		result.EnqueuedCount++
+	}
+
+	return result, nil
+}
+
+func normalizeBatchTables(tables []string) []string {
+	normalized := make([]string, 0, len(tables))
+	seen := make(map[string]struct{}, len(tables))
+
+	for _, table := range tables {
+		trimmed := strings.TrimSpace(table)
+		if trimmed == "" {
+			continue
+		}
+
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+
+		seen[trimmed] = struct{}{}
+		normalized = append(normalized, trimmed)
+	}
+
+	return normalized
 }
 
 // ListTasks is a pass-through to ServiceTaskQueue.ListTasks

@@ -68,6 +68,11 @@ export function MaintenanceTasksTable({ tableName, pageSize }: MaintenanceTasksT
 
   const columns: ColumnsType<Task> = [
     {
+      title: 'Task ID',
+      dataIndex: 'id',
+      key: 'id',
+    },
+    {
       title: 'Table',
       dataIndex: 'table',
       key: 'table',
@@ -89,6 +94,12 @@ export function MaintenanceTasksTable({ tableName, pageSize }: MaintenanceTasksT
         { text: 'Remove Orphan Files', value: 'remove_orphan_files' },
       ],
       filteredValue: selectedKinds,
+    },
+    {
+      title: 'Engine',
+      dataIndex: 'engine',
+      key: 'engine',
+      render: (engine: string) => <Tag color="cyan">{engine}</Tag>,
     },
     {
       title: 'Status',

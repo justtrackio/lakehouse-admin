@@ -88,6 +88,17 @@ export interface TaskQueuedResponse {
   status: string;
 }
 
+export interface BatchTaskFailure {
+  table: string;
+  error: string;
+}
+
+export interface BatchTaskQueuedResponse {
+  task_ids: number[];
+  enqueued_count: number;
+  failed_tables: BatchTaskFailure[];
+}
+
 export async function expireSnapshots(
   tableName: string,
   retentionDays: number,
@@ -109,6 +120,34 @@ export async function removeOrphanFiles(
   return apiClient.post<TaskQueuedResponse>(
     `/api/tasks/${tableName}/remove-orphan-files`,
     {
+      retention_days: retentionDays,
+    }
+  );
+}
+
+export async function batchExpireSnapshots(
+  tables: string[],
+  retentionDays: number,
+  retainLast: number,
+): Promise<BatchTaskQueuedResponse> {
+  return apiClient.post<BatchTaskQueuedResponse>(
+    '/api/maintenance/expire-snapshots',
+    {
+      tables,
+      retention_days: retentionDays,
+      retain_last: retainLast,
+    }
+  );
+}
+
+export async function batchRemoveOrphanFiles(
+  tables: string[],
+  retentionDays: number,
+): Promise<BatchTaskQueuedResponse> {
+  return apiClient.post<BatchTaskQueuedResponse>(
+    '/api/maintenance/remove-orphan-files',
+    {
+      tables,
       retention_days: retentionDays,
     }
   );
@@ -155,6 +194,7 @@ export interface Task {
   id: number;
   table: string;
   kind: string;
+  engine: string;
   status: string;
   started_at: string;
   picked_up_at: string | null;
