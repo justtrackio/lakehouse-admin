@@ -1,10 +1,11 @@
 import { Link } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
-import { Alert, Table, Tag, Typography, Modal, Button } from 'antd';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Alert, Table, Tag, Typography, Modal, Button, Popconfirm, Space } from 'antd';
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table';
-import { FilterValue } from 'antd/es/table/interface';
+import type { FilterValue } from 'antd/es/table/interface';
 import { useState } from 'react';
-import { Task, fetchTasks } from '../api/schema';
+import { fetchTasks, retryTask, type Task } from '../api/schema';
+import { useMessageApi } from '../context/MessageContext';
 
 const { Title } = Typography;
 
@@ -14,6 +15,8 @@ interface MaintenanceTasksTableProps {
 }
 
 export function MaintenanceTasksTable({ tableName, pageSize }: MaintenanceTasksTableProps) {
+  const queryClient = useQueryClient();
+  const messageApi = useMessageApi();
   const [viewModalOpen, setViewModalOpen] = useState(false);
   const [viewModalTitle, setViewModalTitle] = useState('');
   const [viewModalContent, setViewModalContent] = useState<string | Record<string, unknown>>('');
@@ -37,6 +40,18 @@ export function MaintenanceTasksTable({ tableName, pageSize }: MaintenanceTasksT
         selectedStatuses,
       ),
     refetchInterval: 5000,
+  });
+
+  const retryMutation = useMutation({
+    mutationFn: retryTask,
+    onSuccess: (result, taskId) => {
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['taskCounts'] });
+      messageApi.success(`Retried task ${taskId} as queued task ${result.task_id}`);
+    },
+    onError: (mutationError: Error) => {
+      messageApi.error(`Failed to retry task: ${mutationError.message}`);
+    },
   });
 
   const handleTableChange = (
@@ -113,21 +128,40 @@ export function MaintenanceTasksTable({ tableName, pageSize }: MaintenanceTasksT
         if (status === 'queued') color = 'default';
         
         return (
-           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-             <Tag color={color}>{status.toUpperCase()}</Tag>
-             {status === 'error' && record.error_message && (
-               <Button 
+           <Space size={8} wrap>
+              <Tag color={color}>{status.toUpperCase()}</Tag>
+              {status === 'error' && record.error_message && (
+                <Button 
                  type="link" 
                  danger 
                  size="small" 
                  onClick={() => showDetails('Error Details', record.error_message!)}
-               >
-                 View Error
-               </Button>
-             )}
-           </div>
-        );
-      },
+                >
+                  View Error
+                </Button>
+              )}
+              {status === 'error' && (
+                <Popconfirm
+                  title="Retry task"
+                  description="Are you sure you want to retry this failed task?"
+                  onConfirm={() => retryMutation.mutate(record.id)}
+                  okText="Yes, retry"
+                  cancelText="Cancel"
+                  disabled={retryMutation.isPending}
+                >
+                  <Button
+                    type="link"
+                    size="small"
+                    loading={retryMutation.isPending && retryMutation.variables === record.id}
+                    disabled={retryMutation.isPending}
+                  >
+                    Retry
+                  </Button>
+                </Popconfirm>
+              )}
+            </Space>
+         );
+       },
       filters: [
         { text: 'Queued', value: 'queued' },
         { text: 'Running', value: 'running' },

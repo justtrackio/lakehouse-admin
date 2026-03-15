@@ -56,6 +56,10 @@ func (s *ServiceTaskQueue) EnqueueTask(ctx context.Context, table string, kind s
 	var res sqlc.Result
 	var id int64
 
+	if input == nil {
+		input = map[string]any{}
+	}
+
 	entry := &Task{
 		Table:     table,
 		Kind:      kind,
@@ -76,6 +80,21 @@ func (s *ServiceTaskQueue) EnqueueTask(ctx context.Context, table string, kind s
 	}
 
 	return id, nil
+}
+
+func (s *ServiceTaskQueue) GetTask(ctx context.Context, id int64) (*Task, error) {
+	var task Task
+
+	stmt := s.sqlClient.Q().From("tasks").Where(sqlc.Eq{"id": id}).Limit(1)
+	if err := stmt.Get(ctx, &task); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("task %d not found", id)
+		}
+
+		return nil, fmt.Errorf("could not load task %d: %w", id, err)
+	}
+
+	return &task, nil
 }
 
 func (s *ServiceTaskQueue) ClaimTask(ctx context.Context) (*Task, error) {

@@ -43,6 +43,7 @@ func main() {
 			}))
 
 			router.Group("/api/tasks").HandleWith(httpserver.With(internal.NewHandlerTasks, func(r *httpserver.Router, handler *internal.HandlerTasks) {
+				r.POST("/retry/:id", httpserver.Bind(handler.RetryTask))
 				r.POST("/:table/expire-snapshots", httpserver.Bind(handler.ExpireSnapshots))
 				r.POST("/:table/remove-orphan-files", httpserver.Bind(handler.RemoveOrphanFiles))
 				r.POST("/:table/optimize", httpserver.Bind(handler.Optimize))

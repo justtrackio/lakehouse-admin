@@ -260,3 +260,7 @@ export interface FlushTasksResponse {
 export async function flushTasks(): Promise<FlushTasksResponse> {
   return apiClient.delete<FlushTasksResponse>('/api/tasks');
 }
+
+export async function retryTask(taskId: number): Promise<TaskQueuedResponse> {
+  return apiClient.post<TaskQueuedResponse>(`/api/tasks/retry/${taskId}`, {});
+}

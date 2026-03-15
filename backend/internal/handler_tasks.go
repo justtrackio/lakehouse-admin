@@ -35,6 +35,10 @@ type ListTasksInput struct {
 	Offset int      `form:"offset"`
 }
 
+type RetryTaskInput struct {
+	Id int64 `uri:"id"`
+}
+
 type TaskQueuedResponse struct {
 	TaskId int64  `json:"task_id"`
 	Status string `json:"status"`
@@ -114,6 +118,18 @@ func (h *HandlerTasks) ListTasks(ctx context.Context, input *ListTasksInput) (ht
 	}
 
 	return httpserver.NewJsonResponse(result), nil
+}
+
+func (h *HandlerTasks) RetryTask(ctx context.Context, input *RetryTaskInput) (httpserver.Response, error) {
+	taskId, err := h.serviceTasks.RetryTask(ctx, input.Id)
+	if err != nil {
+		return nil, err
+	}
+
+	return httpserver.NewJsonResponse(&TaskQueuedResponse{
+		TaskId: taskId,
+		Status: "queued",
+	}), nil
 }
 
 func (h *HandlerTasks) TaskCounts(ctx context.Context) (httpserver.Response, error) {
