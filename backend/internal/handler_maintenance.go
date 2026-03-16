@@ -12,7 +12,6 @@ import (
 type BatchExpireSnapshotsInput struct {
 	Tables        []string `json:"tables"`
 	RetentionDays int      `json:"retention_days"`
-	RetainLast    int      `json:"retain_last"`
 }
 
 type BatchRemoveOrphanFilesInput struct {
@@ -36,7 +35,7 @@ type HandlerMaintenance struct {
 }
 
 func (h *HandlerMaintenance) ExpireSnapshots(ctx context.Context, input *BatchExpireSnapshotsInput) (httpserver.Response, error) {
-	result, err := h.serviceTasks.EnqueueExpireSnapshotsBatch(ctx, input.Tables, input.RetentionDays, input.RetainLast)
+	result, err := h.serviceTasks.EnqueueExpireSnapshotsBatch(ctx, input.Tables, input.RetentionDays)
 	if err != nil {
 		return nil, err
 	}

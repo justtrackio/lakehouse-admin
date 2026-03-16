@@ -102,13 +102,11 @@ export interface BatchTaskQueuedResponse {
 export async function expireSnapshots(
   tableName: string,
   retentionDays: number,
-  retainLast: number,
 ): Promise<TaskQueuedResponse> {
   return apiClient.post<TaskQueuedResponse>(
     `/api/tasks/${tableName}/expire-snapshots`,
     {
       retention_days: retentionDays,
-      retain_last: retainLast,
     }
   );
 }
@@ -128,14 +126,12 @@ export async function removeOrphanFiles(
 export async function batchExpireSnapshots(
   tables: string[],
   retentionDays: number,
-  retainLast: number,
 ): Promise<BatchTaskQueuedResponse> {
   return apiClient.post<BatchTaskQueuedResponse>(
     '/api/maintenance/expire-snapshots',
     {
       tables,
       retention_days: retentionDays,
-      retain_last: retainLast,
     }
   );
 }

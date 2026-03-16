@@ -1,8 +1,8 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Space } from 'antd';
-import { ExpireSnapshotsCard } from '../components/ExpireSnapshotsCard';
-import { RemoveOrphanFilesCard } from '../components/RemoveOrphanFilesCard';
+import { ExpireSnapshotsTableCard } from '../components/ExpireSnapshotsTableCard';
+import { RemoveOrphanFilesTableCard } from '../components/RemoveOrphanFilesTableCard';
 import { OptimizeCard } from '../components/OptimizeCard';
 import { MaintenanceTasksTable } from '../components/MaintenanceTasksTable';
 import { fetchTableDetails } from '../api/schema';
@@ -22,12 +22,12 @@ function TasksPage() {
   return (
     <Space direction="vertical" style={{ width: '100%' }} size="large">
       <MaintenanceTasksTable tableName={tableName} />
-      <ExpireSnapshotsCard
+      <ExpireSnapshotsTableCard
         tableName={tableName}
         snapshotCount={tableDetails?.snapshot_count}
         snapshotCountLoading={isLoading}
       />
-      <RemoveOrphanFilesCard tableName={tableName} />
+      <RemoveOrphanFilesTableCard tableName={tableName} />
       <OptimizeCard tableName={tableName} />
     </Space>
   );

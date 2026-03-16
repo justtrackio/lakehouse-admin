@@ -12,7 +12,6 @@ import (
 type ExpireSnapshotsInput struct {
 	Table         string `uri:"table"`
 	RetentionDays int    `json:"retention_days"`
-	RetainLast    int    `json:"retain_last"`
 }
 
 type RemoveOrphanFilesInput struct {
@@ -76,7 +75,7 @@ type HandlerTasks struct {
 }
 
 func (h *HandlerTasks) ExpireSnapshots(ctx context.Context, input *ExpireSnapshotsInput) (httpserver.Response, error) {
-	taskId, err := h.serviceTasks.EnqueueExpireSnapshots(ctx, input.Table, input.RetentionDays, input.RetainLast)
+	taskId, err := h.serviceTasks.EnqueueExpireSnapshots(ctx, input.Table, input.RetentionDays)
 	if err != nil {
 		return nil, err
 	}

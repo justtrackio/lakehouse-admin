@@ -12,7 +12,6 @@ import (
 type ExpireSnapshotsResult struct {
 	Table                string `json:"table"`
 	RetentionDays        int    `json:"retention_days"`
-	RetainLast           int    `json:"retain_last"`
 	CleanExpiredMetadata bool   `json:"clean_expired_metadata"`
 	Status               string `json:"status"`
 }
@@ -98,9 +97,8 @@ func (s *TrinoMaintenanceExecutor) ProcessTask(ctx context.Context, task *Task) 
 
 func (s *TrinoMaintenanceExecutor) processExpireSnapshots(ctx context.Context, task *Task, input map[string]any) error {
 	retentionDays, _ := input["retention_days"].(float64)
-	retainLast, _ := input["retain_last"].(float64)
 
-	res, err := s.executeExpireSnapshots(ctx, task.Table, int(retentionDays), int(retainLast))
+	res, err := s.executeExpireSnapshots(ctx, task.Table, int(retentionDays))
 	if err != nil {
 		return s.taskQueue.CompleteTask(ctx, task.Id, nil, err)
 	}
@@ -127,18 +125,14 @@ func (s *TrinoMaintenanceExecutor) processRemoveOrphanFiles(ctx context.Context,
 	return s.taskQueue.CompleteTask(ctx, task.Id, removeOrphanFilesResultMap(res), nil)
 }
 
-func (s *TrinoMaintenanceExecutor) executeExpireSnapshots(ctx context.Context, table string, retentionDays int, retainLast int) (*ExpireSnapshotsResult, error) {
+func (s *TrinoMaintenanceExecutor) executeExpireSnapshots(ctx context.Context, table string, retentionDays int) (*ExpireSnapshotsResult, error) {
 	if retentionDays < 1 {
 		return nil, fmt.Errorf("retention days must be at least 1")
 	}
 
-	if retainLast < 1 {
-		return nil, fmt.Errorf("retain last must be at least 1")
-	}
-
 	retentionThreshold := fmt.Sprintf("%dd", retentionDays)
 	qualifiedTable := qualifiedTableName("lakehouse", "main", table)
-	query := fmt.Sprintf("ALTER TABLE %s EXECUTE expire_snapshots(retention_threshold => %s, retain_last => %d, clean_expired_metadata => true)", qualifiedTable, quoteLiteral(retentionThreshold), retainLast)
+	query := fmt.Sprintf("ALTER TABLE %s EXECUTE expire_snapshots(retention_threshold => %s, clean_expired_metadata => true)", qualifiedTable, quoteLiteral(retentionThreshold))
 
 	if err := s.trino.Exec(ctx, query); err != nil {
 		return nil, fmt.Errorf("could not expire snapshots for table %s: %w", table, err)
@@ -147,7 +141,6 @@ func (s *TrinoMaintenanceExecutor) executeExpireSnapshots(ctx context.Context, t
 	return &ExpireSnapshotsResult{
 		Table:                table,
 		RetentionDays:        retentionDays,
-		RetainLast:           retainLast,
 		CleanExpiredMetadata: true,
 		Status:               "ok",
 	}, nil

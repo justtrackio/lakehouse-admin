@@ -13,7 +13,6 @@ import (
 
 const (
 	minRetentionDays = 7
-	minRetainLast    = 10
 )
 
 type ServiceTasks struct {
@@ -61,19 +60,14 @@ func NewServiceTasks(ctx context.Context, config cfg.Config, logger log.Logger) 
 }
 
 // EnqueueExpireSnapshots enqueues a task to expire old snapshots for a table
-func (s *ServiceTasks) EnqueueExpireSnapshots(ctx context.Context, table string, retentionDays int, retainLast int) (int64, error) {
+func (s *ServiceTasks) EnqueueExpireSnapshots(ctx context.Context, table string, retentionDays int) (int64, error) {
 	// Apply minimum constraints
 	if retentionDays < minRetentionDays {
 		retentionDays = minRetentionDays
 	}
 
-	if retainLast < minRetainLast {
-		retainLast = minRetainLast
-	}
-
 	taskInput := map[string]any{
 		"retention_days": retentionDays,
-		"retain_last":    retainLast,
 	}
 
 	engine, err := s.engineResolver.Resolve(TaskKindExpireSnapshots)
@@ -113,9 +107,9 @@ func (s *ServiceTasks) EnqueueRemoveOrphanFiles(ctx context.Context, table strin
 	return taskId, nil
 }
 
-func (s *ServiceTasks) EnqueueExpireSnapshotsBatch(ctx context.Context, tables []string, retentionDays int, retainLast int) (*BatchEnqueueResult, error) {
+func (s *ServiceTasks) EnqueueExpireSnapshotsBatch(ctx context.Context, tables []string, retentionDays int) (*BatchEnqueueResult, error) {
 	return s.enqueueBatch(ctx, tables, func(cttx context.Context, table string) (int64, error) {
-		return s.EnqueueExpireSnapshots(cttx, table, retentionDays, retainLast)
+		return s.EnqueueExpireSnapshots(cttx, table, retentionDays)
 	})
 }
 
