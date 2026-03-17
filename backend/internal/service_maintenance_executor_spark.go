@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -46,7 +47,6 @@ type SparkMaintenanceExecutor struct {
 	metadata        *ServiceMetadata
 	k8s             SparkApplicationCreator
 	taskQueue       TaskClaimer
-	refresher       SnapshotRefresher
 	sqlClient       sqlc.Client
 	icebergSettings *IcebergSettings
 }
@@ -56,7 +56,6 @@ func NewSparkMaintenanceExecutor(ctx context.Context, config cfg.Config, logger 
 	var metadata *ServiceMetadata
 	var k8s *K8sService
 	var taskQueue TaskClaimer
-	var refresher SnapshotRefresher
 	var sqlClient sqlc.Client
 	var icebergSettings *IcebergSettings
 
@@ -72,10 +71,6 @@ func NewSparkMaintenanceExecutor(ctx context.Context, config cfg.Config, logger 
 		return nil, fmt.Errorf("could not create task queue service: %w", err)
 	}
 
-	if refresher, err = NewServiceRefresh(ctx, config, logger); err != nil {
-		return nil, fmt.Errorf("could not create refresh service: %w", err)
-	}
-
 	if sqlClient, err = sqlc.ProvideClient(ctx, config, logger, "default"); err != nil {
 		return nil, fmt.Errorf("could not create sql client: %w", err)
 	}
@@ -89,7 +84,6 @@ func NewSparkMaintenanceExecutor(ctx context.Context, config cfg.Config, logger 
 		metadata:        metadata,
 		k8s:             k8s,
 		taskQueue:       taskQueue,
-		refresher:       refresher,
 		sqlClient:       sqlClient,
 		icebergSettings: icebergSettings,
 	}, nil
@@ -114,10 +108,14 @@ func (s *SparkMaintenanceExecutor) Run(ctx context.Context) error {
 
 	if _, err = informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj any) {
-			s.handleSparkApplicationEvent(ctx, obj)
+			if err := s.handleSparkApplicationEvent(ctx, obj); err != nil {
+				s.logger.Error(ctx, "%s", err)
+			}
 		},
 		UpdateFunc: func(oldObj, newObj any) {
-			s.handleSparkApplicationUpdateEvent(ctx, oldObj, newObj)
+			if err := s.handleSparkApplicationUpdateEvent(ctx, oldObj, newObj); err != nil {
+				s.logger.Error(ctx, "%s", err)
+			}
 		},
 	}); err != nil {
 		return fmt.Errorf("could not register spark application event handler: %w", err)
@@ -363,13 +361,6 @@ func (s *SparkMaintenanceExecutor) prepareSparkApplication(manifest *SparkApplic
 	})
 }
 
-func (s *SparkMaintenanceExecutor) refreshSnapshots(ctx context.Context, table string) error {
-	return s.sqlClient.WithTx(ctx, func(cttx sqlc.Tx) error {
-		_, err := s.refresher.RefreshSnapshots(cttx, table)
-		return err
-	})
-}
-
 func (s *SparkMaintenanceExecutor) HandleTaskUpdate(ctx context.Context, taskID int64, applicationName string, state string, message string, extraResult map[string]any) error {
 	var taskErr error
 
@@ -401,47 +392,39 @@ func (s *SparkMaintenanceExecutor) HandleTaskUpdate(ctx context.Context, taskID 
 	return nil
 }
 
-func (s *SparkMaintenanceExecutor) handleSparkApplicationEvent(ctx context.Context, obj any) {
+func (s *SparkMaintenanceExecutor) handleSparkApplicationEvent(ctx context.Context, obj any) error {
 	manifest, err := decodeSparkApplicationEvent(obj)
 	if err != nil {
-		s.logger.Error(ctx, "%s", err)
-
-		return
+		return err
 	}
 
-	s.handleDecodedSparkApplicationEvent(ctx, manifest)
+	return s.handleDecodedSparkApplicationEvent(ctx, manifest)
 }
 
-func (s *SparkMaintenanceExecutor) handleSparkApplicationUpdateEvent(ctx context.Context, oldObj any, newObj any) {
+func (s *SparkMaintenanceExecutor) handleSparkApplicationUpdateEvent(ctx context.Context, oldObj any, newObj any) error {
 	var err error
 	var oldManifest, newManifest *SparkApplicationManifest
 
 	if newManifest, err = decodeSparkApplicationEvent(newObj); err != nil {
-		s.logger.Error(ctx, "%s", err)
-
-		return
+		return fmt.Errorf("could not decode updated spark application event: %w", err)
 	}
 
 	if oldManifest, err = decodeSparkApplicationEvent(oldObj); err != nil {
-		s.logger.Error(ctx, "%s", err)
-
-		return
+		return fmt.Errorf("could not decode previous spark application event: %w", err)
 	}
 
 	if !shouldHandleSparkApplicationUpdate(oldManifest.Status, newManifest.Status) {
-		return
+		return nil
 	}
 
-	s.handleDecodedSparkApplicationEvent(ctx, newManifest)
+	return s.handleDecodedSparkApplicationEvent(ctx, newManifest)
 }
 
-func (s *SparkMaintenanceExecutor) handleDecodedSparkApplicationEvent(ctx context.Context, manifest *SparkApplicationManifest) {
+func (s *SparkMaintenanceExecutor) handleDecodedSparkApplicationEvent(ctx context.Context, manifest *SparkApplicationManifest) error {
 	var ok bool
 	var err error
 	var taskIDAnnotation string
 	var taskID int64
-	taskKind := TaskKind(manifest.Metadata.Annotations[sparkApplicationTaskKindAnnotation])
-	table := manifest.Metadata.Annotations[sparkApplicationTaskTableAnnotation]
 
 	appName := manifest.Metadata.Name
 	resolvedStatus := manifest.Status.Resolve()
@@ -455,32 +438,30 @@ func (s *SparkMaintenanceExecutor) handleDecodedSparkApplicationEvent(ctx contex
 	}
 
 	if !resolvedStatus.IsTerminal() {
-		return
+		return nil
 	}
 
 	if taskIDAnnotation, ok = manifest.Metadata.Annotations[sparkApplicationTaskIDAnnotation]; !ok || taskIDAnnotation == "" {
-		s.logger.Error(ctx, "ignoring terminal spark application event for %s without %s annotation", appName, sparkApplicationTaskIDAnnotation)
-
-		return
+		return fmt.Errorf("ignoring terminal spark application event for %s without %s annotation", appName, sparkApplicationTaskIDAnnotation)
 	}
 
 	if taskID, err = strconv.ParseInt(taskIDAnnotation, 10, 64); err != nil {
-		s.logger.Error(ctx, "ignoring terminal spark application event for %s with invalid %s annotation %q: %s", appName, sparkApplicationTaskIDAnnotation, taskIDAnnotation, err)
-
-		return
+		return fmt.Errorf("ignoring terminal spark application event for %s with invalid %s annotation %q: %w", appName, sparkApplicationTaskIDAnnotation, taskIDAnnotation, err)
 	}
 
-	if isSparkApplicationSuccessState(state) && taskKind == TaskKindExpireSnapshots && table != "" {
-		if err = s.refreshSnapshots(ctx, table); err != nil {
-			s.logger.Warn(ctx, "failed to refresh snapshots after expiring for table %s: %s", table, err)
+	if err = s.HandleTaskUpdate(ctx, taskID, appName, state, resolvedStatus.Message, extraResult); err == nil {
+		return nil
+	}
+
+	if errors.Is(err, errTaskCompletionNotFound) {
+		if deleteErr := s.k8s.DeleteSparkApplication(ctx, manifest.Metadata.Namespace, appName); deleteErr != nil {
+			return fmt.Errorf("task %d for terminal spark application %s no longer exists and could not delete orphaned spark application: %w", taskID, appName, deleteErr)
 		}
+
+		return nil
 	}
 
-	if err = s.HandleTaskUpdate(ctx, taskID, appName, state, resolvedStatus.Message, extraResult); err != nil {
-		s.logger.Error(ctx, "could not resolve spark tracking update for %s: %s", appName, err)
-
-		return
-	}
+	return fmt.Errorf("could not resolve spark tracking update for %s: %w", appName, err)
 }
 
 func buildSparkApplicationName(prefix string, table string, taskID int64) string {

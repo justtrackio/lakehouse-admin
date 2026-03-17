@@ -21,6 +21,8 @@ type ServiceTaskQueue struct {
 	defaultTaskConcurrency int
 }
 
+var errTaskCompletionNotFound = errors.New("task not found for completion")
+
 func NewServiceTaskQueue(ctx context.Context, config cfg.Config, logger log.Logger) (*ServiceTaskQueue, error) {
 	var err error
 	var sqlClient sqlc.Client
@@ -200,6 +202,10 @@ func (s *ServiceTaskQueue) CompleteTask(ctx context.Context, id int64, result ma
 
 	var task Task
 	if getErr := s.sqlClient.Q().From("tasks").Where(sqlc.Eq{"id": id}).Limit(1).Get(ctx, &task); getErr != nil {
+		if errors.Is(getErr, sql.ErrNoRows) {
+			return fmt.Errorf("task %d not found for completion: %w", id, errTaskCompletionNotFound)
+		}
+
 		return fmt.Errorf("could not load task for completion: %w", getErr)
 	}
 

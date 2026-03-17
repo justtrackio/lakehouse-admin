@@ -37,6 +37,7 @@ type MaintenanceExecutor interface {
 
 type SparkApplicationCreator interface {
 	CreateSparkApplication(ctx context.Context, manifest *SparkApplicationManifest) (*SparkApplicationManifest, error)
+	DeleteSparkApplication(ctx context.Context, namespace string, name string) error
 	WatchSparkApplications(ctx context.Context) (cache.SharedIndexInformer, error)
 }
 

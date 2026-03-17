@@ -9,6 +9,7 @@ import (
 	"github.com/justtrackio/gosoline/pkg/cfg"
 	"github.com/justtrackio/gosoline/pkg/log"
 	eventsv1 "k8s.io/api/events/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -135,6 +136,24 @@ func (s *K8sService) CreateSparkApplication(ctx context.Context, manifest *Spark
 	}
 
 	return result, nil
+}
+
+func (s *K8sService) DeleteSparkApplication(ctx context.Context, namespace string, name string) error {
+	if name == "" {
+		return fmt.Errorf("spark application name is required")
+	}
+
+	if namespace == "" {
+		namespace = s.namespace
+	}
+
+	gvr := schema.GroupVersionResource{Group: "spark.apache.org", Version: "v1", Resource: "sparkapplications"}
+	err := s.dynamicClient.Resource(gvr).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{})
+	if err == nil || k8serrors.IsNotFound(err) {
+		return nil
+	}
+
+	return fmt.Errorf("could not delete spark application %s/%s: %w", namespace, name, err)
 }
 
 func (s *K8sService) WatchSparkApplications(ctx context.Context) (cache.SharedIndexInformer, error) {
