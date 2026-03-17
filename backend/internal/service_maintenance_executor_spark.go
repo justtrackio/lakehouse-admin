@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gosoline-project/sqlc"
 	"github.com/justtrackio/gosoline/pkg/cfg"
 	"github.com/justtrackio/gosoline/pkg/log"
 	"github.com/spf13/cast"
@@ -22,15 +23,32 @@ type OptimizeResult struct {
 	Status              string `json:"status"`
 }
 
+type RemoveOrphanFilesParameters struct {
+	Catalog       string
+	Database      string
+	Table         string
+	RetentionDays int
+	OlderThan     time.Time
+}
+
 const sparkApplicationTaskIDAnnotation = "lakehouse-admin.justtrack.io/task-id"
+const sparkApplicationTaskKindAnnotation = "lakehouse-admin.justtrack.io/task-kind"
+const sparkApplicationTaskTableAnnotation = "lakehouse-admin.justtrack.io/task-table"
+
+const sparkRewriteDataFilesPyFile = "rewrite_data_files.py"
+const sparkExpireSnapshotsPyFile = "expire_snapshots.py"
+const sparkRemoveOrphanFilesPyFile = "remove_orphan_files.py"
 
 const sparkApplicationNameMaxLength = 63
 
 type SparkMaintenanceExecutor struct {
-	logger    log.Logger
-	metadata  *ServiceMetadata
-	k8s       SparkApplicationCreator
-	taskQueue TaskClaimer
+	logger          log.Logger
+	metadata        *ServiceMetadata
+	k8s             SparkApplicationCreator
+	taskQueue       TaskClaimer
+	refresher       SnapshotRefresher
+	sqlClient       sqlc.Client
+	icebergSettings *IcebergSettings
 }
 
 func NewSparkMaintenanceExecutor(ctx context.Context, config cfg.Config, logger log.Logger) (*SparkMaintenanceExecutor, error) {
@@ -38,6 +56,9 @@ func NewSparkMaintenanceExecutor(ctx context.Context, config cfg.Config, logger 
 	var metadata *ServiceMetadata
 	var k8s *K8sService
 	var taskQueue TaskClaimer
+	var refresher SnapshotRefresher
+	var sqlClient sqlc.Client
+	var icebergSettings *IcebergSettings
 
 	if metadata, err = NewServiceMetadata(ctx, config, logger); err != nil {
 		return nil, fmt.Errorf("could not create metadata service: %w", err)
@@ -51,11 +72,26 @@ func NewSparkMaintenanceExecutor(ctx context.Context, config cfg.Config, logger 
 		return nil, fmt.Errorf("could not create task queue service: %w", err)
 	}
 
+	if refresher, err = NewServiceRefresh(ctx, config, logger); err != nil {
+		return nil, fmt.Errorf("could not create refresh service: %w", err)
+	}
+
+	if sqlClient, err = sqlc.ProvideClient(ctx, config, logger, "default"); err != nil {
+		return nil, fmt.Errorf("could not create sql client: %w", err)
+	}
+
+	if icebergSettings, err = ReadIcebergSettings(config); err != nil {
+		return nil, fmt.Errorf("could not read iceberg settings: %w", err)
+	}
+
 	return &SparkMaintenanceExecutor{
-		logger:    logger.WithChannel("maintenance_executor_spark"),
-		metadata:  metadata,
-		k8s:       k8s,
-		taskQueue: taskQueue,
+		logger:          logger.WithChannel("maintenance_executor_spark"),
+		metadata:        metadata,
+		k8s:             k8s,
+		taskQueue:       taskQueue,
+		refresher:       refresher,
+		sqlClient:       sqlClient,
+		icebergSettings: icebergSettings,
 	}, nil
 }
 
@@ -99,9 +135,9 @@ func (s *SparkMaintenanceExecutor) ProcessTask(ctx context.Context, task *Task) 
 	case TaskKindOptimize:
 		return s.processOptimize(ctx, task, input)
 	case TaskKindExpireSnapshots:
-		return s.taskQueue.CompleteTask(ctx, task.Id, nil, fmt.Errorf("task kind %s is not supported by engine %s", TaskKind(task.Kind), s.Engine()))
+		return s.processExpireSnapshots(ctx, task, input)
 	case TaskKindRemoveOrphanFiles:
-		return s.taskQueue.CompleteTask(ctx, task.Id, nil, fmt.Errorf("task kind %s is not supported by engine %s", TaskKind(task.Kind), s.Engine()))
+		return s.processRemoveOrphanFiles(ctx, task, input)
 	default:
 		return s.taskQueue.CompleteTask(ctx, task.Id, nil, fmt.Errorf("unknown task kind: %s", task.Kind))
 	}
@@ -118,6 +154,38 @@ func (s *SparkMaintenanceExecutor) processOptimize(ctx context.Context, task *Ta
 	}
 
 	result := optimizeResultMap(res)
+	if err = s.taskQueue.UpdateTaskResult(ctx, task.Id, result); err != nil {
+		return fmt.Errorf("could not update task %d tracking result: %w", task.Id, err)
+	}
+
+	s.logger.Info(ctx, "task %d submitted and waiting for asynchronous completion", task.Id)
+	return nil
+}
+
+func (s *SparkMaintenanceExecutor) processExpireSnapshots(ctx context.Context, task *Task, input map[string]any) error {
+	retentionDays, _ := input["retention_days"].(float64)
+
+	result, err := s.executeExpireSnapshots(ctx, task.Id, task.Table, int(retentionDays))
+	if err != nil {
+		return fmt.Errorf("could not execute expire snapshots task: %w", err)
+	}
+
+	if err = s.taskQueue.UpdateTaskResult(ctx, task.Id, result); err != nil {
+		return fmt.Errorf("could not update task %d tracking result: %w", task.Id, err)
+	}
+
+	s.logger.Info(ctx, "task %d submitted and waiting for asynchronous completion", task.Id)
+	return nil
+}
+
+func (s *SparkMaintenanceExecutor) processRemoveOrphanFiles(ctx context.Context, task *Task, input map[string]any) error {
+	retentionDays, _ := input["retention_days"].(float64)
+
+	result, err := s.executeRemoveOrphanFiles(ctx, task.Id, task.Table, int(retentionDays))
+	if err != nil {
+		return fmt.Errorf("could not execute remove orphan files task: %w", err)
+	}
+
 	if err = s.taskQueue.UpdateTaskResult(ctx, task.Id, result); err != nil {
 		return fmt.Errorf("could not update task %d tracking result: %w", task.Id, err)
 	}
@@ -155,30 +223,30 @@ func (s *SparkMaintenanceExecutor) executeOptimize(ctx context.Context, taskID i
 	}
 
 	whereClause := fmt.Sprintf("date(%s) >= date '%s' AND date(%s) <= date '%s'", partitionColumn, from.Format(time.DateOnly), partitionColumn, to.Format(time.DateOnly))
-	applicationName := buildOptimizeApplicationName(table, from, taskID)
+	applicationName := buildSparkApplicationName("rewrite-data-files", table, taskID)
 
 	s.logger.Info(ctx, "creating spark application for table %s range %s to %s", table, from.Format(time.DateOnly), to.Format(time.DateOnly))
 
-	if manifest, err = LoadRewriteDataFilesTemplate(); err != nil {
+	if manifest, err = LoadSparkApplicationTemplate(); err != nil {
 		return nil, fmt.Errorf("could not load spark application template: %w", err)
 	}
 
-	manifest.Metadata.Name = applicationName
-	manifest.SetAnnotation(sparkApplicationTaskIDAnnotation, strconv.FormatInt(taskID, 10))
+	if err = s.prepareSparkApplication(manifest, TaskKindOptimize, taskID, table, applicationName, sparkRewriteDataFilesPyFile); err != nil {
+		return nil, fmt.Errorf("could not prepare spark application manifest: %w", err)
+	}
 
-	if err = manifest.ApplyValues(RewriteDataFilesParameters{
-		Catalog:                   "lakehouse",
-		Database:                  "main",
-		Table:                     table,
-		WhereColumn:               partitionColumn,
-		WhereFrom:                 from,
-		WhereUntil:                to.Add(time.Hour * 24),
-		TargetFileSizeBytes:       int64(fileSizeThresholdMb) * 1024 * 1024,
-		MinInputFiles:             2,
-		PartialProgressEnabled:    true,
-		PartialProgressMaxCommits: 10,
-	}); err != nil {
-		return nil, fmt.Errorf("could not apply spark application values: %w", err)
+	envValues := map[string]string{
+		"ICEBERG_WHERE_COLUMN":         partitionColumn,
+		"ICEBERG_WHERE_FROM":           from.Format(time.DateOnly),
+		"ICEBERG_WHERE_UNTIL":          to.Add(time.Hour * 24).Format(time.DateOnly),
+		"TARGET_FILE_SIZE_BYTES":       fmt.Sprintf("%d", int64(fileSizeThresholdMb)*1024*1024),
+		"MIN_INPUT_FILES":              fmt.Sprintf("%d", 2),
+		"PARTIAL_PROGRESS_ENABLED":     fmt.Sprintf("%t", true),
+		"PARTIAL_PROGRESS_MAX_COMMITS": fmt.Sprintf("%d", 10),
+	}
+
+	if err = manifest.SetEnvValues(envValues); err != nil {
+		return nil, fmt.Errorf("could not set env values: %w", err)
 	}
 
 	if _, err = s.k8s.CreateSparkApplication(ctx, manifest); err != nil {
@@ -192,6 +260,114 @@ func (s *SparkMaintenanceExecutor) executeOptimize(ctx context.Context, taskID i
 		ApplicationName:     applicationName,
 		Status:              "submitted",
 	}, nil
+}
+
+func (s *SparkMaintenanceExecutor) executeExpireSnapshots(ctx context.Context, taskID int64, table string, retentionDays int) (map[string]any, error) {
+	if retentionDays < 1 {
+		return nil, fmt.Errorf("retention days must be at least 1")
+	}
+
+	olderThan := time.Now().UTC().AddDate(0, 0, -retentionDays)
+	applicationName := buildSparkApplicationName("expire-snapshots", table, taskID)
+	s.logger.Info(ctx, "creating spark application to expire snapshots for table %s", table)
+
+	manifest, err := LoadSparkApplicationTemplate()
+	if err != nil {
+		return nil, fmt.Errorf("could not load spark application template: %w", err)
+	}
+
+	if err = s.prepareSparkApplication(manifest, TaskKindExpireSnapshots, taskID, table, applicationName, sparkExpireSnapshotsPyFile); err != nil {
+		return nil, fmt.Errorf("could not prepare spark application manifest: %w", err)
+	}
+
+	envValues := map[string]string{
+		"RETENTION_DAYS":         fmt.Sprintf("%d", retentionDays),
+		"OLDER_THAN":             olderThan.UTC().Format(time.RFC3339),
+		"CLEAN_EXPIRED_METADATA": fmt.Sprintf("%t", true),
+	}
+
+	if err = manifest.SetEnvValues(envValues); err != nil {
+		return nil, fmt.Errorf("could not set env values: %w", err)
+	}
+
+	if _, err = s.k8s.CreateSparkApplication(ctx, manifest); err != nil {
+		return nil, fmt.Errorf("could not create spark application to expire snapshots for table %s: %w", table, err)
+	}
+
+	return map[string]any{
+		"table":                  table,
+		"retention_days":         retentionDays,
+		"older_than":             olderThan,
+		"clean_expired_metadata": true,
+		"tracking_id":            applicationName,
+		"application_name":       applicationName,
+		"status":                 "submitted",
+	}, nil
+}
+
+func (s *SparkMaintenanceExecutor) executeRemoveOrphanFiles(ctx context.Context, taskID int64, table string, retentionDays int) (map[string]any, error) {
+	if retentionDays < 1 {
+		return nil, fmt.Errorf("retention days must be at least 1")
+	}
+
+	olderThan := time.Now().UTC().AddDate(0, 0, -retentionDays)
+	applicationName := buildSparkApplicationName("remove-orphan-files", table, taskID)
+	s.logger.Info(ctx, "creating spark application to remove orphan files for table %s", table)
+
+	manifest, err := LoadSparkApplicationTemplate()
+	if err != nil {
+		return nil, fmt.Errorf("could not load spark application template: %w", err)
+	}
+
+	if err = s.prepareSparkApplication(manifest, TaskKindRemoveOrphanFiles, taskID, table, applicationName, sparkRemoveOrphanFilesPyFile); err != nil {
+		return nil, fmt.Errorf("could not prepare spark application manifest: %w", err)
+	}
+
+	envValues := map[string]string{
+		"RETENTION_DAYS": fmt.Sprintf("%d", retentionDays),
+		"OLDER_THAN":     olderThan.UTC().Format(time.RFC3339),
+	}
+
+	if err = manifest.SetEnvValues(envValues); err != nil {
+		return nil, fmt.Errorf("could not set env values: %w", err)
+	}
+
+	if _, err = s.k8s.CreateSparkApplication(ctx, manifest); err != nil {
+		return nil, fmt.Errorf("could not create spark application to remove orphan files for table %s: %w", table, err)
+	}
+
+	return map[string]any{
+		"table":            table,
+		"retention_days":   retentionDays,
+		"older_than":       olderThan,
+		"tracking_id":      applicationName,
+		"application_name": applicationName,
+		"status":           "submitted",
+	}, nil
+}
+
+func (s *SparkMaintenanceExecutor) prepareSparkApplication(manifest *SparkApplicationManifest, taskKind TaskKind, taskID int64, table string, applicationName string, pyFileName string) error {
+	manifest.Metadata.Name = applicationName
+	manifest.SetAnnotation(sparkApplicationTaskIDAnnotation, strconv.FormatInt(taskID, 10))
+	manifest.SetAnnotation(sparkApplicationTaskKindAnnotation, string(taskKind))
+	manifest.SetAnnotation(sparkApplicationTaskTableAnnotation, table)
+
+	if err := manifest.SetPyFileName(pyFileName); err != nil {
+		return fmt.Errorf("could not set spark application pyFiles: %w", err)
+	}
+
+	return manifest.SetEnvValues(map[string]string{
+		"ICEBERG_CATALOG":  s.icebergSettings.Catalog,
+		"ICEBERG_DATABASE": s.icebergSettings.Database,
+		"ICEBERG_TABLE":    table,
+	})
+}
+
+func (s *SparkMaintenanceExecutor) refreshSnapshots(ctx context.Context, table string) error {
+	return s.sqlClient.WithTx(ctx, func(cttx sqlc.Tx) error {
+		_, err := s.refresher.RefreshSnapshots(cttx, table)
+		return err
+	})
 }
 
 func (s *SparkMaintenanceExecutor) HandleTaskUpdate(ctx context.Context, taskID int64, applicationName string, state string, message string, extraResult map[string]any) error {
@@ -264,6 +440,8 @@ func (s *SparkMaintenanceExecutor) handleDecodedSparkApplicationEvent(ctx contex
 	var err error
 	var taskIDAnnotation string
 	var taskID int64
+	taskKind := TaskKind(manifest.Metadata.Annotations[sparkApplicationTaskKindAnnotation])
+	table := manifest.Metadata.Annotations[sparkApplicationTaskTableAnnotation]
 
 	appName := manifest.Metadata.Name
 	resolvedStatus := manifest.Status.Resolve()
@@ -292,6 +470,12 @@ func (s *SparkMaintenanceExecutor) handleDecodedSparkApplicationEvent(ctx contex
 		return
 	}
 
+	if isSparkApplicationSuccessState(state) && taskKind == TaskKindExpireSnapshots && table != "" {
+		if err = s.refreshSnapshots(ctx, table); err != nil {
+			s.logger.Warn(ctx, "failed to refresh snapshots after expiring for table %s: %s", table, err)
+		}
+	}
+
 	if err = s.HandleTaskUpdate(ctx, taskID, appName, state, resolvedStatus.Message, extraResult); err != nil {
 		s.logger.Error(ctx, "could not resolve spark tracking update for %s: %s", appName, err)
 
@@ -299,10 +483,9 @@ func (s *SparkMaintenanceExecutor) handleDecodedSparkApplicationEvent(ctx contex
 	}
 }
 
-func buildOptimizeApplicationName(table string, from time.Time, taskID int64) string {
-	prefix := "rewrite-data-files"
-	suffix := fmt.Sprintf("%s-%d", from.Format("2006-01-02"), taskID)
+func buildSparkApplicationName(prefix string, table string, taskID int64) string {
 	tablePart := sanitizeK8sName(table)
+	suffix := strconv.FormatInt(taskID, 10)
 	maxTableLength := sparkApplicationNameMaxLength - len(prefix) - len(suffix) - 2
 
 	if maxTableLength <= 0 {

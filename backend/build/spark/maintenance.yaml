@@ -1,7 +1,7 @@
 apiVersion: spark.apache.org/v1
 kind: SparkApplication
 metadata:
-  name: rewrite-data-files
+  name: maintenance-task
   namespace: lakehouse-admin
 spec:
   deploymentMode: ClusterMode
@@ -66,6 +66,10 @@ spec:
                 value: "true"
               - name: PARTIAL_PROGRESS_MAX_COMMITS
                 value: "10"
+              - name: RETENTION_DAYS
+                value: "7"
+              - name: CLEAN_EXPIRED_METADATA
+                value: "true"
             resources:
               requests:
                 cpu: "1"

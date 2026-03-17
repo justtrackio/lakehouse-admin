@@ -6,7 +6,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	buildassets "github.com/justtrackio/lakehouse-admin/build"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -113,20 +112,7 @@ type SparkApplicationRuntimeVersions struct {
 	SparkVersion string `yaml:"sparkVersion" json:"sparkVersion"`
 }
 
-type RewriteDataFilesParameters struct {
-	Catalog                   string
-	Database                  string
-	Table                     string
-	WhereColumn               string
-	WhereFrom                 time.Time
-	WhereUntil                time.Time
-	TargetFileSizeBytes       int64
-	MinInputFiles             int
-	PartialProgressEnabled    bool
-	PartialProgressMaxCommits int
-}
-
-func LoadRewriteDataFilesTemplate() (*SparkApplicationManifest, error) {
+func LoadSparkApplicationTemplate() (*SparkApplicationManifest, error) {
 	var manifest SparkApplicationManifest
 	if err := yaml.Unmarshal(buildassets.SparkApplicationTemplates, &manifest); err != nil {
 		return nil, fmt.Errorf("could not unmarshal spark application template: %w", err)
@@ -135,22 +121,29 @@ func LoadRewriteDataFilesTemplate() (*SparkApplicationManifest, error) {
 	return &manifest, nil
 }
 
-func (m *SparkApplicationManifest) ApplyValues(values RewriteDataFilesParameters) error {
-	driverContainer, err := m.DriverContainer()
-	if err != nil {
-		return err
+func LoadRewriteDataFilesTemplate() (*SparkApplicationManifest, error) {
+	return LoadSparkApplicationTemplate()
+}
+
+func (m *SparkApplicationManifest) SetPyFileName(name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return fmt.Errorf("spark application pyFiles name is required")
 	}
 
-	driverContainer.SetEnvValue("ICEBERG_CATALOG", values.Catalog)
-	driverContainer.SetEnvValue("ICEBERG_DATABASE", values.Database)
-	driverContainer.SetEnvValue("ICEBERG_TABLE", values.Table)
-	driverContainer.SetEnvValue("ICEBERG_WHERE_COLUMN", values.WhereColumn)
-	driverContainer.SetEnvValue("ICEBERG_WHERE_FROM", values.WhereFrom.Format(time.DateOnly))
-	driverContainer.SetEnvValue("ICEBERG_WHERE_UNTIL", values.WhereUntil.Format(time.DateOnly))
-	driverContainer.SetEnvValue("TARGET_FILE_SIZE_BYTES", fmt.Sprintf("%d", values.TargetFileSizeBytes))
-	driverContainer.SetEnvValue("MIN_INPUT_FILES", fmt.Sprintf("%d", values.MinInputFiles))
-	driverContainer.SetEnvValue("PARTIAL_PROGRESS_ENABLED", fmt.Sprintf("%t", values.PartialProgressEnabled))
-	driverContainer.SetEnvValue("PARTIAL_PROGRESS_MAX_COMMITS", fmt.Sprintf("%d", values.PartialProgressMaxCommits))
+	current := strings.TrimSpace(m.Spec.PyFiles)
+	if current == "" {
+		m.Spec.PyFiles = name
+		return nil
+	}
+
+	idx := strings.LastIndex(current, "/")
+	if idx == -1 {
+		m.Spec.PyFiles = name
+		return nil
+	}
+
+	m.Spec.PyFiles = current[:idx+1] + name
 
 	return nil
 }
@@ -170,6 +163,19 @@ func (m *SparkApplicationManifest) SetAnnotation(name, value string) {
 	}
 
 	m.Metadata.Annotations[name] = value
+}
+
+func (m *SparkApplicationManifest) SetEnvValues(values map[string]string) error {
+	driverContainer, err := m.DriverContainer()
+	if err != nil {
+		return err
+	}
+
+	for k, v := range values {
+		driverContainer.SetEnvValue(k, v)
+	}
+
+	return nil
 }
 
 func (c *SparkApplicationContainerSpec) SetEnvValue(name, value string) {

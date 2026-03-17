@@ -17,6 +17,7 @@ httpserver:
       write: 10m
 
 iceberg:
+  catalog: lakehouse
   default_database: main
   needs_optimize_delay: 96h # 4 days
 

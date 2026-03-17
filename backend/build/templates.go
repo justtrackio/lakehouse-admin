@@ -4,5 +4,5 @@ import (
 	_ "embed"
 )
 
-//go:embed spark/rewrite-data-files.yaml
+//go:embed spark/maintenance.yaml
 var SparkApplicationTemplates []byte

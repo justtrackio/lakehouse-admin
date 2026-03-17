@@ -1,9 +1,40 @@
 package internal
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
+
+func TestLoadSparkApplicationTemplate(t *testing.T) {
+	manifest, err := LoadSparkApplicationTemplate()
+	if err != nil {
+		t.Fatalf("expected template to load, got error: %s", err)
+	}
+
+	if manifest.Metadata.Name != "maintenance-task" {
+		t.Fatalf("expected generic manifest name, got %q", manifest.Metadata.Name)
+	}
+
+	if !strings.HasSuffix(manifest.Spec.PyFiles, "/rewrite_data_files.py") {
+		t.Fatalf("expected default pyFiles to point at rewrite_data_files.py, got %q", manifest.Spec.PyFiles)
+	}
+}
+
+func TestSparkApplicationManifestSetPyFileName(t *testing.T) {
+	manifest, err := LoadSparkApplicationTemplate()
+	if err != nil {
+		t.Fatalf("expected template to load, got error: %s", err)
+	}
+
+	if err = manifest.SetPyFileName("expire_snapshots.py"); err != nil {
+		t.Fatalf("expected pyFiles update to succeed, got error: %s", err)
+	}
+
+	if !strings.HasSuffix(manifest.Spec.PyFiles, "/expire_snapshots.py") {
+		t.Fatalf("expected pyFiles to end with expire_snapshots.py, got %q", manifest.Spec.PyFiles)
+	}
+}
 
 func TestSparkApplicationStatusResolve_CurrentStateSummary(t *testing.T) {
 	status := SparkApplicationStatus{

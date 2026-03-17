@@ -27,7 +27,8 @@ const (
 )
 
 type IcebergSettings struct {
-	DefaultDatabase    string        `cfg:"default_database" default:"main"`
+	Catalog            string        `cfg:"catalog" default:"lakehouse"`
+	Database           string        `cfg:"database" default:"main"`
 	NeedsOptimizeDelay time.Duration `cfg:"needs_optimize_delay" default:"24h"`
 }
 
@@ -95,7 +96,7 @@ func (c *IcebergClient) resolveTableIdentifier(logicalName string) table.Identif
 		return parts
 	}
 
-	return []string{c.settings.DefaultDatabase, logicalName}
+	return []string{c.settings.Database, logicalName}
 }
 
 func (c *IcebergClient) ListSnapshots(ctx context.Context, logicalName string) ([]table.Snapshot, error) {
@@ -278,7 +279,7 @@ func (c *IcebergClient) ListTables(ctx context.Context) ([]table.Identifier, err
 	var tables []table.Identifier
 
 	ctx = utils.WithAwsConfig(ctx, &c.awsCfg)
-	iterator := c.catalog.ListTables(ctx, table.Identifier{c.settings.DefaultDatabase})
+	iterator := c.catalog.ListTables(ctx, table.Identifier{c.settings.Database})
 
 	for t, err = range iterator {
 		if err != nil {
