@@ -10,7 +10,7 @@ spec:
     spark.dynamicAllocation.enabled: "true"
     spark.dynamicAllocation.shuffleTracking.enabled: "true"
     spark.dynamicAllocation.initialExecutors: "1"
-    spark.dynamicAllocation.minExecutors: "1"
+    spark.dynamicAllocation.minExecutors: "0"
     spark.dynamicAllocation.maxExecutors: "5"
     spark.driver.cores: "1"
     spark.driver.memory: 1g
@@ -34,7 +34,7 @@ spec:
   applicationTolerations:
     instanceConfig:
       initExecutors: 1
-      minExecutors: 1
+      minExecutors: 0
       maxExecutors: 5
     resourceRetainPolicy: OnFailure
   driverSpec:
