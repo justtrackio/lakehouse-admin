@@ -65,28 +65,19 @@ func (m *ModuleRefresh) Run(ctx context.Context) error {
 }
 
 func (m *ModuleRefresh) runRefreshCycle(ctx context.Context) {
-	var err error
-	var tables []string
-
 	m.logger.Info(ctx, "starting periodic table refresh")
 
-	if tables, err = m.service.ListTables(ctx); err != nil {
-		m.logger.Error(ctx, "could not list tables for refresh: %s", err)
+	err := m.sqlClient.WithTx(ctx, func(cttx sqlc.Tx) error {
+		if _, err := m.service.RefreshFull(cttx); err != nil {
+			return fmt.Errorf("could not complete periodic full refresh: %w", err)
+		}
+
+		return nil
+	})
+	if err != nil {
+		m.logger.Error(ctx, "failed periodic table refresh: %s", err)
 
 		return
-	}
-
-	for _, table := range tables {
-		err = m.sqlClient.WithTx(ctx, func(cttx sqlc.Tx) error {
-			if err = m.service.RefreshTableFull(cttx, table); err != nil {
-				return fmt.Errorf("could not refresh table %s: %w", table, err)
-			}
-
-			return nil
-		})
-		if err != nil {
-			m.logger.Error(ctx, "failed to refresh table %s: %s", table, err)
-		}
 	}
 
 	m.logger.Info(ctx, "finished periodic table refresh")

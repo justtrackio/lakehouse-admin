@@ -5,7 +5,7 @@ metadata:
   namespace: lakehouse-admin
 spec:
   deploymentMode: ClusterMode
-  pyFiles: https://raw.githubusercontent.com/justtrackio/lakehouse-admin/spark-rewrite/spark/iceberg_rewrite_data_files.py
+  pyFiles: https://raw.githubusercontent.com/justtrackio/lakehouse-admin/spark-rewrite/backend/build/spark/rewrite_data_files.py
   sparkConf:
     spark.dynamicAllocation.enabled: "true"
     spark.dynamicAllocation.shuffleTracking.enabled: "true"

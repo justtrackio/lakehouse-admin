@@ -24,6 +24,7 @@ type OptimizeInput struct {
 	FileSizeThresholdMb int      `json:"file_size_threshold_mb"`
 	From                DateTime `json:"from"`
 	To                  DateTime `json:"to"`
+	ChunkBy             string   `json:"chunk_by"`
 }
 
 type ListTasksInput struct {
@@ -99,7 +100,7 @@ func (h *HandlerTasks) RemoveOrphanFiles(ctx context.Context, input *RemoveOrpha
 }
 
 func (h *HandlerTasks) Optimize(ctx context.Context, input *OptimizeInput) (httpserver.Response, error) {
-	taskIds, err := h.serviceTasks.EnqueueOptimize(ctx, input.Table, input.FileSizeThresholdMb, input.From.Time, input.To.Time)
+	taskIds, err := h.serviceTasks.EnqueueOptimize(ctx, input.Table, input.FileSizeThresholdMb, input.From.Time, input.To.Time, input.ChunkBy)
 	if err != nil {
 		return nil, err
 	}

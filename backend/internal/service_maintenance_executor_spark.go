@@ -24,6 +24,8 @@ type OptimizeResult struct {
 
 const sparkApplicationTaskIDAnnotation = "lakehouse-admin.justtrack.io/task-id"
 
+const sparkApplicationNameMaxLength = 63
+
 type SparkMaintenanceExecutor struct {
 	logger    log.Logger
 	metadata  *ServiceMetadata
@@ -153,7 +155,7 @@ func (s *SparkMaintenanceExecutor) executeOptimize(ctx context.Context, taskID i
 	}
 
 	whereClause := fmt.Sprintf("date(%s) >= date '%s' AND date(%s) <= date '%s'", partitionColumn, from.Format(time.DateOnly), partitionColumn, to.Format(time.DateOnly))
-	applicationName := fmt.Sprintf("rewrite-data-files-%s-%s", table, from.Format("2006-01-02"))
+	applicationName := buildOptimizeApplicationName(table, from, taskID)
 
 	s.logger.Info(ctx, "creating spark application for table %s range %s to %s", table, from.Format(time.DateOnly), to.Format(time.DateOnly))
 
@@ -161,7 +163,7 @@ func (s *SparkMaintenanceExecutor) executeOptimize(ctx context.Context, taskID i
 		return nil, fmt.Errorf("could not load spark application template: %w", err)
 	}
 
-	manifest.Metadata.Name = sanitizeK8sName(applicationName)
+	manifest.Metadata.Name = applicationName
 	manifest.SetAnnotation(sparkApplicationTaskIDAnnotation, strconv.FormatInt(taskID, 10))
 
 	if err = manifest.ApplyValues(RewriteDataFilesParameters{
@@ -295,6 +297,27 @@ func (s *SparkMaintenanceExecutor) handleDecodedSparkApplicationEvent(ctx contex
 
 		return
 	}
+}
+
+func buildOptimizeApplicationName(table string, from time.Time, taskID int64) string {
+	prefix := "rewrite-data-files"
+	suffix := fmt.Sprintf("%s-%d", from.Format("2006-01-02"), taskID)
+	tablePart := sanitizeK8sName(table)
+	maxTableLength := sparkApplicationNameMaxLength - len(prefix) - len(suffix) - 2
+
+	if maxTableLength <= 0 {
+		return prefix + "-" + suffix
+	}
+
+	if len(tablePart) > maxTableLength {
+		tablePart = strings.Trim(tablePart[:maxTableLength], "-")
+	}
+
+	if tablePart == "" || tablePart == "spark-application" {
+		return prefix + "-" + suffix
+	}
+
+	return prefix + "-" + tablePart + "-" + suffix
 }
 
 func decodeSparkApplicationEvent(obj any) (*SparkApplicationManifest, error) {

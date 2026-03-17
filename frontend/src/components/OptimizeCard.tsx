@@ -1,15 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import {
-  Alert,
-  Button,
-  Card,
-  DatePicker,
-  Form,
-  Slider,
-  Space,
-  Typography,
-  Popconfirm,
-} from 'antd';
+import { Alert, Button, Card, DatePicker, Form, Slider, Space, Typography, Popconfirm } from 'antd';
 import type { Dayjs } from 'dayjs';
 import { optimizeTable } from '../api/schema';
 import { useMessageApi } from '../context/MessageContext';
@@ -40,7 +30,7 @@ export function OptimizeCard({ tableName }: OptimizeCardProps) {
         to = values.date_range[1].format('YYYY-MM-DD');
       }
 
-      return optimizeTable(tableName, values.file_size_threshold_mb, from, to);
+      return optimizeTable(tableName, values.file_size_threshold_mb, from, to, 'daily');
     },
     onSuccess: (data) => {
       const count = data.task_ids.length;

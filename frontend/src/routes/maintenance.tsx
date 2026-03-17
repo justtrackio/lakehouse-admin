@@ -18,11 +18,18 @@ function MaintenanceLayout() {
 
   const activeTab = pathname.includes('/remove-orphan-files')
     ? 'remove-orphan-files'
+    : pathname.includes('/optimize')
+      ? 'optimize'
     : 'expire-snapshots';
 
   const handleTabChange = (key: string) => {
     if (key === 'remove-orphan-files') {
       navigate({ to: '/maintenance/remove-orphan-files' });
+      return;
+    }
+
+    if (key === 'optimize') {
+      navigate({ to: '/maintenance/optimize' });
       return;
     }
 
@@ -34,7 +41,7 @@ function MaintenanceLayout() {
       <Card>
         <Title level={2} style={{ marginBottom: 8 }}>Maintenance</Title>
         <Paragraph style={{ marginBottom: 0 }}>
-          Run maintenance tasks across multiple tables. Each task type now has its own route so you can link directly to snapshot expiration or orphan file cleanup.
+          Run maintenance tasks across multiple tables. Each task type now has its own route so you can link directly to snapshot expiration, orphan file cleanup, or optimize planning.
         </Paragraph>
       </Card>
       <Card title="Global Maintenance" extra={<Link to="/tasks">View Task Queue</Link>}>
@@ -53,6 +60,10 @@ function MaintenanceLayout() {
               {
                 key: 'remove-orphan-files',
                 label: 'Remove Orphan Files',
+              },
+              {
+                key: 'optimize',
+                label: 'Optimize',
               },
             ]}
           />

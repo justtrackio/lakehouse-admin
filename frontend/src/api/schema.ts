@@ -154,11 +154,14 @@ export interface OptimizeTaskQueuedResponse {
   status: string;
 }
 
+export type OptimizeChunkBy = 'daily' | 'weekly' | 'monthly';
+
 export async function optimizeTable(
   tableName: string,
   fileSizeThresholdMb: number,
   from?: string,
   to?: string,
+  chunkBy: OptimizeChunkBy = 'daily',
 ): Promise<OptimizeTaskQueuedResponse> {
   return apiClient.post<OptimizeTaskQueuedResponse>(
     `/api/tasks/${tableName}/optimize`,
@@ -166,6 +169,7 @@ export async function optimizeTable(
       file_size_threshold_mb: fileSizeThresholdMb,
       from: from,
       to: to,
+      chunk_by: chunkBy,
     }
   );
 }

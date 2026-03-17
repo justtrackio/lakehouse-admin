@@ -7,12 +7,17 @@ import (
 
 	"github.com/gosoline-project/sqlc"
 	"github.com/justtrackio/gosoline/pkg/cfg"
-	"github.com/justtrackio/gosoline/pkg/coffin"
 	"github.com/justtrackio/gosoline/pkg/db"
 	"github.com/justtrackio/gosoline/pkg/funk"
 	"github.com/justtrackio/gosoline/pkg/log"
-	"golang.org/x/sync/semaphore"
 )
+
+type icebergRefresher interface {
+	ListTables(ctx context.Context) ([]string, error)
+	DescribeTable(ctx context.Context, logicalName string) (*TableDescription, error)
+	ListPartitions(ctx context.Context, logicalName string) ([]IcebergPartition, error)
+	ListSnapshots(ctx context.Context, logicalName string) ([]IcebergSnapshot, error)
+}
 
 func NewServiceRefresh(ctx context.Context, config cfg.Config, logger log.Logger) (*ServiceRefresh, error) {
 	var err error
@@ -36,7 +41,7 @@ func NewServiceRefresh(ctx context.Context, config cfg.Config, logger log.Logger
 
 type ServiceRefresh struct {
 	logger    log.Logger
-	iceberg   *ServiceIceberg
+	iceberg   icebergRefresher
 	sqlClient sqlc.Client
 }
 
@@ -57,34 +62,17 @@ func (s *ServiceRefresh) RefreshAllTables(cttx sqlc.Tx) ([]string, error) {
 	var err error
 	var tables []string
 
-	if tables, err = s.iceberg.ListTables(cttx); err != nil {
-		return nil, fmt.Errorf("could not list tables: %w", err)
+	if tables, err = s.reconcileTableInventory(cttx); err != nil {
+		return nil, fmt.Errorf("could not reconcile table inventory: %w", err)
 	}
 
-	sem := semaphore.NewWeighted(10)
-	cfn, ctx := coffin.WithContext(cttx)
-
-	cfn.GoWithContext(ctx, func(ctx context.Context) error {
-		for _, table := range tables {
-			cfn.GoWithContext(ctx, func(ctx context.Context) error {
-				if err = sem.Acquire(ctx, 1); err != nil {
-					return fmt.Errorf("could not acquire semaphore: %w", err)
-				}
-				defer sem.Release(1)
-
-				cttx = cttx.WithContext(ctx)
-				if _, err = s.RefreshTable(cttx, table); err != nil {
-					return fmt.Errorf("could not refresh table %s: %w", table, err)
-				}
-
-				return nil
-			})
+	for _, table := range tables {
+		if _, err = s.RefreshTable(cttx, table); err != nil {
+			return nil, fmt.Errorf("could not refresh table %s: %w", table, err)
 		}
+	}
 
-		return nil
-	})
-
-	return tables, cfn.Wait()
+	return tables, nil
 }
 
 func (s *ServiceRefresh) RefreshTable(cttx sqlc.Tx, table string) (*TableDescription, error) {
@@ -184,11 +172,9 @@ func (s *ServiceRefresh) RefreshSnapshots(cttx sqlc.Tx, table string) ([]Snapsho
 }
 
 func (s *ServiceRefresh) RefreshFull(cttx sqlc.Tx) ([]string, error) {
-	var err error
-	var tables []string
-
-	if tables, err = s.iceberg.ListTables(cttx); err != nil {
-		return nil, fmt.Errorf("could not list tables: %w", err)
+	tables, err := s.reconcileTableInventory(cttx)
+	if err != nil {
+		return nil, fmt.Errorf("could not reconcile table inventory: %w", err)
 	}
 
 	s.logger.Info(cttx, "starting full refresh for %d tables", len(tables))
@@ -218,6 +204,68 @@ func (s *ServiceRefresh) RefreshTableFull(cttx sqlc.Tx, table string) error {
 	if _, err = s.RefreshSnapshots(cttx, table); err != nil {
 		return fmt.Errorf("could not refresh snapshots for table %s: %w", table, err)
 	}
+
+	return nil
+}
+
+func (s *ServiceRefresh) reconcileTableInventory(cttx sqlc.Tx) ([]string, error) {
+	var err error
+	var icebergTables, databaseTables, staleTables []string
+
+	if icebergTables, err = s.iceberg.ListTables(cttx); err != nil {
+		return nil, fmt.Errorf("could not list tables: %w", err)
+	}
+
+	if databaseTables, err = s.listStoredTables(cttx); err != nil {
+		return nil, fmt.Errorf("could not list stored tables: %w", err)
+	}
+
+	_, staleTables = funk.Difference(icebergTables, databaseTables)
+
+	for _, table := range staleTables {
+		if err = s.deleteStaleTable(cttx, table); err != nil {
+			return nil, fmt.Errorf("could not delete stale table %s: %w", table, err)
+		}
+	}
+
+	s.logger.Info(cttx, "deleted %d stale tables from metadata store", len(staleTables))
+
+	return icebergTables, nil
+}
+
+func (s *ServiceRefresh) listStoredTables(cttx sqlc.Tx) ([]string, error) {
+	type tableRow struct {
+		Name string `db:"name"`
+	}
+
+	rows := make([]tableRow, 0)
+	if err := cttx.Q().From("tables").Column(sqlc.Col("name")).Select(cttx, &rows); err != nil {
+		return nil, fmt.Errorf("could not query stored tables: %w", err)
+	}
+
+	tables := make([]string, len(rows))
+	for i, row := range rows {
+		tables[i] = row.Name
+	}
+
+	return tables, nil
+}
+
+func (s *ServiceRefresh) deleteStaleTable(cttx sqlc.Tx, name string) error {
+	cleanupSteps := map[string]string{
+		"partitions": "table",
+		"snapshots":  "table",
+		"tasks":      "table",
+		"tables":     "name",
+	}
+
+	for table, column := range cleanupSteps {
+		if _, err := cttx.Q().Delete(table).Where(sqlc.Eq{column: name}).Exec(cttx); err != nil {
+			return fmt.Errorf("could not delete from %s: %w", table, err)
+		}
+	}
+
+	s.logger.Info(cttx, "deleted stale table %s from metadata store", name)
 
 	return nil
 }

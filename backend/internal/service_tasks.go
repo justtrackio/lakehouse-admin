@@ -12,8 +12,16 @@ import (
 )
 
 const (
-	minRetentionDays = 7
+	minRetentionDays   = 7
+	optimizeChunkDay   = "daily"
+	optimizeChunkWeek  = "weekly"
+	optimizeChunkMonth = "monthly"
 )
+
+type optimizeRangeChunk struct {
+	from time.Time
+	to   time.Time
+}
 
 type ServiceTasks struct {
 	logger           log.Logger
@@ -120,11 +128,16 @@ func (s *ServiceTasks) EnqueueRemoveOrphanFilesBatch(ctx context.Context, tables
 }
 
 // EnqueueOptimize queries the partitions table for partitions that need optimization
-// within the given date range and enqueues one optimize task per qualifying partition
-func (s *ServiceTasks) EnqueueOptimize(ctx context.Context, table string, fileSizeThresholdMb int, from time.Time, to time.Time) ([]int64, error) {
+// within the given date range and enqueues one optimize task per qualifying chunk.
+func (s *ServiceTasks) EnqueueOptimize(ctx context.Context, table string, fileSizeThresholdMb int, from time.Time, to time.Time, chunkBy string) ([]int64, error) {
 	var err error
 	var taskId int64
 	var taskIds []int64
+	chunkBy, err = normalizeOptimizeChunkBy(chunkBy)
+	if err != nil {
+		return nil, err
+	}
+
 	engine, err := s.engineResolver.Resolve(TaskKindOptimize)
 	if err != nil {
 		return nil, fmt.Errorf("could not resolve engine for optimize task: %w", err)
@@ -177,29 +190,86 @@ func (s *ServiceTasks) EnqueueOptimize(ctx context.Context, table string, fileSi
 		return nil, fmt.Errorf("could not query partitions that need optimization: %w", err)
 	}
 
-	// Enqueue one task per partition that needs optimization
+	chunkSet := make([]optimizeRangeChunk, 0, len(partitions))
+	seenChunks := make(map[string]struct{}, len(partitions))
+
+	// Enqueue one task per chunk that contains at least one qualifying partition.
 	for _, p := range partitions {
-		// Construct the date for this partition
-		// Use flexible date parsing format to handle unpadded month/day values
 		dateStr := fmt.Sprintf("%s-%s-%s", p.Year, p.Month, p.Day)
 		partitionDate, err := time.Parse("2006-1-2", dateStr)
 		if err != nil {
 			return nil, fmt.Errorf("could not parse partition date %s: %w", dateStr, err)
 		}
 
+		chunk := optimizeChunkForDate(partitionDate, chunkBy)
+		if chunk.from.Before(from) {
+			chunk.from = from
+		}
+		if chunk.to.After(to) {
+			chunk.to = to
+		}
+
+		chunkKey := chunk.from.Format(time.DateOnly) + ":" + chunk.to.Format(time.DateOnly)
+		if _, ok := seenChunks[chunkKey]; ok {
+			continue
+		}
+
+		seenChunks[chunkKey] = struct{}{}
+		chunkSet = append(chunkSet, chunk)
+	}
+
+	for _, chunk := range chunkSet {
 		taskInput := map[string]any{
 			"file_size_threshold_mb": fileSizeThresholdMb,
-			"from":                   partitionDate,
-			"to":                     partitionDate, // Single day
+			"from":                   chunk.from,
+			"to":                     chunk.to,
 		}
 
 		if taskId, err = s.serviceTaskQueue.EnqueueTask(ctx, table, string(TaskKindOptimize), string(engine), taskInput); err != nil {
-			return nil, fmt.Errorf("could not enqueue optimize task for date %s: %w", dateStr, err)
+			return nil, fmt.Errorf("could not enqueue optimize task for range %s to %s: %w", chunk.from.Format(time.DateOnly), chunk.to.Format(time.DateOnly), err)
 		}
 		taskIds = append(taskIds, taskId)
 	}
 
 	return taskIds, nil
+}
+
+func normalizeOptimizeChunkBy(chunkBy string) (string, error) {
+	switch strings.TrimSpace(strings.ToLower(chunkBy)) {
+	case "", optimizeChunkDay:
+		return optimizeChunkDay, nil
+	case optimizeChunkWeek:
+		return optimizeChunkWeek, nil
+	case optimizeChunkMonth:
+		return optimizeChunkMonth, nil
+	default:
+		return "", fmt.Errorf("unsupported optimize chunking %q", chunkBy)
+	}
+}
+
+func optimizeChunkForDate(date time.Time, chunkBy string) optimizeRangeChunk {
+	day := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, time.UTC)
+
+	switch chunkBy {
+	case optimizeChunkWeek:
+		weekdayOffset := (int(day.Weekday()) + 6) % 7
+		start := day.AddDate(0, 0, -weekdayOffset)
+		return optimizeRangeChunk{
+			from: start,
+			to:   start.AddDate(0, 0, 6),
+		}
+	case optimizeChunkMonth:
+		start := time.Date(day.Year(), day.Month(), 1, 0, 0, 0, 0, time.UTC)
+		return optimizeRangeChunk{
+			from: start,
+			to:   start.AddDate(0, 1, -1),
+		}
+	default:
+		return optimizeRangeChunk{
+			from: day,
+			to:   day,
+		}
+	}
 }
 
 func (s *ServiceTasks) enqueueBatch(ctx context.Context, tables []string, enqueue func(context.Context, string) (int64, error)) (*BatchEnqueueResult, error) {
