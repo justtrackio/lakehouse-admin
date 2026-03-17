@@ -156,6 +156,11 @@ export interface OptimizeTaskQueuedResponse {
 
 export type OptimizeChunkBy = 'daily' | 'weekly' | 'monthly';
 
+export interface BatchOptimizeTableRequest {
+  table: string;
+  chunk_by: OptimizeChunkBy;
+}
+
 export async function optimizeTable(
   tableName: string,
   fileSizeThresholdMb: number,
@@ -170,6 +175,23 @@ export async function optimizeTable(
       from: from,
       to: to,
       chunk_by: chunkBy,
+    }
+  );
+}
+
+export async function batchOptimize(
+  tables: BatchOptimizeTableRequest[],
+  fileSizeThresholdMb: number,
+  from: string,
+  to: string,
+): Promise<BatchTaskQueuedResponse> {
+  return apiClient.post<BatchTaskQueuedResponse>(
+    '/api/maintenance/optimize',
+    {
+      tables,
+      file_size_threshold_mb: fileSizeThresholdMb,
+      from,
+      to,
     }
   );
 }

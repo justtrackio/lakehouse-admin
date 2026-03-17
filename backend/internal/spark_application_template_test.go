@@ -36,6 +36,45 @@ func TestSparkApplicationManifestSetPyFileName(t *testing.T) {
 	}
 }
 
+func TestSparkApplicationManifestToCreateUnstructuredOmitsStatus(t *testing.T) {
+	manifest, err := LoadSparkApplicationTemplate()
+	if err != nil {
+		t.Fatalf("expected template to load, got error: %s", err)
+	}
+
+	manifest.Metadata.Name = "rewrite-data-files-test"
+	manifest.Status = SparkApplicationStatus{
+		ApplicationState: SparkApplicationState{State: "SUCCEEDED"},
+		CurrentState:     SparkApplicationState{CurrentStateSummary: "ResourceReleased"},
+		ErrorMessage:     "should not be sent on create",
+	}
+
+	resource, err := manifest.ToCreateUnstructured()
+	if err != nil {
+		t.Fatalf("expected create payload conversion to succeed, got error: %s", err)
+	}
+
+	if got := resource.GetAPIVersion(); got != manifest.APIVersion {
+		t.Fatalf("expected apiVersion %q, got %q", manifest.APIVersion, got)
+	}
+
+	if got := resource.GetKind(); got != manifest.Kind {
+		t.Fatalf("expected kind %q, got %q", manifest.Kind, got)
+	}
+
+	if got := resource.GetName(); got != manifest.Metadata.Name {
+		t.Fatalf("expected metadata.name %q, got %q", manifest.Metadata.Name, got)
+	}
+
+	if _, ok := resource.Object["spec"]; !ok {
+		t.Fatal("expected create payload to include spec")
+	}
+
+	if _, ok := resource.Object["status"]; ok {
+		t.Fatal("expected create payload to omit status")
+	}
+}
+
 func TestSparkApplicationStatusResolve_CurrentStateSummary(t *testing.T) {
 	status := SparkApplicationStatus{
 		CurrentState: SparkApplicationState{

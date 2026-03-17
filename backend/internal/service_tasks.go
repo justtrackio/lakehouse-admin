@@ -41,6 +41,11 @@ type BatchEnqueueResult struct {
 	FailedTables  []BatchEnqueueFailure `json:"failed_tables"`
 }
 
+type BatchOptimizeTable struct {
+	Table   string
+	ChunkBy string
+}
+
 func NewServiceTasks(ctx context.Context, config cfg.Config, logger log.Logger) (*ServiceTasks, error) {
 	var err error
 	var serviceTaskQueue *ServiceTaskQueue
@@ -125,6 +130,43 @@ func (s *ServiceTasks) EnqueueRemoveOrphanFilesBatch(ctx context.Context, tables
 	return s.enqueueBatch(ctx, tables, func(cttx context.Context, table string) (int64, error) {
 		return s.EnqueueRemoveOrphanFiles(cttx, table, retentionDays)
 	})
+}
+
+func (s *ServiceTasks) EnqueueOptimizeBatch(ctx context.Context, tables []BatchOptimizeTable, fileSizeThresholdMb int, from time.Time, to time.Time) (*BatchEnqueueResult, error) {
+	if from.IsZero() || to.IsZero() {
+		return nil, fmt.Errorf("from and to dates are required for optimize")
+	}
+
+	if from.After(to) {
+		return nil, fmt.Errorf("from date must be before or equal to the to date")
+	}
+
+	normalizedTables := normalizeBatchOptimizeTables(tables)
+	if len(normalizedTables) == 0 {
+		return nil, fmt.Errorf("at least one table must be provided")
+	}
+
+	result := &BatchEnqueueResult{
+		TaskIds:      make([]int64, 0, len(normalizedTables)),
+		FailedTables: make([]BatchEnqueueFailure, 0),
+	}
+
+	for _, tableConfig := range normalizedTables {
+		taskIDs, err := s.EnqueueOptimize(ctx, tableConfig.Table, fileSizeThresholdMb, from, to, tableConfig.ChunkBy)
+		if err != nil {
+			s.logger.Warn(ctx, "failed to enqueue optimize maintenance task for table %s: %s", tableConfig.Table, err)
+			result.FailedTables = append(result.FailedTables, BatchEnqueueFailure{
+				Table: tableConfig.Table,
+				Error: err.Error(),
+			})
+			continue
+		}
+
+		result.TaskIds = append(result.TaskIds, taskIDs...)
+		result.EnqueuedCount += int64(len(taskIDs))
+	}
+
+	return result, nil
 }
 
 // EnqueueOptimize queries the partitions table for partitions that need optimization
@@ -340,6 +382,30 @@ func normalizeBatchTables(tables []string) []string {
 
 		seen[trimmed] = struct{}{}
 		normalized = append(normalized, trimmed)
+	}
+
+	return normalized
+}
+
+func normalizeBatchOptimizeTables(tables []BatchOptimizeTable) []BatchOptimizeTable {
+	normalized := make([]BatchOptimizeTable, 0, len(tables))
+	seen := make(map[string]struct{}, len(tables))
+
+	for _, table := range tables {
+		trimmedTable := strings.TrimSpace(table.Table)
+		if trimmedTable == "" {
+			continue
+		}
+
+		if _, ok := seen[trimmedTable]; ok {
+			continue
+		}
+
+		seen[trimmedTable] = struct{}{}
+		normalized = append(normalized, BatchOptimizeTable{
+			Table:   trimmedTable,
+			ChunkBy: strings.TrimSpace(table.ChunkBy),
+		})
 	}
 
 	return normalized

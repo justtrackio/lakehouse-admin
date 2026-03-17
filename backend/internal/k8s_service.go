@@ -122,7 +122,7 @@ func (s *K8sService) CreateSparkApplication(ctx context.Context, manifest *Spark
 		return nil, fmt.Errorf("spark application namespace is required")
 	}
 
-	if resource, err = manifest.ToUnstructured(); err != nil {
+	if resource, err = manifest.ToCreateUnstructured(); err != nil {
 		return nil, fmt.Errorf("could not convert spark application to unstructured: %w", err)
 	}
 

@@ -450,6 +450,16 @@ func (s *SparkMaintenanceExecutor) handleDecodedSparkApplicationEvent(ctx contex
 	}
 
 	if err = s.HandleTaskUpdate(ctx, taskID, appName, state, resolvedStatus.Message, extraResult); err == nil {
+		if !resolvedStatus.IsSuccess() {
+			return nil
+		}
+
+		if deleteErr := s.k8s.DeleteSparkApplication(ctx, manifest.Metadata.Namespace, appName); deleteErr != nil {
+			return fmt.Errorf("task %d from successful spark application %s could not be cleaned up: %w", taskID, appName, deleteErr)
+		}
+
+		s.logger.Info(ctx, "deleted successful spark application %s after completing task %d", appName, taskID)
+
 		return nil
 	}
 

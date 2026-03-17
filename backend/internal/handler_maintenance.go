@@ -19,6 +19,18 @@ type BatchRemoveOrphanFilesInput struct {
 	RetentionDays int      `json:"retention_days"`
 }
 
+type BatchOptimizeTableInput struct {
+	Table   string `json:"table"`
+	ChunkBy string `json:"chunk_by"`
+}
+
+type BatchOptimizeInput struct {
+	Tables              []BatchOptimizeTableInput `json:"tables"`
+	FileSizeThresholdMb int                       `json:"file_size_threshold_mb"`
+	From                DateTime                  `json:"from"`
+	To                  DateTime                  `json:"to"`
+}
+
 func NewHandlerMaintenance(ctx context.Context, config cfg.Config, logger log.Logger) (*HandlerMaintenance, error) {
 	serviceTasks, err := NewServiceTasks(ctx, config, logger)
 	if err != nil {
@@ -45,6 +57,23 @@ func (h *HandlerMaintenance) ExpireSnapshots(ctx context.Context, input *BatchEx
 
 func (h *HandlerMaintenance) RemoveOrphanFiles(ctx context.Context, input *BatchRemoveOrphanFilesInput) (httpserver.Response, error) {
 	result, err := h.serviceTasks.EnqueueRemoveOrphanFilesBatch(ctx, input.Tables, input.RetentionDays)
+	if err != nil {
+		return nil, err
+	}
+
+	return httpserver.NewJsonResponse(result), nil
+}
+
+func (h *HandlerMaintenance) Optimize(ctx context.Context, input *BatchOptimizeInput) (httpserver.Response, error) {
+	tables := make([]BatchOptimizeTable, 0, len(input.Tables))
+	for _, table := range input.Tables {
+		tables = append(tables, BatchOptimizeTable{
+			Table:   table.Table,
+			ChunkBy: table.ChunkBy,
+		})
+	}
+
+	result, err := h.serviceTasks.EnqueueOptimizeBatch(ctx, tables, input.FileSizeThresholdMb, input.From.Time, input.To.Time)
 	if err != nil {
 		return nil, err
 	}

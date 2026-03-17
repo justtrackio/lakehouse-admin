@@ -20,6 +20,13 @@ type SparkApplicationManifest struct {
 	Status     SparkApplicationStatus       `yaml:"status" json:"status"`
 }
 
+type sparkApplicationCreateManifest struct {
+	APIVersion string                       `json:"apiVersion"`
+	Kind       string                       `json:"kind"`
+	Metadata   SparkApplicationMetadata     `json:"metadata"`
+	Spec       SparkApplicationManifestSpec `json:"spec"`
+}
+
 type SparkApplicationStatus struct {
 	ApplicationState       SparkApplicationState            `yaml:"applicationState" json:"applicationState"`
 	CurrentState           SparkApplicationState            `yaml:"currentState" json:"currentState"`
@@ -189,8 +196,13 @@ func (c *SparkApplicationContainerSpec) SetEnvValue(name, value string) {
 	c.Env = append(c.Env, SparkApplicationEnvVar{Name: name, Value: value})
 }
 
-func (m *SparkApplicationManifest) ToUnstructured() (*unstructured.Unstructured, error) {
-	payload, err := json.Marshal(m)
+func (m *SparkApplicationManifest) ToCreateUnstructured() (*unstructured.Unstructured, error) {
+	payload, err := json.Marshal(sparkApplicationCreateManifest{
+		APIVersion: m.APIVersion,
+		Kind:       m.Kind,
+		Metadata:   m.Metadata,
+		Spec:       m.Spec,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("could not marshal spark application manifest: %w", err)
 	}

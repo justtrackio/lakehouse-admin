@@ -40,6 +40,7 @@ func main() {
 			router.Group("/api/maintenance").HandleWith(httpserver.With(internal.NewHandlerMaintenance, func(r *httpserver.Router, handler *internal.HandlerMaintenance) {
 				r.POST("/expire-snapshots", httpserver.Bind(handler.ExpireSnapshots))
 				r.POST("/remove-orphan-files", httpserver.Bind(handler.RemoveOrphanFiles))
+				r.POST("/optimize", httpserver.Bind(handler.Optimize))
 			}))
 
 			router.Group("/api/tasks").HandleWith(httpserver.With(internal.NewHandlerTasks, func(r *httpserver.Router, handler *internal.HandlerTasks) {
