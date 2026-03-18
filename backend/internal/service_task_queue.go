@@ -209,14 +209,7 @@ func (s *ServiceTaskQueue) CompleteTask(ctx context.Context, id int64, result ma
 		return fmt.Errorf("could not load task for completion: %w", getErr)
 	}
 
-	mergedResult := task.Result.Get()
-	if mergedResult == nil {
-		mergedResult = make(map[string]any)
-	}
-
-	for key, value := range result {
-		mergedResult[key] = value
-	}
+	mergedResult := mergeTaskResult(task.Result.Get(), result)
 
 	now := time.Now()
 	upd := s.sqlClient.Q().Update("tasks").
@@ -244,8 +237,19 @@ func (s *ServiceTaskQueue) CompleteTask(ctx context.Context, id int64, result ma
 }
 
 func (s *ServiceTaskQueue) UpdateTaskResult(ctx context.Context, id int64, result map[string]any) error {
+	var task Task
+	if err := s.sqlClient.Q().From("tasks").Where(sqlc.Eq{"id": id}).Limit(1).Get(ctx, &task); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("task %d not found for result update", id)
+		}
+
+		return fmt.Errorf("could not load task for result update: %w", err)
+	}
+
+	mergedResult := mergeTaskResult(task.Result.Get(), result)
+
 	upd := s.sqlClient.Q().Update("tasks").
-		Set("result", db.NewJSON(result, db.NonNullable{})).
+		Set("result", db.NewJSON(mergedResult, db.NonNullable{})).
 		Where(sqlc.Eq{"id": id})
 
 	if _, err := upd.Exec(ctx); err != nil {
@@ -253,6 +257,33 @@ func (s *ServiceTaskQueue) UpdateTaskResult(ctx context.Context, id int64, resul
 	}
 
 	return nil
+}
+
+func (s *ServiceTaskQueue) UpdateTaskResultNested(ctx context.Context, id int64, key string, result map[string]any) error {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return fmt.Errorf("result key is required")
+	}
+
+	if result == nil {
+		result = map[string]any{}
+	}
+
+	return s.UpdateTaskResult(ctx, id, map[string]any{key: result})
+}
+
+func mergeTaskResult(existing map[string]any, update map[string]any) map[string]any {
+	merged := make(map[string]any)
+
+	for key, value := range existing {
+		merged[key] = value
+	}
+
+	for key, value := range update {
+		merged[key] = value
+	}
+
+	return merged
 }
 
 func (s *ServiceTaskQueue) TaskCounts(ctx context.Context) (running int64, queued int64, err error) {

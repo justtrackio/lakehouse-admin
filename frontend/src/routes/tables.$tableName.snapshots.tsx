@@ -11,6 +11,7 @@ import {
   Typography,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
+import type { TablePaginationConfig } from 'antd/es/table';
 import { fetchSnapshots, SnapshotItem } from '../api/schema';
 import { formatTimestamp, formatBytes, formatNumber } from '../utils/format';
 import MetricWithDelta from "../components/MetricWithDelta";
@@ -25,6 +26,10 @@ export const Route = createFileRoute('/tables/$tableName/snapshots')({
 function SnapshotsPage() {
   const { tableName } = Route.useParams();
   const [selectedSnapshot, setSelectedSnapshot] = useState<SnapshotItem | null>(null);
+  const [pagination, setPagination] = useState<TablePaginationConfig>({
+    current: 1,
+    pageSize: 20,
+  });
 
   const {
     data: snapshots,
@@ -185,7 +190,11 @@ function SnapshotsPage() {
           rowKey={(row) => row.snapshot_id}
           columns={columns}
           dataSource={snapshots}
-          pagination={{ pageSize: 20 }}
+          pagination={{
+            ...pagination,
+            showSizeChanger: true,
+          }}
+          onChange={(newPagination) => setPagination(newPagination)}
           scroll={{ x: 'max-content' }}
         />
       )}

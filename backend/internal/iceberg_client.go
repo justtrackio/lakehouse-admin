@@ -240,7 +240,7 @@ func (c *IcebergClient) normalizePartitionForBrowse(rawPartition map[int]any, sp
 			continue
 		}
 
-		sourceField, ok := schema.FindFieldByID(pf.SourceID)
+		sourceColumnName, ok := c.findSourceColumnName(schema, pf.SourceID)
 		if !ok {
 			result[fmt.Sprintf("field_%d", partFieldID)] = val
 
@@ -251,7 +251,7 @@ func (c *IcebergClient) normalizePartitionForBrowse(rawPartition map[int]any, sp
 
 		switch transform {
 		case "identity":
-			result[sourceField.Name] = val
+			result[sourceColumnName] = val
 		case transformDay:
 			t := val.(iceberg.Date).ToTime()
 			result["year"] = t.Format("2006")
@@ -271,6 +271,19 @@ func (c *IcebergClient) normalizePartitionForBrowse(rawPartition map[int]any, sp
 	}
 
 	return result
+}
+
+func (c *IcebergClient) findSourceColumnName(schema *iceberg.Schema, sourceID int) (string, bool) {
+	if sourceColumnName, ok := schema.FindColumnName(sourceID); ok {
+		return sourceColumnName, true
+	}
+
+	sourceField, ok := schema.FindFieldByID(sourceID)
+	if !ok {
+		return "", false
+	}
+
+	return sourceField.Name, true
 }
 
 func (c *IcebergClient) ListTables(ctx context.Context) ([]table.Identifier, error) {
@@ -335,9 +348,7 @@ func (c *IcebergClient) extractColumns(schema *iceberg.Schema) (db.JSON[TableCol
 }
 
 func (c *IcebergClient) extractPartitions(metadata table.Metadata) (db.JSON[[]TablePartition, db.NonNullable], error) {
-	var ok bool
 	var spec *iceberg.PartitionSpec
-	var sourceField iceberg.NestedField
 
 	specs := metadata.PartitionSpecs()
 	defaultSpecID := metadata.DefaultPartitionSpec()
@@ -367,16 +378,17 @@ func (c *IcebergClient) extractPartitions(metadata table.Metadata) (db.JSON[[]Ta
 	schema := metadata.CurrentSchema()
 
 	for pf := range fields {
-		if sourceField, ok = schema.FindFieldByID(pf.SourceID); !ok {
+		sourceColumnName, found := c.findSourceColumnName(schema, pf.SourceID)
+		if !found {
 			return db.NewJSON(partitions, db.NonNullable{}), fmt.Errorf("could not find source field with id %d for partition field %s", pf.SourceID, pf.Name)
 		}
 
 		switch pf.Transform.String() {
 		case transformDay, transformMonth, transformYear:
-			partitions = append(partitions, c.expandTimeTransform(pf.Transform.String(), sourceField.Name)...)
+			partitions = append(partitions, c.expandTimeTransform(pf.Transform.String(), sourceColumnName)...)
 		case "identity":
 			partitions = append(partitions, TablePartition{
-				Name:     sourceField.Name,
+				Name:     sourceColumnName,
 				IsHidden: false,
 				Hidden:   TablePartitionHidden{},
 			})

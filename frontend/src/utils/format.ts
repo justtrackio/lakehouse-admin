@@ -45,3 +45,208 @@ export function formatDateTime(timestamp: string): string {
   const date = new Date(timestamp);
   return date.toISOString().replace('T', ' ').replace(/\.\d+Z$/, '');
 }
+
+type SchemaTypeNode =
+  | { kind: 'primitive'; value: string }
+  | { kind: 'array'; element: SchemaTypeNode }
+  | { kind: 'map'; key: SchemaTypeNode; value: SchemaTypeNode }
+  | { kind: 'struct'; fields: Array<{ name: string; type: SchemaTypeNode }> };
+
+function splitTopLevel(value: string, delimiter: string): string[] {
+  const parts: string[] = [];
+  let start = 0;
+  let angleDepth = 0;
+  let parenDepth = 0;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+
+    if (char === '<') {
+      angleDepth += 1;
+      continue;
+    }
+
+    if (char === '>') {
+      angleDepth -= 1;
+      continue;
+    }
+
+    if (char === '(') {
+      parenDepth += 1;
+      continue;
+    }
+
+    if (char === ')') {
+      parenDepth -= 1;
+      continue;
+    }
+
+    if (char === delimiter && angleDepth === 0 && parenDepth === 0) {
+      parts.push(value.slice(start, index).trim());
+      start = index + 1;
+    }
+  }
+
+  parts.push(value.slice(start).trim());
+
+  return parts.filter((part) => part.length > 0);
+}
+
+function findTopLevelColon(value: string): number {
+  let angleDepth = 0;
+  let parenDepth = 0;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+
+    if (char === '<') {
+      angleDepth += 1;
+      continue;
+    }
+
+    if (char === '>') {
+      angleDepth -= 1;
+      continue;
+    }
+
+    if (char === '(') {
+      parenDepth += 1;
+      continue;
+    }
+
+    if (char === ')') {
+      parenDepth -= 1;
+      continue;
+    }
+
+    if (char === ':' && angleDepth === 0 && parenDepth === 0) {
+      return index;
+    }
+  }
+
+  return -1;
+}
+
+function unwrapGeneric(type: string, prefix: string): string | null {
+  if (!type.startsWith(prefix) || !type.endsWith('>')) {
+    return null;
+  }
+
+  return type.slice(prefix.length, -1).trim();
+}
+
+function parseSchemaType(type: string): SchemaTypeNode {
+  const trimmedType = type.trim();
+
+  const structInner = unwrapGeneric(trimmedType, 'struct<');
+  if (structInner !== null) {
+    if (structInner.length === 0) {
+      return { kind: 'struct', fields: [] };
+    }
+
+    const fieldEntries = splitTopLevel(structInner, ',');
+    const fields = fieldEntries.map((entry) => {
+      const colonIndex = findTopLevelColon(entry);
+
+      if (colonIndex === -1) {
+        return null;
+      }
+
+      return {
+        name: entry.slice(0, colonIndex).trim(),
+        type: parseSchemaType(entry.slice(colonIndex + 1)),
+      };
+    });
+
+    if (fields.some((field) => field === null)) {
+      return { kind: 'primitive', value: trimmedType };
+    }
+
+    return {
+      kind: 'struct',
+      fields: fields as Array<{ name: string; type: SchemaTypeNode }>,
+    };
+  }
+
+  const arrayInner = unwrapGeneric(trimmedType, 'array<');
+  if (arrayInner !== null) {
+    return {
+      kind: 'array',
+      element: parseSchemaType(arrayInner),
+    };
+  }
+
+  const mapInner = unwrapGeneric(trimmedType, 'map<');
+  if (mapInner !== null) {
+    const parts = splitTopLevel(mapInner, ',');
+
+    if (parts.length !== 2) {
+      return { kind: 'primitive', value: trimmedType };
+    }
+
+    return {
+      kind: 'map',
+      key: parseSchemaType(parts[0]),
+      value: parseSchemaType(parts[1]),
+    };
+  }
+
+  return { kind: 'primitive', value: trimmedType };
+}
+
+function indentLines(lines: string[]): string[] {
+  return lines.map((line) => `  ${line}`);
+}
+
+function renderSchemaType(node: SchemaTypeNode): string[] {
+  switch (node.kind) {
+    case 'primitive':
+      return [node.value];
+    case 'array': {
+      const elementLines = renderSchemaType(node.element);
+
+      if (elementLines.length === 1) {
+        return [`array<${elementLines[0]}>`];
+      }
+
+      return ['array<', ...indentLines(elementLines), '>'];
+    }
+    case 'map': {
+      const keyLines = renderSchemaType(node.key);
+      const valueLines = renderSchemaType(node.value);
+
+      if (keyLines.length === 1 && valueLines.length === 1) {
+        return [`map<${keyLines[0]}, ${valueLines[0]}>`];
+      }
+
+      return [
+        'map<',
+        ...indentLines([`key: ${keyLines[0]}`, ...indentLines(keyLines.slice(1))]),
+        ...indentLines([`value: ${valueLines[0]}`, ...indentLines(valueLines.slice(1))]),
+        '>',
+      ];
+    }
+    case 'struct': {
+      if (node.fields.length === 0) {
+        return ['struct {}'];
+      }
+
+      return [
+        'struct {',
+        ...node.fields.flatMap((field) => {
+          const typeLines = renderSchemaType(field.type);
+
+          return [
+            `  ${field.name}: ${typeLines[0]}`,
+            ...indentLines(typeLines.slice(1)),
+          ];
+        }),
+        '}',
+      ];
+    }
+  }
+}
+
+export function formatSchemaType(type: string): string {
+  return renderSchemaType(parseSchemaType(type)).join('\n');
+}

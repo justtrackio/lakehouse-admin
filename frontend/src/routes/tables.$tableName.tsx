@@ -1,4 +1,4 @@
-import { createFileRoute, Link, Outlet, useRouterState } from '@tanstack/react-router';
+import { createFileRoute, Link, Outlet, redirect, useRouterState } from '@tanstack/react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Alert,
@@ -18,6 +18,14 @@ import { useMessageApi } from '../context/MessageContext';
 const { Title, Text } = Typography;
 
 export const Route = createFileRoute('/tables/$tableName')({
+  beforeLoad: ({ location, params }) => {
+    if (location.pathname === `/tables/${params.tableName}` || location.pathname === `/tables/${params.tableName}/`) {
+      throw redirect({
+        to: '/tables/$tableName/schema',
+        params: { tableName: params.tableName },
+      });
+    }
+  },
   component: TableLayout,
 });
 
@@ -44,6 +52,7 @@ function TableLayout() {
     onSuccess: () => {
       messageApi.success(`Successfully refreshed table ${tableName}`);
       queryClient.invalidateQueries({ queryKey: ['table', tableName] });
+      queryClient.invalidateQueries({ queryKey: ['tableSchema', tableName] });
       queryClient.invalidateQueries({ queryKey: ['partitions', tableName] });
       queryClient.invalidateQueries({ queryKey: ['snapshots', tableName] });
       queryClient.invalidateQueries({ queryKey: ['tables'] }); // Also update the main list
@@ -97,9 +106,15 @@ function TableLayout() {
     ? 'snapshots' 
     : pathname.includes('/tasks') 
       ? 'tasks' 
-      : 'partitions';
+      : pathname.includes('/partitions')
+        ? 'partitions'
+        : 'schema';
 
   const tabItems = [
+    {
+      key: 'schema',
+      label: 'Schema',
+    },
     {
       key: 'partitions',
       label: 'Partitions',
@@ -115,7 +130,12 @@ function TableLayout() {
   ];
 
   const handleTabChange = (key: string) => {
-    if (key === 'partitions') {
+    if (key === 'schema') {
+      navigate({
+        to: '/tables/$tableName/schema',
+        params: { tableName },
+      });
+    } else if (key === 'partitions') {
       navigate({
         to: '/tables/$tableName/partitions',
         params: { tableName },

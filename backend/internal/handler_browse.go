@@ -3,6 +3,7 @@ package internal
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/gosoline-project/httpserver"
 	"github.com/gosoline-project/sqlc"
@@ -111,11 +112,11 @@ func (h *HandlerBrowse) ListPartitions(ctx context.Context, input *ListPartition
 	}
 
 	groupBy := partitions[depth].Name
-	groupBy = fmt.Sprintf("p.partition->>'$.%s'", groupBy)
+	groupBy = partitionJSONPathExpr(groupBy, true)
 
 	where := sqlc.Eq{"p.table": input.Table}
 	for k, v := range input.Partitions {
-		expr := fmt.Sprintf("p.partition->'$.%s'", k)
+		expr := partitionJSONPathExpr(k, false)
 		where[expr] = v
 	}
 
@@ -138,4 +139,14 @@ func (h *HandlerBrowse) ListPartitions(ctx context.Context, input *ListPartition
 	return httpserver.NewJsonResponse(ListPartitionsResponse{
 		Partitions: items,
 	}), nil
+}
+
+func partitionJSONPathExpr(key string, text bool) string {
+	escapedKey := strings.ReplaceAll(strings.ReplaceAll(key, `\\`, `\\\\`), `"`, `\\"`)
+	operator := "->"
+	if text {
+		operator = "->>"
+	}
+
+	return fmt.Sprintf("p.partition%s'$.\"%s\"'", operator, escapedKey)
 }

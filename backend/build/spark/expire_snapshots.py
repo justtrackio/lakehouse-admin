@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 
 from pyspark.sql import SparkSession
 
+from callback import post_procedure_result, report_callback_failure
+
 
 def require_env(name: str) -> str:
     value = os.getenv(name, "").strip()
@@ -70,6 +72,11 @@ def main() -> int:
 
         rows = [row.asDict(recursive=True) for row in spark.sql(query).collect()]
         print(json.dumps({"result": rows}, indent=2))
+
+        try:
+            post_procedure_result(query, rows, {"procedure": "expire_snapshots"})
+        except Exception as callback_err:
+            report_callback_failure(callback_err)
 
         return 0
     except Exception as err:

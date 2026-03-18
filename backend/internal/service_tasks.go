@@ -30,6 +30,13 @@ type ServiceTasks struct {
 	sqlClient        sqlc.Client
 }
 
+type TaskProcedureCallback struct {
+	Query      string           `json:"query"`
+	Rows       []map[string]any `json:"rows"`
+	ReceivedAt DateTime         `json:"received_at"`
+	Meta       map[string]any   `json:"meta,omitempty"`
+}
+
 type BatchEnqueueFailure struct {
 	Table string `json:"table"`
 	Error string `json:"error"`
@@ -50,6 +57,7 @@ func NewServiceTasks(ctx context.Context, config cfg.Config, logger log.Logger) 
 	var err error
 	var serviceTaskQueue *ServiceTaskQueue
 	var engineResolver *TaskEngineResolver
+
 	var sqlClient sqlc.Client
 
 	if serviceTaskQueue, err = NewServiceTaskQueue(ctx, config, logger); err != nil {
@@ -364,6 +372,37 @@ func (s *ServiceTasks) RetryTask(ctx context.Context, taskID int64) (int64, erro
 	}
 
 	return retryTaskID, nil
+}
+
+func (s *ServiceTasks) UpdateProcedureResult(ctx context.Context, taskID int64, callback *TaskProcedureCallback) error {
+	task, err := s.serviceTaskQueue.GetTask(ctx, taskID)
+	if err != nil {
+		return fmt.Errorf("could not load task %d for procedure callback: %w", taskID, err)
+	}
+
+	if TaskEngine(task.Engine) != TaskEngineSpark {
+		return fmt.Errorf("task %d does not use spark engine", taskID)
+	}
+
+	if task.Status != "running" {
+		return fmt.Errorf("task %d cannot accept procedure callback in status %s", taskID, task.Status)
+	}
+
+	result := map[string]any{
+		"query":       callback.Query,
+		"rows":        callback.Rows,
+		"received_at": callback.ReceivedAt,
+	}
+
+	if len(callback.Meta) > 0 {
+		result["meta"] = callback.Meta
+	}
+
+	if err = s.serviceTaskQueue.UpdateTaskResultNested(ctx, taskID, taskProcedureResultKey, result); err != nil {
+		return fmt.Errorf("could not update procedure result for task %d: %w", taskID, err)
+	}
+
+	return nil
 }
 
 func normalizeBatchTables(tables []string) []string {

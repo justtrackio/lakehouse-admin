@@ -41,25 +41,14 @@ function IndexComponent() {
       title: 'Table Name',
       dataIndex: 'name',
       key: 'name',
-      render: (_value, record) => {
-        const hasPartitions = record.partitions && record.partitions.length > 0;
-
-        if (!hasPartitions) {
-          return record.name;
-        }
-
-        // Like clicking a bucket name in S3:
-        // enter at the first partition level with no filters
-        return (
-          <Link
-            to="/tables/$tableName/partitions"
-            params={{ tableName: record.name }}
-            search={{}}
-          >
-            {record.name}
-          </Link>
-        );
-      },
+      render: (_value, record) => (
+        <Link
+          to="/tables/$tableName/schema"
+          params={{ tableName: record.name }}
+        >
+          {record.name}
+        </Link>
+      ),
     },
     {
       title: 'Snapshots',

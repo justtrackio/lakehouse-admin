@@ -3,6 +3,7 @@ package internal
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/gosoline-project/httpserver"
 	"github.com/justtrackio/gosoline/pkg/cfg"
@@ -37,6 +38,13 @@ type ListTasksInput struct {
 
 type RetryTaskInput struct {
 	Id int64 `uri:"id"`
+}
+
+type TaskProcedureCallbackInput struct {
+	Id    int64            `uri:"id"`
+	Query string           `json:"query"`
+	Rows  []map[string]any `json:"rows"`
+	Meta  map[string]any   `json:"meta"`
 }
 
 type TaskQueuedResponse struct {
@@ -130,6 +138,21 @@ func (h *HandlerTasks) RetryTask(ctx context.Context, input *RetryTaskInput) (ht
 		TaskId: taskId,
 		Status: "queued",
 	}), nil
+}
+
+func (h *HandlerTasks) ProcedureResultCallback(ctx context.Context, input *TaskProcedureCallbackInput) (httpserver.Response, error) {
+	callback := &TaskProcedureCallback{
+		Query:      input.Query,
+		Rows:       input.Rows,
+		Meta:       input.Meta,
+		ReceivedAt: DateTime{Time: time.Now().UTC()},
+	}
+
+	if err := h.serviceTasks.UpdateProcedureResult(ctx, input.Id, callback); err != nil {
+		return nil, err
+	}
+
+	return httpserver.NewJsonResponse(map[string]string{"status": "ok"}), nil
 }
 
 func (h *HandlerTasks) TaskCounts(ctx context.Context) (httpserver.Response, error) {

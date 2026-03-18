@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gosoline-project/sqlc"
 	"github.com/justtrackio/gosoline/pkg/cfg"
 	"github.com/justtrackio/gosoline/pkg/log"
 	"github.com/spf13/cast"
@@ -47,8 +46,8 @@ type SparkMaintenanceExecutor struct {
 	metadata        *ServiceMetadata
 	k8s             SparkApplicationCreator
 	taskQueue       TaskClaimer
-	sqlClient       sqlc.Client
 	icebergSettings *IcebergSettings
+	callback        *TaskSparkCallbackSettings
 }
 
 func NewSparkMaintenanceExecutor(ctx context.Context, config cfg.Config, logger log.Logger) (*SparkMaintenanceExecutor, error) {
@@ -56,8 +55,8 @@ func NewSparkMaintenanceExecutor(ctx context.Context, config cfg.Config, logger 
 	var metadata *ServiceMetadata
 	var k8s *K8sService
 	var taskQueue TaskClaimer
-	var sqlClient sqlc.Client
 	var icebergSettings *IcebergSettings
+	var callbackSettings *TaskSparkCallbackSettings
 
 	if metadata, err = NewServiceMetadata(ctx, config, logger); err != nil {
 		return nil, fmt.Errorf("could not create metadata service: %w", err)
@@ -71,12 +70,12 @@ func NewSparkMaintenanceExecutor(ctx context.Context, config cfg.Config, logger 
 		return nil, fmt.Errorf("could not create task queue service: %w", err)
 	}
 
-	if sqlClient, err = sqlc.ProvideClient(ctx, config, logger, "default"); err != nil {
-		return nil, fmt.Errorf("could not create sql client: %w", err)
-	}
-
 	if icebergSettings, err = ReadIcebergSettings(config); err != nil {
 		return nil, fmt.Errorf("could not read iceberg settings: %w", err)
+	}
+
+	if callbackSettings, err = ReadTaskSparkCallbackSettings(config); err != nil {
+		return nil, fmt.Errorf("could not read spark callback settings: %w", err)
 	}
 
 	return &SparkMaintenanceExecutor{
@@ -84,8 +83,8 @@ func NewSparkMaintenanceExecutor(ctx context.Context, config cfg.Config, logger 
 		metadata:        metadata,
 		k8s:             k8s,
 		taskQueue:       taskQueue,
-		sqlClient:       sqlClient,
 		icebergSettings: icebergSettings,
+		callback:        callbackSettings,
 	}, nil
 }
 
@@ -355,9 +354,12 @@ func (s *SparkMaintenanceExecutor) prepareSparkApplication(manifest *SparkApplic
 	}
 
 	return manifest.SetEnvValues(map[string]string{
-		"ICEBERG_CATALOG":  s.icebergSettings.Catalog,
-		"ICEBERG_DATABASE": s.icebergSettings.Database,
-		"ICEBERG_TABLE":    table,
+		"ICEBERG_CATALOG":       s.icebergSettings.Catalog,
+		"ICEBERG_DATABASE":      s.icebergSettings.Database,
+		"ICEBERG_TABLE":         table,
+		"TASK_CALLBACK_ENABLED": fmt.Sprintf("%t", s.callback.Enabled),
+		"TASK_ID":               strconv.FormatInt(taskID, 10),
+		"TASK_CALLBACK_URL":     BuildTaskProcedureCallbackURL(s.callback.BackendHost, taskID),
 	})
 }
 

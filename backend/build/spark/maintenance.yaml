@@ -70,6 +70,12 @@ spec:
                 value: "7"
               - name: CLEAN_EXPIRED_METADATA
                 value: "true"
+              - name: TASK_ID
+                value: "0"
+              - name: TASK_CALLBACK_ENABLED
+                value: "false"
+              - name: TASK_CALLBACK_URL
+                value: ""
             resources:
               requests:
                 cpu: "1"

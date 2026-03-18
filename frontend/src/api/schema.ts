@@ -46,6 +46,22 @@ export async function fetchTableDetails(tableName: string): Promise<TableDetails
   return apiClient.get<TableDetails>(`/api/browse/${tableName}`);
 }
 
+export interface TableSchemaColumn {
+  name: string;
+  type: string;
+}
+
+export interface TableSchema {
+  name: string;
+  columns: TableSchemaColumn[];
+  partitions: Partition[];
+  updated_at: string;
+}
+
+export async function fetchTableSchema(tableName: string): Promise<TableSchema> {
+  return apiClient.get<TableSchema>(`/api/iceberg/${tableName}`);
+}
+
 export interface ListPartitionItem {
   name: string;
   file_count: number;
@@ -104,7 +120,7 @@ export async function expireSnapshots(
   retentionDays: number,
 ): Promise<TaskQueuedResponse> {
   return apiClient.post<TaskQueuedResponse>(
-    `/api/tasks/${tableName}/expire-snapshots`,
+    `/api/tasks/by-table/${tableName}/expire-snapshots`,
     {
       retention_days: retentionDays,
     }
@@ -116,7 +132,7 @@ export async function removeOrphanFiles(
   retentionDays: number,
 ): Promise<TaskQueuedResponse> {
   return apiClient.post<TaskQueuedResponse>(
-    `/api/tasks/${tableName}/remove-orphan-files`,
+    `/api/tasks/by-table/${tableName}/remove-orphan-files`,
     {
       retention_days: retentionDays,
     }
@@ -169,7 +185,7 @@ export async function optimizeTable(
   chunkBy: OptimizeChunkBy = 'daily',
 ): Promise<OptimizeTaskQueuedResponse> {
   return apiClient.post<OptimizeTaskQueuedResponse>(
-    `/api/tasks/${tableName}/optimize`,
+    `/api/tasks/by-table/${tableName}/optimize`,
     {
       file_size_threshold_mb: fileSizeThresholdMb,
       from: from,

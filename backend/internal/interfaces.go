@@ -26,6 +26,7 @@ const (
 type TaskClaimer interface {
 	ClaimTask(ctx context.Context) (*Task, error)
 	UpdateTaskResult(ctx context.Context, id int64, result map[string]any) error
+	UpdateTaskResultNested(ctx context.Context, id int64, key string, result map[string]any) error
 	CompleteTask(ctx context.Context, id int64, result map[string]any, err error) error
 }
 

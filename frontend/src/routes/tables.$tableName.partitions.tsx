@@ -11,6 +11,8 @@ import {
   Typography,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
+import type { TablePaginationConfig } from 'antd/es/table';
+import { useState } from 'react';
 import {
   fetchTableDetails,
   fetchPartitionValues,
@@ -42,6 +44,10 @@ function PartitionsPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const messageApi = useMessageApi();
+  const [pagination, setPagination] = useState<TablePaginationConfig>({
+    current: 1,
+    pageSize: 50,
+  });
 
   const {
     data: table,
@@ -362,7 +368,11 @@ function PartitionsPage() {
               rowKey={(row) => row.name}
               columns={columns}
               dataSource={partitionValues}
-              pagination={{ pageSize: 50 }}
+              pagination={{
+                ...pagination,
+                showSizeChanger: true,
+              }}
+              onChange={(newPagination) => setPagination(newPagination)}
             />
           )}
         </>

@@ -36,6 +36,39 @@ func TestSparkApplicationManifestSetPyFileName(t *testing.T) {
 	}
 }
 
+func TestSparkApplicationManifestSetEnvValues(t *testing.T) {
+	manifest, err := LoadSparkApplicationTemplate()
+	if err != nil {
+		t.Fatalf("expected template to load, got error: %s", err)
+	}
+
+	err = manifest.SetEnvValues(map[string]string{
+		"TASK_CALLBACK_ENABLED": "true",
+		"TASK_CALLBACK_URL":     "http://backend/api/tasks/1/callback-result",
+	})
+	if err != nil {
+		t.Fatalf("expected env updates to succeed, got error: %s", err)
+	}
+
+	driver, err := manifest.DriverContainer()
+	if err != nil {
+		t.Fatalf("expected driver container, got error: %s", err)
+	}
+
+	values := make(map[string]string)
+	for _, env := range driver.Env {
+		values[env.Name] = env.Value
+	}
+
+	if got := values["TASK_CALLBACK_ENABLED"]; got != "true" {
+		t.Fatalf("expected TASK_CALLBACK_ENABLED=true, got %q", got)
+	}
+
+	if got := values["TASK_CALLBACK_URL"]; got != "http://backend/api/tasks/1/callback-result" {
+		t.Fatalf("expected TASK_CALLBACK_URL to be set, got %q", got)
+	}
+}
+
 func TestSparkApplicationManifestToCreateUnstructuredOmitsStatus(t *testing.T) {
 	manifest, err := LoadSparkApplicationTemplate()
 	if err != nil {
