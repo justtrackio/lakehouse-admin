@@ -35,9 +35,11 @@ const sparkApplicationTaskIDAnnotation = "lakehouse-admin.justtrack.io/task-id"
 const sparkApplicationTaskKindAnnotation = "lakehouse-admin.justtrack.io/task-kind"
 const sparkApplicationTaskTableAnnotation = "lakehouse-admin.justtrack.io/task-table"
 
-const sparkRewriteDataFilesPyFile = "rewrite_data_files.py"
-const sparkExpireSnapshotsPyFile = "expire_snapshots.py"
-const sparkRemoveOrphanFilesPyFile = "remove_orphan_files.py"
+const sparkMaintenancePyFile = "maintenance.py"
+
+const sparkProcedureRewriteDataFiles = "rewrite_data_files"
+const sparkProcedureExpireSnapshots = "expire_snapshots"
+const sparkProcedureRemoveOrphanFiles = "remove_orphan_files"
 
 const sparkApplicationNameMaxLength = 63
 
@@ -48,6 +50,19 @@ type SparkMaintenanceExecutor struct {
 	taskQueue       TaskClaimer
 	icebergSettings *IcebergSettings
 	callback        *TaskSparkCallbackSettings
+}
+
+func sparkTaskProcedure(taskKind TaskKind) (string, error) {
+	switch taskKind {
+	case TaskKindOptimize:
+		return sparkProcedureRewriteDataFiles, nil
+	case TaskKindExpireSnapshots:
+		return sparkProcedureExpireSnapshots, nil
+	case TaskKindRemoveOrphanFiles:
+		return sparkProcedureRemoveOrphanFiles, nil
+	default:
+		return "", fmt.Errorf("unknown task kind: %s", taskKind)
+	}
 }
 
 func NewSparkMaintenanceExecutor(ctx context.Context, config cfg.Config, logger log.Logger) (*SparkMaintenanceExecutor, error) {
@@ -228,7 +243,7 @@ func (s *SparkMaintenanceExecutor) executeOptimize(ctx context.Context, taskID i
 		return nil, fmt.Errorf("could not load spark application template: %w", err)
 	}
 
-	if err = s.prepareSparkApplication(manifest, TaskKindOptimize, taskID, table, applicationName, sparkRewriteDataFilesPyFile); err != nil {
+	if err = s.prepareSparkApplication(manifest, TaskKindOptimize, taskID, table, applicationName); err != nil {
 		return nil, fmt.Errorf("could not prepare spark application manifest: %w", err)
 	}
 
@@ -273,7 +288,7 @@ func (s *SparkMaintenanceExecutor) executeExpireSnapshots(ctx context.Context, t
 		return nil, fmt.Errorf("could not load spark application template: %w", err)
 	}
 
-	if err = s.prepareSparkApplication(manifest, TaskKindExpireSnapshots, taskID, table, applicationName, sparkExpireSnapshotsPyFile); err != nil {
+	if err = s.prepareSparkApplication(manifest, TaskKindExpireSnapshots, taskID, table, applicationName); err != nil {
 		return nil, fmt.Errorf("could not prepare spark application manifest: %w", err)
 	}
 
@@ -316,7 +331,7 @@ func (s *SparkMaintenanceExecutor) executeRemoveOrphanFiles(ctx context.Context,
 		return nil, fmt.Errorf("could not load spark application template: %w", err)
 	}
 
-	if err = s.prepareSparkApplication(manifest, TaskKindRemoveOrphanFiles, taskID, table, applicationName, sparkRemoveOrphanFilesPyFile); err != nil {
+	if err = s.prepareSparkApplication(manifest, TaskKindRemoveOrphanFiles, taskID, table, applicationName); err != nil {
 		return nil, fmt.Errorf("could not prepare spark application manifest: %w", err)
 	}
 
@@ -343,13 +358,18 @@ func (s *SparkMaintenanceExecutor) executeRemoveOrphanFiles(ctx context.Context,
 	}, nil
 }
 
-func (s *SparkMaintenanceExecutor) prepareSparkApplication(manifest *SparkApplicationManifest, taskKind TaskKind, taskID int64, table string, applicationName string, pyFileName string) error {
+func (s *SparkMaintenanceExecutor) prepareSparkApplication(manifest *SparkApplicationManifest, taskKind TaskKind, taskID int64, table string, applicationName string) error {
+	procedure, err := sparkTaskProcedure(taskKind)
+	if err != nil {
+		return fmt.Errorf("could not determine spark task procedure: %w", err)
+	}
+
 	manifest.Metadata.Name = applicationName
 	manifest.SetAnnotation(sparkApplicationTaskIDAnnotation, strconv.FormatInt(taskID, 10))
 	manifest.SetAnnotation(sparkApplicationTaskKindAnnotation, string(taskKind))
 	manifest.SetAnnotation(sparkApplicationTaskTableAnnotation, table)
 
-	if err := manifest.SetPyFileName(pyFileName); err != nil {
+	if err := manifest.SetPyFileName(sparkMaintenancePyFile); err != nil {
 		return fmt.Errorf("could not set spark application pyFiles: %w", err)
 	}
 
@@ -358,6 +378,7 @@ func (s *SparkMaintenanceExecutor) prepareSparkApplication(manifest *SparkApplic
 		"ICEBERG_DATABASE":      s.icebergSettings.Database,
 		"ICEBERG_TABLE":         table,
 		"TASK_CALLBACK_ENABLED": fmt.Sprintf("%t", s.callback.Enabled),
+		"TASK_PROCEDURE":        procedure,
 		"TASK_ID":               strconv.FormatInt(taskID, 10),
 		"TASK_CALLBACK_URL":     BuildTaskProcedureCallbackURL(s.callback.BackendHost, taskID),
 	})
