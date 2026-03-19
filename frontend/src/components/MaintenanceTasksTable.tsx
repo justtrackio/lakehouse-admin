@@ -6,6 +6,7 @@ import type { FilterValue } from 'antd/es/table/interface';
 import { useState } from 'react';
 import { fetchTasks, retryTask, type Task } from '../api/schema';
 import { useMessageApi } from '../context/MessageContext';
+import { formatDuration } from '../utils/format';
 
 const { Title } = Typography;
 
@@ -177,9 +178,9 @@ export function MaintenanceTasksTable({ tableName, pageSize }: MaintenanceTasksT
       render: (text: string) => new Date(text).toLocaleString(),
     },
     {
-      title: 'Finished At',
-      dataIndex: 'finished_at',
-      key: 'finished_at',
+      title: 'Started At',
+      dataIndex: 'picked_up_at',
+      key: 'picked_up_at',
       render: (text: string | null) => (text ? new Date(text).toLocaleString() : '-'),
     },
     {
@@ -193,7 +194,7 @@ export function MaintenanceTasksTable({ tableName, pageSize }: MaintenanceTasksT
         const pickedUp = new Date(record.picked_up_at).getTime();
         const end = new Date(record.finished_at).getTime();
         const diff = end - pickedUp;
-        return `${(diff / 1000).toFixed(2)}s`;
+        return formatDuration(diff);
       },
     },
     {

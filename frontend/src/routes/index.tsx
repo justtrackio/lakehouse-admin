@@ -43,7 +43,7 @@ function IndexComponent() {
       key: 'name',
       render: (_value, record) => (
         <Link
-          to="/tables/$tableName/schema"
+          to="/tables/$tableName"
           params={{ tableName: record.name }}
         >
           {record.name}

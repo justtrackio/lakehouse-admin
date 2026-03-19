@@ -46,6 +46,27 @@ export function formatDateTime(timestamp: string): string {
   return date.toISOString().replace('T', ' ').replace(/\.\d+Z$/, '');
 }
 
+/**
+ * Formats a duration in milliseconds using abbreviated units.
+ * @param durationMs - The duration in milliseconds
+ * @returns Formatted duration string (e.g., "1.54s", "6.09m", "1.25h")
+ */
+export function formatDuration(durationMs: number): string {
+  const durationSeconds = durationMs / 1000;
+
+  if (durationSeconds < 60) {
+    return `${new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(durationSeconds)}s`;
+  }
+
+  const durationMinutes = durationSeconds / 60;
+  if (durationMinutes < 60) {
+    return `${new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(durationMinutes)}m`;
+  }
+
+  const durationHours = durationMinutes / 60;
+  return `${new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(durationHours)}h`;
+}
+
 type SchemaTypeNode =
   | { kind: 'primitive'; value: string }
   | { kind: 'array'; element: SchemaTypeNode }
