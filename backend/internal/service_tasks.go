@@ -167,6 +167,7 @@ func (s *ServiceTasks) EnqueueOptimizeBatch(ctx context.Context, tables []BatchO
 				Table: tableConfig.Table,
 				Error: err.Error(),
 			})
+
 			continue
 		}
 
@@ -304,12 +305,14 @@ func optimizeChunkForDate(date time.Time, chunkBy string) optimizeRangeChunk {
 	case optimizeChunkWeek:
 		weekdayOffset := (int(day.Weekday()) + 6) % 7
 		start := day.AddDate(0, 0, -weekdayOffset)
+
 		return optimizeRangeChunk{
 			from: start,
 			to:   start.AddDate(0, 0, 6),
 		}
 	case optimizeChunkMonth:
 		start := time.Date(day.Year(), day.Month(), 1, 0, 0, 0, 0, time.UTC)
+
 		return optimizeRangeChunk{
 			from: start,
 			to:   start.AddDate(0, 1, -1),
@@ -341,6 +344,7 @@ func (s *ServiceTasks) enqueueBatch(ctx context.Context, tables []string, enqueu
 				Table: table,
 				Error: err.Error(),
 			})
+
 			continue
 		}
 
@@ -357,7 +361,7 @@ func (s *ServiceTasks) RetryTask(ctx context.Context, taskID int64) (int64, erro
 		return 0, fmt.Errorf("could not load task %d for retry: %w", taskID, err)
 	}
 
-	if task.Status != "error" {
+	if task.Status != taskStatusError {
 		return 0, fmt.Errorf("task %d cannot be retried because it is in status %s", taskID, task.Status)
 	}
 
@@ -384,7 +388,7 @@ func (s *ServiceTasks) UpdateProcedureResult(ctx context.Context, taskID int64, 
 		return fmt.Errorf("task %d does not use spark engine", taskID)
 	}
 
-	if task.Status != "running" {
+	if task.Status != taskStatusRunning {
 		return fmt.Errorf("task %d cannot accept procedure callback in status %s", taskID, task.Status)
 	}
 

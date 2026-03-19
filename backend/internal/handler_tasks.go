@@ -91,7 +91,7 @@ func (h *HandlerTasks) ExpireSnapshots(ctx context.Context, input *ExpireSnapsho
 
 	return httpserver.NewJsonResponse(&TaskQueuedResponse{
 		TaskId: taskId,
-		Status: "queued",
+		Status: taskStatusQueued,
 	}), nil
 }
 
@@ -103,7 +103,7 @@ func (h *HandlerTasks) RemoveOrphanFiles(ctx context.Context, input *RemoveOrpha
 
 	return httpserver.NewJsonResponse(&TaskQueuedResponse{
 		TaskId: taskId,
-		Status: "queued",
+		Status: taskStatusQueued,
 	}), nil
 }
 
@@ -115,7 +115,7 @@ func (h *HandlerTasks) Optimize(ctx context.Context, input *OptimizeInput) (http
 
 	return httpserver.NewJsonResponse(&OptimizeTaskQueuedResponse{
 		TaskIds: taskIds,
-		Status:  "queued",
+		Status:  taskStatusQueued,
 	}), nil
 }
 
@@ -136,7 +136,7 @@ func (h *HandlerTasks) RetryTask(ctx context.Context, input *RetryTaskInput) (ht
 
 	return httpserver.NewJsonResponse(&TaskQueuedResponse{
 		TaskId: taskId,
-		Status: "queued",
+		Status: taskStatusQueued,
 	}), nil
 }
 
@@ -152,7 +152,7 @@ func (h *HandlerTasks) ProcedureResultCallback(ctx context.Context, input *TaskP
 		return nil, err
 	}
 
-	return httpserver.NewJsonResponse(map[string]string{"status": "ok"}), nil
+	return httpserver.NewJsonResponse(map[string]string{"status": statusOK}), nil
 }
 
 func (h *HandlerTasks) TaskCounts(ctx context.Context) (httpserver.Response, error) {

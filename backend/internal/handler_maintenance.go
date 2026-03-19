@@ -67,10 +67,7 @@ func (h *HandlerMaintenance) RemoveOrphanFiles(ctx context.Context, input *Batch
 func (h *HandlerMaintenance) Optimize(ctx context.Context, input *BatchOptimizeInput) (httpserver.Response, error) {
 	tables := make([]BatchOptimizeTable, 0, len(input.Tables))
 	for _, table := range input.Tables {
-		tables = append(tables, BatchOptimizeTable{
-			Table:   table.Table,
-			ChunkBy: table.ChunkBy,
-		})
+		tables = append(tables, BatchOptimizeTable(table))
 	}
 
 	result, err := h.serviceTasks.EnqueueOptimizeBatch(ctx, tables, input.FileSizeThresholdMb, input.From.Time, input.To.Time)

@@ -6,6 +6,17 @@ import (
 	"github.com/justtrackio/gosoline/pkg/db"
 )
 
+const (
+	statusOK        = "ok"
+	statusError     = "error"
+	statusSubmitted = "submitted"
+
+	taskStatusQueued  = "queued"
+	taskStatusRunning = "running"
+	taskStatusSuccess = "success"
+	taskStatusError   = statusError
+)
+
 type Snapshot struct {
 	Table        string                                  `json:"table" db:"table"`
 	CommittedAt  time.Time                               `json:"committed_at" db:"committed_at"`

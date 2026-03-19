@@ -31,15 +31,19 @@ type RemoveOrphanFilesParameters struct {
 	OlderThan     time.Time
 }
 
-const sparkApplicationTaskIDAnnotation = "lakehouse-admin.justtrack.io/task-id"
-const sparkApplicationTaskKindAnnotation = "lakehouse-admin.justtrack.io/task-kind"
-const sparkApplicationTaskTableAnnotation = "lakehouse-admin.justtrack.io/task-table"
+const (
+	sparkApplicationTaskIDAnnotation    = "lakehouse-admin.justtrack.io/task-id"
+	sparkApplicationTaskKindAnnotation  = "lakehouse-admin.justtrack.io/task-kind"
+	sparkApplicationTaskTableAnnotation = "lakehouse-admin.justtrack.io/task-table"
+)
 
 const sparkMaintenancePyFile = "maintenance.py"
 
-const sparkProcedureRewriteDataFiles = "rewrite_data_files"
-const sparkProcedureExpireSnapshots = "expire_snapshots"
-const sparkProcedureRemoveOrphanFiles = "remove_orphan_files"
+const (
+	sparkProcedureRewriteDataFiles  = "rewrite_data_files"
+	sparkProcedureExpireSnapshots   = "expire_snapshots"
+	sparkProcedureRemoveOrphanFiles = "remove_orphan_files"
+)
 
 const sparkApplicationNameMaxLength = 63
 
@@ -117,6 +121,7 @@ func (s *SparkMaintenanceExecutor) Run(ctx context.Context) error {
 
 	if informer == nil {
 		<-ctx.Done()
+
 		return nil
 	}
 
@@ -171,6 +176,7 @@ func (s *SparkMaintenanceExecutor) processOptimize(ctx context.Context, task *Ta
 	}
 
 	s.logger.Info(ctx, "task %d submitted and waiting for asynchronous completion", task.Id)
+
 	return nil
 }
 
@@ -187,6 +193,7 @@ func (s *SparkMaintenanceExecutor) processExpireSnapshots(ctx context.Context, t
 	}
 
 	s.logger.Info(ctx, "task %d submitted and waiting for asynchronous completion", task.Id)
+
 	return nil
 }
 
@@ -203,6 +210,7 @@ func (s *SparkMaintenanceExecutor) processRemoveOrphanFiles(ctx context.Context,
 	}
 
 	s.logger.Info(ctx, "task %d submitted and waiting for asynchronous completion", task.Id)
+
 	return nil
 }
 
@@ -270,7 +278,7 @@ func (s *SparkMaintenanceExecutor) executeOptimize(ctx context.Context, taskID i
 		FileSizeThresholdMb: fileSizeThresholdMb,
 		Where:               whereClause,
 		ApplicationName:     applicationName,
-		Status:              "submitted",
+		Status:              statusSubmitted,
 	}, nil
 }
 
@@ -313,7 +321,7 @@ func (s *SparkMaintenanceExecutor) executeExpireSnapshots(ctx context.Context, t
 		"clean_expired_metadata": true,
 		"tracking_id":            applicationName,
 		"application_name":       applicationName,
-		"status":                 "submitted",
+		"status":                 statusSubmitted,
 	}, nil
 }
 
@@ -354,7 +362,7 @@ func (s *SparkMaintenanceExecutor) executeRemoveOrphanFiles(ctx context.Context,
 		"older_than":       olderThan,
 		"tracking_id":      applicationName,
 		"application_name": applicationName,
-		"status":           "submitted",
+		"status":           statusSubmitted,
 	}, nil
 }
 
@@ -391,7 +399,7 @@ func (s *SparkMaintenanceExecutor) HandleTaskUpdate(ctx context.Context, taskID 
 		"tracking_id":      applicationName,
 		"application_name": applicationName,
 		"spark_state":      state,
-		"status":           "ok",
+		"status":           statusOK,
 	}
 
 	for key, value := range extraResult {
@@ -402,7 +410,7 @@ func (s *SparkMaintenanceExecutor) HandleTaskUpdate(ctx context.Context, taskID 
 		if message == "" {
 			message = fmt.Sprintf("spark application %s finished with state %s", applicationName, state)
 		}
-		result["status"] = "error"
+		result["status"] = statusError
 		taskErr = fmt.Errorf("%s", message)
 	}
 
@@ -510,7 +518,7 @@ func buildSparkApplicationName(prefix string, table string, taskID int64) string
 		tablePart = strings.Trim(tablePart[:maxTableLength], "-")
 	}
 
-	if tablePart == "" || tablePart == "spark-application" {
+	if tablePart == "" || tablePart == sparkApplicationDefaultName {
 		return prefix + "-" + suffix
 	}
 

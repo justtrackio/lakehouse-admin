@@ -27,7 +27,7 @@ func NewServiceTaskQueue(ctx context.Context, config cfg.Config, logger log.Logg
 	var err error
 	var sqlClient sqlc.Client
 	var serviceSettings *ServiceSettings
-	defaultTaskConcurrency := 1
+	var defaultTaskConcurrency int
 
 	if sqlClient, err = sqlc.ProvideClient(ctx, config, logger, "default"); err != nil {
 		return nil, fmt.Errorf("could not create sqlg client: %w", err)
@@ -37,11 +37,7 @@ func NewServiceTaskQueue(ctx context.Context, config cfg.Config, logger log.Logg
 		return nil, fmt.Errorf("could not create settings service: %w", err)
 	}
 
-	if defaultTaskConcurrency, err = config.GetInt("tasks.worker_count"); err != nil {
-		defaultTaskConcurrency = 1
-	}
-
-	if defaultTaskConcurrency < 1 {
+	if defaultTaskConcurrency, err = config.GetInt("tasks.worker_count"); err != nil || defaultTaskConcurrency < 1 {
 		defaultTaskConcurrency = 1
 	}
 
@@ -67,7 +63,7 @@ func (s *ServiceTaskQueue) EnqueueTask(ctx context.Context, table string, kind s
 		Kind:      kind,
 		Engine:    engine,
 		StartedAt: time.Now(),
-		Status:    "queued",
+		Status:    taskStatusQueued,
 		Input:     db.NewJSON(input, db.NonNullable{}),
 		Result:    db.NewJSON(map[string]any{}, db.NonNullable{}),
 	}
@@ -136,21 +132,23 @@ func (s *ServiceTaskQueue) claimTaskWithConcurrency(ctx sqlc.Tx, taskConcurrency
 		Count int `db:"count"`
 	}
 
-	stmt := ctx.Q().From("tasks").Column(sqlc.Col("*").Count().As("count")).Where(sqlc.Eq{"status": "running"})
+	stmt := ctx.Q().From("tasks").Column(sqlc.Col("*").Count().As("count")).Where(sqlc.Eq{"status": taskStatusRunning})
 	if err := stmt.Get(ctx, &runningCount); err != nil {
 		return fmt.Errorf("could not count running tasks: %w", err)
 	}
 
 	if runningCount.Count >= taskConcurrency {
 		*claimedTask = nil
+
 		return nil
 	}
 
 	var task Task
-	stmt = ctx.Q().From("tasks").Where(sqlc.Eq{"status": "queued"}).OrderBy(sqlc.Col("started_at").Asc()).Limit(1)
+	stmt = ctx.Q().From("tasks").Where(sqlc.Eq{"status": taskStatusQueued}).OrderBy(sqlc.Col("started_at").Asc()).Limit(1)
 	if err := stmt.Get(ctx, &task); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			*claimedTask = nil
+
 			return nil
 		}
 
@@ -158,7 +156,7 @@ func (s *ServiceTaskQueue) claimTaskWithConcurrency(ctx sqlc.Tx, taskConcurrency
 	}
 
 	now := time.Now()
-	upd := ctx.Q().Update("tasks").Set("status", "running").Set("picked_up_at", &now).Where(sqlc.Eq{"id": task.Id, "status": "queued"})
+	upd := ctx.Q().Update("tasks").Set("status", taskStatusRunning).Set("picked_up_at", &now).Where(sqlc.Eq{"id": task.Id, "status": taskStatusQueued})
 	if res, err = upd.Exec(ctx); err != nil {
 		return fmt.Errorf("could not update task status to running: %w", err)
 	}
@@ -171,7 +169,7 @@ func (s *ServiceTaskQueue) claimTaskWithConcurrency(ctx sqlc.Tx, taskConcurrency
 		return fmt.Errorf("queued task %d could not be claimed due to concurrent update", task.Id)
 	}
 
-	task.Status = "running"
+	task.Status = taskStatusRunning
 	task.PickedUpAt = &now
 	*claimedTask = &task
 
@@ -191,11 +189,11 @@ func isTaskClaimRetryable(err error) bool {
 }
 
 func (s *ServiceTaskQueue) CompleteTask(ctx context.Context, id int64, result map[string]any, err error) error {
-	status := "success"
+	status := taskStatusSuccess
 	var errMsg *string
 
 	if err != nil {
-		status = "error"
+		status = taskStatusError
 		msg := err.Error()
 		errMsg = &msg
 	}
@@ -217,7 +215,7 @@ func (s *ServiceTaskQueue) CompleteTask(ctx context.Context, id int64, result ma
 		Set("status", status).
 		Set("error_message", errMsg).
 		Set("result", db.NewJSON(mergedResult, db.NonNullable{})).
-		Where(sqlc.Eq{"id": id, "status": "running"})
+		Where(sqlc.Eq{"id": id, "status": taskStatusRunning})
 
 	res, err := upd.Exec(ctx)
 	if err != nil {
@@ -297,7 +295,7 @@ func (s *ServiceTaskQueue) TaskCounts(ctx context.Context) (running int64, queue
 		From("tasks").
 		Column(sqlc.Col("status")).
 		Column(sqlc.Col("*").Count().As("count")).
-		Where(sqlc.Col("status").In("queued", "running")).
+		Where(sqlc.Col("status").In(taskStatusQueued, taskStatusRunning)).
 		GroupBy(sqlc.Col("status"))
 
 	if err = query.Select(ctx, &results); err != nil {
@@ -306,9 +304,9 @@ func (s *ServiceTaskQueue) TaskCounts(ctx context.Context) (running int64, queue
 
 	for _, r := range results {
 		switch r.Status {
-		case "running":
+		case taskStatusRunning:
 			running = r.Count
-		case "queued":
+		case taskStatusQueued:
 			queued = r.Count
 		}
 	}

@@ -3,7 +3,6 @@ package internal
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/gosoline-project/httpserver"
 	"github.com/gosoline-project/sqlc"
@@ -142,11 +141,10 @@ func (h *HandlerBrowse) ListPartitions(ctx context.Context, input *ListPartition
 }
 
 func partitionJSONPathExpr(key string, text bool) string {
-	escapedKey := strings.ReplaceAll(strings.ReplaceAll(key, `\\`, `\\\\`), `"`, `\\"`)
 	operator := "->"
 	if text {
 		operator = "->>"
 	}
 
-	return fmt.Sprintf("p.partition%s'$.\"%s\"'", operator, escapedKey)
+	return fmt.Sprintf("p.partition%s'$.%q'", operator, key)
 }

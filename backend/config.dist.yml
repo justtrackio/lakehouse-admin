@@ -23,7 +23,7 @@ iceberg:
 
 kube:
   client_mode: "in-cluster"
-  context: "arn:aws:eks:eu-central-1:{aws.account_id}:cluster/{aws.organizational_unit}-marketing"
+  context: "your-kube-config-ctx-name"
 
 log:
   level: info

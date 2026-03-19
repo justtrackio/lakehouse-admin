@@ -32,7 +32,7 @@ func (h *HandlerRefresh) RefreshTables(cttx sqlc.Tx) (httpserver.Response, error
 		return nil, fmt.Errorf("could not refresh all tables: %w", err)
 	}
 
-	return httpserver.NewJsonResponse(map[string]string{"status": "ok"}), nil
+	return httpserver.NewJsonResponse(map[string]string{"status": statusOK}), nil
 }
 
 func (h *HandlerRefresh) RefreshTable(cttx sqlc.Tx, input *TableSelectInput) (httpserver.Response, error) {
@@ -42,7 +42,7 @@ func (h *HandlerRefresh) RefreshTable(cttx sqlc.Tx, input *TableSelectInput) (ht
 		return nil, fmt.Errorf("could not refresh table: %w", err)
 	}
 
-	return httpserver.NewJsonResponse(map[string]string{"status": "ok"}), nil
+	return httpserver.NewJsonResponse(map[string]string{"status": statusOK}), nil
 }
 
 func (h *HandlerRefresh) RefreshPartitions(cttx sqlc.Tx, input *TableSelectInput) (httpserver.Response, error) {
@@ -72,5 +72,5 @@ func (h *HandlerRefresh) RefreshFull(cttx sqlc.Tx) (httpserver.Response, error) 
 		return nil, fmt.Errorf("could not complete full refresh: %w", err)
 	}
 
-	return httpserver.NewJsonResponse(map[string]string{"status": "ok"}), nil
+	return httpserver.NewJsonResponse(map[string]string{"status": statusOK}), nil
 }

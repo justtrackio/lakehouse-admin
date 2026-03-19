@@ -119,6 +119,8 @@ type SparkApplicationRuntimeVersions struct {
 	SparkVersion string `yaml:"sparkVersion" json:"sparkVersion"`
 }
 
+const sparkApplicationDefaultName = "spark-application"
+
 func LoadSparkApplicationTemplate() (*SparkApplicationManifest, error) {
 	var manifest SparkApplicationManifest
 	if err := yaml.Unmarshal(buildassets.SparkApplicationTemplates, &manifest); err != nil {
@@ -141,12 +143,14 @@ func (m *SparkApplicationManifest) SetPyFileName(name string) error {
 	current := strings.TrimSpace(m.Spec.PyFiles)
 	if current == "" {
 		m.Spec.PyFiles = name
+
 		return nil
 	}
 
 	idx := strings.LastIndex(current, "/")
 	if idx == -1 {
 		m.Spec.PyFiles = name
+
 		return nil
 	}
 
@@ -189,6 +193,7 @@ func (c *SparkApplicationContainerSpec) SetEnvValue(name, value string) {
 	for i := range c.Env {
 		if c.Env[i].Name == name {
 			c.Env[i].Value = value
+
 			return
 		}
 	}
@@ -264,13 +269,14 @@ func (s SparkApplicationStatus) Resolve() ResolvedSparkApplicationStatus {
 
 	switch {
 	case isSparkApplicationTerminalWrapperState(currentState):
-		if latestFailure.Summary() != "" {
+		switch {
+		case latestFailure.Summary() != "":
 			outcomeState = latestFailure.Summary()
 			outcomeMessage = firstNonEmpty(latestFailure.Message, currentMessage)
-		} else if latestSuccess.Summary() != "" {
+		case latestSuccess.Summary() != "":
 			outcomeState = latestSuccess.Summary()
 			outcomeMessage = firstNonEmpty(latestSuccess.Message, currentMessage)
-		} else if latestTerminal.Summary() != "" {
+		case latestTerminal.Summary() != "":
 			outcomeState = latestTerminal.Summary()
 			outcomeMessage = firstNonEmpty(latestTerminal.Message, currentMessage)
 		}
@@ -396,6 +402,7 @@ func sanitizeK8sName(name string) string {
 		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
 			b.WriteRune(r)
 			lastDash = false
+
 			continue
 		}
 
@@ -407,7 +414,7 @@ func sanitizeK8sName(name string) string {
 
 	result := strings.Trim(b.String(), "-")
 	if result == "" {
-		return "spark-application"
+		return sparkApplicationDefaultName
 	}
 
 	if len(result) > 63 {
@@ -415,7 +422,7 @@ func sanitizeK8sName(name string) string {
 	}
 
 	if result == "" {
-		return "spark-application"
+		return sparkApplicationDefaultName
 	}
 
 	return result

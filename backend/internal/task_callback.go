@@ -32,5 +32,6 @@ func ReadTaskSparkCallbackSettings(config cfg.Config) (*TaskSparkCallbackSetting
 
 func BuildTaskProcedureCallbackURL(host string, taskID int64) string {
 	host = strings.TrimRight(strings.TrimSpace(host), "/")
+
 	return fmt.Sprintf("%s/api/tasks/%d/callback-result", host, taskID)
 }

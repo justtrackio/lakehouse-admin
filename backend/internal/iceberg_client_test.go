@@ -125,6 +125,7 @@ func (m *testTableMetadata) Ref() table.SnapshotRef                { return tabl
 func (m *testTableMetadata) Refs() iter.Seq2[string, table.SnapshotRef] {
 	return func(func(string, table.SnapshotRef) bool) {}
 }
+
 func (m *testTableMetadata) SnapshotLogs() iter.Seq[table.SnapshotLogEntry] {
 	return func(func(table.SnapshotLogEntry) bool) {}
 }
@@ -145,6 +146,7 @@ func (m *testTableMetadata) LastSequenceNumber() int64 { return 0 }
 func (m *testTableMetadata) Statistics() iter.Seq[table.StatisticsFile] {
 	return func(func(table.StatisticsFile) bool) {}
 }
+
 func (m *testTableMetadata) PartitionStatistics() iter.Seq[table.PartitionStatisticsFile] {
 	return func(func(table.PartitionStatisticsFile) bool) {}
 }

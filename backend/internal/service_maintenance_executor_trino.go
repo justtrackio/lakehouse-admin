@@ -105,6 +105,7 @@ func (s *TrinoMaintenanceExecutor) processExpireSnapshots(ctx context.Context, t
 
 	err = s.sqlClient.WithTx(ctx, func(cttx sqlc.Tx) error {
 		_, err := s.refresher.RefreshSnapshots(cttx, task.Table)
+
 		return err
 	})
 	if err != nil {
@@ -142,7 +143,7 @@ func (s *TrinoMaintenanceExecutor) executeExpireSnapshots(ctx context.Context, t
 		Table:                table,
 		RetentionDays:        retentionDays,
 		CleanExpiredMetadata: true,
-		Status:               "ok",
+		Status:               statusOK,
 	}, nil
 }
 
@@ -176,6 +177,6 @@ func (s *TrinoMaintenanceExecutor) executeRemoveOrphanFiles(ctx context.Context,
 		Table:         table,
 		RetentionDays: retentionDays,
 		Metrics:       metrics,
-		Status:        "ok",
+		Status:        statusOK,
 	}, nil
 }
