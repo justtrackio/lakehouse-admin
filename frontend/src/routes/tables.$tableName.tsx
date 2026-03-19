@@ -21,7 +21,7 @@ export const Route = createFileRoute('/tables/$tableName')({
   beforeLoad: ({ location, params }) => {
     if (location.pathname === `/tables/${params.tableName}` || location.pathname === `/tables/${params.tableName}/`) {
       throw redirect({
-        to: '/tables/$tableName/schema',
+        to: '/tables/$tableName/partitions',
         params: { tableName: params.tableName },
       });
     }
@@ -102,19 +102,15 @@ function TableLayout() {
     },
   ];
 
-  const activeTab = pathname.includes('/snapshots') 
-    ? 'snapshots' 
+  const activeTab = pathname.includes('/schema')
+    ? 'schema'
     : pathname.includes('/tasks') 
       ? 'tasks' 
       : pathname.includes('/partitions')
         ? 'partitions'
-        : 'schema';
+        : 'snapshots';
 
   const tabItems = [
-    {
-      key: 'schema',
-      label: 'Schema',
-    },
     {
       key: 'partitions',
       label: 'Partitions',
@@ -122,6 +118,10 @@ function TableLayout() {
     {
       key: 'snapshots',
       label: 'Snapshots',
+    },
+    {
+      key: 'schema',
+      label: 'Schema',
     },
     {
       key: 'tasks',

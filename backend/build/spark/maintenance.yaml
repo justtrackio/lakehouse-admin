@@ -5,7 +5,7 @@ metadata:
   namespace: lakehouse-admin
 spec:
   deploymentMode: ClusterMode
-  pyFiles: https://raw.githubusercontent.com/justtrackio/lakehouse-admin/spark-rewrite/backend/build/spark/maintenance.py
+  pyFiles: https://raw.githubusercontent.com/justtrackio/lakehouse-admin/main/backend/build/spark/maintenance.py
   sparkConf:
     spark.dynamicAllocation.enabled: "true"
     spark.dynamicAllocation.shuffleTracking.enabled: "true"
