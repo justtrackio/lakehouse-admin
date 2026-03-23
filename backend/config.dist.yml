@@ -8,6 +8,14 @@ cloud:
       endpoint: ""
       region: "eu-central-1"
 
+exec:
+  trino:
+    backoff:
+      initial_interval: 3s
+      max_attempts: 0
+      max_elapsed_time: 5m
+      max_interval: 10s
+
 httpserver:
   default:
     port: 8081
@@ -58,4 +66,9 @@ sqlc:
       path: build/migrations
 
 trino:
+  backoff:
+    initial_interval: 3s
+    max_attempts: 0
+    max_elapsed_time: 5m
+    max_interval: 10s
   dsn: https://user@host?catalog=lakehouse&schema=main

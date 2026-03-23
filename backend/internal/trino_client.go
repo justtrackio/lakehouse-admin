@@ -34,7 +34,7 @@ func ProvideTrinoClient(ctx context.Context, config cfg.Config, logger log.Logge
 			return nil, fmt.Errorf("could not connect to database: %w", err)
 		}
 
-		if backoffSettings, err = exec.ReadBackoffSettings(config); err != nil {
+		if backoffSettings, err = exec.ReadBackoffSettings(config, "trino"); err != nil {
 			return nil, fmt.Errorf("could not read backoff settings: %w", err)
 		}
 
