@@ -60,6 +60,8 @@ spec:
                 value: 2026-03-01
               - name: TARGET_FILE_SIZE_BYTES
                 value: "536870912"
+              - name: MAX_CONCURRENT_FILE_GROUP_REWRITES
+                value: "5"
               - name: MIN_INPUT_FILES
                 value: "2"
               - name: PARTIAL_PROGRESS_ENABLED

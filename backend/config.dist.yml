@@ -46,6 +46,11 @@ tasks:
     expire_snapshots: trino
     remove_orphan_files: trino
     optimize: spark
+  spark:
+    optimize:
+      partial_progress_enabled: true
+      partial_progress_max_commits: 10
+      max_concurrent_file_group_rewrites: 5
   spark_callback:
     enabled: false
     backend_host: ""

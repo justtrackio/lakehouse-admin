@@ -48,12 +48,13 @@ const (
 const sparkApplicationNameMaxLength = 63
 
 type SparkMaintenanceExecutor struct {
-	logger          log.Logger
-	metadata        *ServiceMetadata
-	k8s             SparkApplicationCreator
-	taskQueue       TaskClaimer
-	icebergSettings *IcebergSettings
-	callback        *TaskSparkCallbackSettings
+	logger           log.Logger
+	metadata         *ServiceMetadata
+	k8s              SparkApplicationCreator
+	taskQueue        TaskClaimer
+	icebergSettings  *IcebergSettings
+	callback         *TaskSparkCallbackSettings
+	optimizeSettings *TaskSparkOptimizeSettings
 }
 
 func sparkTaskProcedure(taskKind TaskKind) (string, error) {
@@ -76,6 +77,7 @@ func NewSparkMaintenanceExecutor(ctx context.Context, config cfg.Config, logger 
 	var taskQueue TaskClaimer
 	var icebergSettings *IcebergSettings
 	var callbackSettings *TaskSparkCallbackSettings
+	var optimizeSettings *TaskSparkOptimizeSettings
 
 	if metadata, err = NewServiceMetadata(ctx, config, logger); err != nil {
 		return nil, fmt.Errorf("could not create metadata service: %w", err)
@@ -97,13 +99,18 @@ func NewSparkMaintenanceExecutor(ctx context.Context, config cfg.Config, logger 
 		return nil, fmt.Errorf("could not read spark callback settings: %w", err)
 	}
 
+	if optimizeSettings, err = ReadTaskSparkOptimizeSettings(config); err != nil {
+		return nil, fmt.Errorf("could not read spark optimize settings: %w", err)
+	}
+
 	return &SparkMaintenanceExecutor{
-		logger:          logger.WithChannel("maintenance_executor_spark"),
-		metadata:        metadata,
-		k8s:             k8s,
-		taskQueue:       taskQueue,
-		icebergSettings: icebergSettings,
-		callback:        callbackSettings,
+		logger:           logger.WithChannel("maintenance_executor_spark"),
+		metadata:         metadata,
+		k8s:              k8s,
+		taskQueue:        taskQueue,
+		icebergSettings:  icebergSettings,
+		callback:         callbackSettings,
+		optimizeSettings: optimizeSettings,
 	}, nil
 }
 
@@ -256,13 +263,14 @@ func (s *SparkMaintenanceExecutor) executeOptimize(ctx context.Context, taskID i
 	}
 
 	envValues := map[string]string{
-		"ICEBERG_WHERE_COLUMN":         partitionColumn,
-		"ICEBERG_WHERE_FROM":           from.Format(time.DateOnly),
-		"ICEBERG_WHERE_UNTIL":          to.Add(time.Hour * 24).Format(time.DateOnly),
-		"TARGET_FILE_SIZE_BYTES":       fmt.Sprintf("%d", int64(fileSizeThresholdMb)*1024*1024),
-		"MIN_INPUT_FILES":              fmt.Sprintf("%d", 2),
-		"PARTIAL_PROGRESS_ENABLED":     fmt.Sprintf("%t", true),
-		"PARTIAL_PROGRESS_MAX_COMMITS": fmt.Sprintf("%d", 10),
+		"ICEBERG_WHERE_COLUMN":               partitionColumn,
+		"ICEBERG_WHERE_FROM":                 from.Format(time.DateOnly),
+		"ICEBERG_WHERE_UNTIL":                to.Add(time.Hour * 24).Format(time.DateOnly),
+		"TARGET_FILE_SIZE_BYTES":             fmt.Sprintf("%d", int64(fileSizeThresholdMb)*1024*1024),
+		"MIN_INPUT_FILES":                    fmt.Sprintf("%d", 2),
+		"PARTIAL_PROGRESS_ENABLED":           fmt.Sprintf("%t", s.optimizeSettings.PartialProgressEnabled),
+		"PARTIAL_PROGRESS_MAX_COMMITS":       fmt.Sprintf("%d", s.optimizeSettings.PartialProgressMaxCommits),
+		"MAX_CONCURRENT_FILE_GROUP_REWRITES": fmt.Sprintf("%d", s.optimizeSettings.MaxConcurrentFileGroupRewrite),
 	}
 
 	if err = manifest.SetEnvValues(envValues); err != nil {

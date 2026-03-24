@@ -156,6 +156,7 @@ def build_rewrite_data_files_query() -> str:
     table = require_env("ICEBERG_TABLE")
     where = build_where_clause()
     target_file_size_bytes = os.getenv("TARGET_FILE_SIZE_BYTES", "536870912").strip()
+    max_concurrent_file_group_rewrites = os.getenv("MAX_CONCURRENT_FILE_GROUP_REWRITES", "5").strip()
     min_input_files = os.getenv("MIN_INPUT_FILES", "2").strip()
     partial_progress_enabled = bool_string("PARTIAL_PROGRESS_ENABLED", "true")
     partial_progress_max_commits = os.getenv("PARTIAL_PROGRESS_MAX_COMMITS", "10").strip()
@@ -169,6 +170,7 @@ CALL {catalog}.system.rewrite_data_files(
   strategy => 'binpack',
   options => map(
     'target-file-size-bytes', {sql_literal(target_file_size_bytes)},
+    'max-concurrent-file-group-rewrites', {sql_literal(max_concurrent_file_group_rewrites)},
     'min-input-files', {sql_literal(min_input_files)},
     'partial-progress.enabled', {sql_literal(partial_progress_enabled)},
     'partial-progress.max-commits', {sql_literal(partial_progress_max_commits)}
