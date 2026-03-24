@@ -234,6 +234,8 @@ export interface Task {
   kind: string;
   engine: string;
   status: string;
+  retried: boolean;
+  can_retry: boolean;
   started_at: string;
   picked_up_at: string | null;
   finished_at: string | null;
@@ -297,6 +299,14 @@ export interface FlushTasksResponse {
 
 export async function flushTasks(): Promise<FlushTasksResponse> {
   return apiClient.delete<FlushTasksResponse>('/api/tasks');
+}
+
+export interface RetryAllTasksResponse {
+  retried_count: number;
+}
+
+export async function retryAllTasks(): Promise<RetryAllTasksResponse> {
+  return apiClient.post<RetryAllTasksResponse>('/api/tasks/retry-all', {});
 }
 
 export async function retryTask(taskId: number): Promise<TaskQueuedResponse> {

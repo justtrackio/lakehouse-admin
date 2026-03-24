@@ -66,6 +66,10 @@ type FlushTasksResponse struct {
 	Deleted int64 `json:"deleted"`
 }
 
+type RetryAllTasksResponse struct {
+	RetriedCount int64 `json:"retried_count"`
+}
+
 func NewHandlerTasks(ctx context.Context, config cfg.Config, logger log.Logger) (*HandlerTasks, error) {
 	var err error
 	var serviceTasks *ServiceTasks
@@ -137,6 +141,17 @@ func (h *HandlerTasks) RetryTask(ctx context.Context, input *RetryTaskInput) (ht
 	return httpserver.NewJsonResponse(&TaskQueuedResponse{
 		TaskId: taskId,
 		Status: taskStatusQueued,
+	}), nil
+}
+
+func (h *HandlerTasks) RetryAllTasks(ctx context.Context) (httpserver.Response, error) {
+	retriedCount, err := h.serviceTasks.RetryAllTasks(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return httpserver.NewJsonResponse(&RetryAllTasksResponse{
+		RetriedCount: retriedCount,
 	}), nil
 }
 

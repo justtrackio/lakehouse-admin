@@ -1,9 +1,9 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button, Space, Typography, message, Popconfirm } from 'antd';
-import { MinusOutlined, PlusOutlined, DeleteOutlined } from '@ant-design/icons';
+import { MinusOutlined, PlusOutlined, DeleteOutlined, RedoOutlined } from '@ant-design/icons';
 import { MaintenanceTasksTable } from '../components/MaintenanceTasksTable';
-import { fetchTaskConcurrency, setTaskConcurrency, flushTasks } from '../api/schema';
+import { fetchTaskConcurrency, setTaskConcurrency, flushTasks, retryAllTasks } from '../api/schema';
 
 const { Text } = Typography;
 
@@ -43,6 +43,18 @@ function TasksPage() {
     },
   });
 
+  const retryAllMutation = useMutation({
+    mutationFn: retryAllTasks,
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['taskCounts'] });
+      message.success(`Retried ${data.retried_count} task${data.retried_count !== 1 ? 's' : ''}`);
+    },
+    onError: (error: Error) => {
+      message.error(`Failed to retry tasks: ${error.message}`);
+    },
+  });
+
   const currentValue = concurrencyData?.value ?? 1;
 
   const handleDecrement = () => {
@@ -57,6 +69,10 @@ function TasksPage() {
 
   const handleFlush = () => {
     flushMutation.mutate();
+  };
+
+  const handleRetryAll = () => {
+    retryAllMutation.mutate();
   };
 
   return (
@@ -79,22 +95,40 @@ function TasksPage() {
               onClick={handleIncrement}
             />
           </div>
-          <Popconfirm
-            title="Are you sure you want to clear all tasks?"
-            description="This will permanently delete all tasks from the database."
-            onConfirm={handleFlush}
-            okText="Yes"
-            cancelText="No"
-            okButtonProps={{ danger: true }}
-          >
-            <Button
-              danger
-              icon={<DeleteOutlined />}
-              loading={flushMutation.isPending}
+          <Space size="small">
+            <Popconfirm
+              title="Retry all failed tasks?"
+              description="This will retry every failed task that has not been retried yet."
+              onConfirm={handleRetryAll}
+              okText="Yes"
+              cancelText="No"
             >
-              Clear All Tasks
-            </Button>
-          </Popconfirm>
+              <Button
+                icon={<RedoOutlined />}
+                loading={retryAllMutation.isPending}
+                disabled={flushMutation.isPending}
+              >
+                Retry All Tasks
+              </Button>
+            </Popconfirm>
+            <Popconfirm
+              title="Are you sure you want to clear all tasks?"
+              description="This will permanently delete all tasks from the database."
+              onConfirm={handleFlush}
+              okText="Yes"
+              cancelText="No"
+              okButtonProps={{ danger: true }}
+            >
+              <Button
+                danger
+                icon={<DeleteOutlined />}
+                loading={flushMutation.isPending}
+                disabled={retryAllMutation.isPending}
+              >
+                Clear All Tasks
+              </Button>
+            </Popconfirm>
+          </Space>
         </div>
         <MaintenanceTasksTable pageSize={100} />
       </Space>

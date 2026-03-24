@@ -141,7 +141,7 @@ export function MaintenanceTasksTable({ tableName, pageSize }: MaintenanceTasksT
                   View Error
                 </Button>
               )}
-              {status === 'error' && (
+              {status === 'error' && record.can_retry && (
                 <Popconfirm
                   title="Retry task"
                   description="Are you sure you want to retry this failed task?"

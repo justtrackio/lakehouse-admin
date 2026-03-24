@@ -54,19 +54,7 @@ func (s *ServiceTaskQueue) EnqueueTask(ctx context.Context, table string, kind s
 	var res sqlc.Result
 	var id int64
 
-	if input == nil {
-		input = map[string]any{}
-	}
-
-	entry := &Task{
-		Table:     table,
-		Kind:      kind,
-		Engine:    engine,
-		StartedAt: time.Now(),
-		Status:    taskStatusQueued,
-		Input:     db.NewJSON(input, db.NonNullable{}),
-		Result:    db.NewJSON(map[string]any{}, db.NonNullable{}),
-	}
+	entry := newQueuedTask(table, kind, engine, input)
 
 	ins := s.sqlClient.Q().Into("tasks").Records(entry)
 	if res, err = ins.Exec(ctx); err != nil {
@@ -93,6 +81,137 @@ func (s *ServiceTaskQueue) GetTask(ctx context.Context, id int64) (*Task, error)
 	}
 
 	return &task, nil
+}
+
+func (s *ServiceTaskQueue) RetryTask(ctx context.Context, id int64) (int64, error) {
+	var retryTaskID int64
+
+	err := s.sqlClient.WithTx(ctx, func(cttx sqlc.Tx) error {
+		task, err := s.getTaskForRetry(cttx, id)
+		if err != nil {
+			return err
+		}
+
+		retryTaskID, err = s.retryTaskInTx(cttx, task)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	}, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	if err != nil {
+		return 0, err
+	}
+
+	return retryTaskID, nil
+}
+
+func (s *ServiceTaskQueue) RetryAllTasks(ctx context.Context) (int64, error) {
+	var retriedCount int64
+
+	err := s.sqlClient.WithTx(ctx, func(cttx sqlc.Tx) error {
+		var tasks []Task
+
+		query := cttx.Q().
+			From("tasks").
+			Where(sqlc.Eq{"status": taskStatusError, "retried": false}).
+			OrderBy(sqlc.Col("started_at").Asc())
+
+		if err := query.Select(cttx, &tasks); err != nil {
+			return fmt.Errorf("could not list retryable tasks: %w", err)
+		}
+
+		for i := range tasks {
+			if _, err := s.retryTaskInTx(cttx, &tasks[i]); err != nil {
+				if errors.Is(err, errTaskAlreadyRetried) {
+					continue
+				}
+
+				return err
+			}
+
+			retriedCount++
+		}
+
+		return nil
+	}, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	if err != nil {
+		return 0, err
+	}
+
+	return retriedCount, nil
+}
+
+var errTaskAlreadyRetried = errors.New("task already retried")
+
+func (s *ServiceTaskQueue) getTaskForRetry(ctx sqlc.Tx, id int64) (*Task, error) {
+	var task Task
+
+	stmt := ctx.Q().From("tasks").Where(sqlc.Eq{"id": id}).Limit(1)
+	if err := stmt.Get(ctx, &task); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("task %d not found", id)
+		}
+
+		return nil, fmt.Errorf("could not load task %d: %w", id, err)
+	}
+
+	return &task, nil
+}
+
+func (s *ServiceTaskQueue) retryTaskInTx(ctx sqlc.Tx, task *Task) (int64, error) {
+	if task.Status != taskStatusError {
+		return 0, fmt.Errorf("task %d cannot be retried because it is in status %s", task.Id, task.Status)
+	}
+
+	if task.Retried {
+		return 0, fmt.Errorf("task %d has already been retried: %w", task.Id, errTaskAlreadyRetried)
+	}
+
+	update := ctx.Q().Update("tasks").Set("retried", true).Where(sqlc.Eq{"id": task.Id, "status": taskStatusError, "retried": false})
+	res, err := update.Exec(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("could not mark task %d as retried: %w", task.Id, err)
+	}
+
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("could not get rows affected when retrying task %d: %w", task.Id, err)
+	}
+
+	if affected == 0 {
+		return 0, fmt.Errorf("task %d has already been retried: %w", task.Id, errTaskAlreadyRetried)
+	}
+
+	insert := ctx.Q().Into("tasks").Records(newQueuedTask(task.Table, task.Kind, task.Engine, task.Input.Get()))
+	res, err = insert.Exec(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("could not enqueue retry for task %d: %w", task.Id, err)
+	}
+
+	retryTaskID, err := res.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("could not get retry task id for task %d: %w", task.Id, err)
+	}
+
+	return retryTaskID, nil
+}
+
+func newQueuedTask(table string, kind string, engine string, input map[string]any) *Task {
+	if input == nil {
+		input = map[string]any{}
+	}
+
+	return &Task{
+		Table:     table,
+		Kind:      kind,
+		Engine:    engine,
+		StartedAt: time.Now(),
+		Status:    taskStatusQueued,
+		Retried:   false,
+		Input:     db.NewJSON(input, db.NonNullable{}),
+		Result:    db.NewJSON(map[string]any{}, db.NonNullable{}),
+	}
 }
 
 func (s *ServiceTaskQueue) ClaimTask(ctx context.Context) (*Task, error) {
@@ -385,6 +504,8 @@ func (s *ServiceTaskQueue) ListTasks(ctx context.Context, table string, kinds []
 			PickedUpAt:   r.PickedUpAt,
 			FinishedAt:   r.FinishedAt,
 			Status:       r.Status,
+			Retried:      r.Retried,
+			CanRetry:     r.Status == taskStatusError && !r.Retried,
 			ErrorMessage: r.ErrorMessage,
 			Input:        r.Input.Get(),
 			Result:       r.Result.Get(),

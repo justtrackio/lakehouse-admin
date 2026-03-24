@@ -105,6 +105,7 @@ type Task struct {
 	PickedUpAt   *time.Time                              `json:"picked_up_at" db:"picked_up_at"`
 	FinishedAt   *time.Time                              `json:"finished_at" db:"finished_at"`
 	Status       string                                  `json:"status" db:"status"`
+	Retried      bool                                    `json:"retried" db:"retried"`
 	ErrorMessage *string                                 `json:"error_message" db:"error_message"`
 	Input        db.JSON[map[string]any, db.NonNullable] `json:"input" db:"input"`
 	Result       db.JSON[map[string]any, db.NonNullable] `json:"result" db:"result"`
@@ -119,6 +120,8 @@ type sTask struct {
 	PickedUpAt   *time.Time     `json:"picked_up_at" db:"picked_up_at"`
 	FinishedAt   *time.Time     `json:"finished_at" db:"finished_at"`
 	Status       string         `json:"status" db:"status"`
+	Retried      bool           `json:"retried" db:"retried"`
+	CanRetry     bool           `json:"can_retry"`
 	ErrorMessage *string        `json:"error_message" db:"error_message"`
 	Input        map[string]any `json:"input" db:"input"`
 	Result       map[string]any `json:"result" db:"result"`

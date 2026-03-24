@@ -356,26 +356,21 @@ func (s *ServiceTasks) enqueueBatch(ctx context.Context, tables []string, enqueu
 }
 
 func (s *ServiceTasks) RetryTask(ctx context.Context, taskID int64) (int64, error) {
-	task, err := s.serviceTaskQueue.GetTask(ctx, taskID)
+	retryTaskID, err := s.serviceTaskQueue.RetryTask(ctx, taskID)
 	if err != nil {
-		return 0, fmt.Errorf("could not load task %d for retry: %w", taskID, err)
-	}
-
-	if task.Status != taskStatusError {
-		return 0, fmt.Errorf("task %d cannot be retried because it is in status %s", taskID, task.Status)
-	}
-
-	input := task.Input.Get()
-	if input == nil {
-		input = map[string]any{}
-	}
-
-	retryTaskID, err := s.serviceTaskQueue.EnqueueTask(ctx, task.Table, task.Kind, task.Engine, input)
-	if err != nil {
-		return 0, fmt.Errorf("could not enqueue retry for task %d: %w", taskID, err)
+		return 0, fmt.Errorf("could not retry task %d: %w", taskID, err)
 	}
 
 	return retryTaskID, nil
+}
+
+func (s *ServiceTasks) RetryAllTasks(ctx context.Context) (int64, error) {
+	retriedCount, err := s.serviceTaskQueue.RetryAllTasks(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("could not retry failed tasks: %w", err)
+	}
+
+	return retriedCount, nil
 }
 
 func (s *ServiceTasks) UpdateProcedureResult(ctx context.Context, taskID int64, callback *TaskProcedureCallback) error {
