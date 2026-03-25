@@ -74,9 +74,10 @@ type TableColumn struct {
 }
 
 type TablePartition struct {
-	Name     string               `json:"name" db:"name"`
-	IsHidden bool                 `json:"is_hidden" db:"is_hidden"`
-	Hidden   TablePartitionHidden `json:"hidden" db:"hidden"`
+	Name         string               `json:"name" db:"name"`
+	RawFieldName string               `json:"raw_field_name" db:"raw_field_name"`
+	IsHidden     bool                 `json:"is_hidden" db:"is_hidden"`
+	Hidden       TablePartitionHidden `json:"hidden" db:"hidden"`
 }
 
 type TablePartitionHidden struct {

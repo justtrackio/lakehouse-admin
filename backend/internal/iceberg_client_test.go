@@ -63,9 +63,9 @@ func TestExtractPartitionsUsesNestedColumnName(t *testing.T) {
 	partitions, err := client.extractPartitions(metadata)
 	require.NoError(t, err)
 	require.Equal(t, []TablePartition{
-		{Name: "year", IsHidden: true, Hidden: TablePartitionHidden{Column: "goal.conversionHappenedAt", Type: transformDay}},
-		{Name: "month", IsHidden: true, Hidden: TablePartitionHidden{Column: "goal.conversionHappenedAt", Type: transformDay}},
-		{Name: "day", IsHidden: true, Hidden: TablePartitionHidden{Column: "goal.conversionHappenedAt", Type: transformDay}},
+		{Name: "year", RawFieldName: "goal_conversion_happened_at_day", IsHidden: true, Hidden: TablePartitionHidden{Column: "goal.conversionHappenedAt", Type: transformDay}},
+		{Name: "month", RawFieldName: "goal_conversion_happened_at_day", IsHidden: true, Hidden: TablePartitionHidden{Column: "goal.conversionHappenedAt", Type: transformDay}},
+		{Name: "day", RawFieldName: "goal_conversion_happened_at_day", IsHidden: true, Hidden: TablePartitionHidden{Column: "goal.conversionHappenedAt", Type: transformDay}},
 	}, partitions.Get())
 }
 
@@ -85,7 +85,7 @@ func TestExtractPartitionsUsesNestedIdentityColumnName(t *testing.T) {
 
 	partitions, err := client.extractPartitions(metadata)
 	require.NoError(t, err)
-	require.Equal(t, []TablePartition{{Name: "goal.conversionHappenedAt", IsHidden: false, Hidden: TablePartitionHidden{}}}, partitions.Get())
+	require.Equal(t, []TablePartition{{Name: "goal.conversionHappenedAt", RawFieldName: "goal_conversion_happened_at", IsHidden: false, Hidden: TablePartitionHidden{}}}, partitions.Get())
 }
 
 func TestPartitionJSONPathExprQuotesLiteralKeys(t *testing.T) {

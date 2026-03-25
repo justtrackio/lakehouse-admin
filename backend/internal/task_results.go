@@ -20,11 +20,11 @@ func removeOrphanFilesResultMap(res *RemoveOrphanFilesResult) map[string]any {
 
 func optimizeResultMap(res *OptimizeResult) map[string]any {
 	return map[string]any{
-		"table":                  res.Table,
-		"file_size_threshold_mb": res.FileSizeThresholdMb,
-		"where":                  res.Where,
-		"tracking_id":            res.ApplicationName,
-		"application_name":       res.ApplicationName,
-		"status":                 res.Status,
+		"table":               res.Table,
+		"target_file_size_mb": res.TargetFileSizeMb,
+		"where":               res.Where,
+		"tracking_id":         res.ApplicationName,
+		"application_name":    res.ApplicationName,
+		"status":              res.Status,
 	}
 }

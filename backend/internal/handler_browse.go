@@ -3,6 +3,7 @@ package internal
 import (
 	"context"
 	"fmt"
+	"net/http"
 
 	"github.com/gosoline-project/httpserver"
 	"github.com/gosoline-project/sqlc"
@@ -10,12 +11,25 @@ import (
 	"github.com/justtrackio/gosoline/pkg/log"
 )
 
+func partitionJSONPathExpr(key string, text bool) string {
+	operator := "->"
+	if text {
+		operator = "->>"
+	}
+
+	return fmt.Sprintf("p.partition%s'$.%q'", operator, key)
+}
+
 type ListTablesResponse struct {
 	Tables []*TableSummary `json:"tables"`
 }
 
 type ListPartitionsResponse struct {
 	Partitions []ListPartitionItem `json:"partitions"`
+}
+
+type ListFilesResponse struct {
+	Files []DataFileItem `json:"files"`
 }
 
 type ListPartitionItem struct {
@@ -27,33 +41,55 @@ type ListPartitionItem struct {
 	NeedsOptimizeCount       int64  `json:"needs_optimize_count" db:"needs_optimize_count"`
 }
 
+type DataFileItem struct {
+	Content         int64  `json:"content"`
+	FilePath        string `json:"file_path"`
+	FileFormat      string `json:"file_format"`
+	SpecID          int64  `json:"spec_id"`
+	Partition       string `json:"partition"`
+	RecordCount     int64  `json:"record_count"`
+	FileSizeInBytes int64  `json:"file_size_in_bytes"`
+}
+
 type ListPartitionsInput struct {
 	Table      string            `uri:"table"`
 	Partitions map[string]string `form:"partitions"`
 }
 
+type ListFilesInput struct {
+	Table      string            `uri:"table"`
+	Partitions map[string]string `json:"partitions" form:"partitions"`
+}
+
 func NewHandlerBrowse(ctx context.Context, config cfg.Config, logger log.Logger) (*HandlerBrowse, error) {
 	var err error
 	var sqlClient sqlc.Client
-	var service *ServiceMetadata
+	var metadata *ServiceMetadata
+	var files *ServiceBrowseFiles
 
 	if sqlClient, err = sqlc.ProvideClient(ctx, config, logger, "default"); err != nil {
 		return nil, fmt.Errorf("could not create sqlg client: %w", err)
 	}
 
-	if service, err = NewServiceMetadata(ctx, config, logger); err != nil {
+	if metadata, err = NewServiceMetadata(ctx, config, logger); err != nil {
 		return nil, fmt.Errorf("could not create service metadata: %w", err)
+	}
+
+	if files, err = NewServiceBrowseFiles(ctx, config, logger); err != nil {
+		return nil, fmt.Errorf("could not create file browse service: %w", err)
 	}
 
 	return &HandlerBrowse{
 		sqlClient: sqlClient,
-		service:   service,
+		metadata:  metadata,
+		files:     files,
 	}, nil
 }
 
 type HandlerBrowse struct {
 	sqlClient sqlc.Client
-	service   *ServiceMetadata
+	metadata  *ServiceMetadata
+	files     *ServiceBrowseFiles
 }
 
 func (h *HandlerBrowse) TableSummary(ctx context.Context, input *TableSelectInput) (httpserver.Response, error) {
@@ -61,11 +97,11 @@ func (h *HandlerBrowse) TableSummary(ctx context.Context, input *TableSelectInpu
 	var table *TableDescription
 	var summary *TableSummary
 
-	if table, err = h.service.GetTable(ctx, input.Table); err != nil {
+	if table, err = h.metadata.GetTable(ctx, input.Table); err != nil {
 		return nil, fmt.Errorf("could not describe table: %w", err)
 	}
 
-	if summary, err = h.service.GetTableSummary(ctx, *table); err != nil {
+	if summary, err = h.metadata.GetTableSummary(ctx, *table); err != nil {
 		return nil, fmt.Errorf("could not describe table summary: %w", err)
 	}
 
@@ -76,13 +112,13 @@ func (h *HandlerBrowse) ListTables(ctx context.Context) (httpserver.Response, er
 	var err error
 	var tables []TableDescription
 
-	if tables, err = h.service.ListTables(ctx); err != nil {
+	if tables, err = h.metadata.ListTables(ctx); err != nil {
 		return nil, fmt.Errorf("could not list tables from db: %w", err)
 	}
 
 	items := make([]*TableSummary, len(tables))
 	for i, table := range tables {
-		if items[i], err = h.service.GetTableSummary(ctx, table); err != nil {
+		if items[i], err = h.metadata.GetTableSummary(ctx, table); err != nil {
 			return nil, fmt.Errorf("could not get table summary for table %s: %w", table.Name, err)
 		}
 	}
@@ -96,27 +132,22 @@ func (h *HandlerBrowse) ListPartitions(ctx context.Context, input *ListPartition
 	var err error
 	var table *TableDescription
 
-	if table, err = h.service.GetTable(ctx, input.Table); err != nil {
+	if table, err = h.metadata.GetTable(ctx, input.Table); err != nil {
 		return nil, fmt.Errorf("could not describe table: %w", err)
 	}
 
 	partitions := table.Partitions.Get()
 	depth := len(input.Partitions)
 
-	// Handle unpartitioned tables or out-of-range depth gracefully
 	if len(partitions) == 0 || depth >= len(partitions) {
-		return httpserver.NewJsonResponse(ListPartitionsResponse{
-			Partitions: []ListPartitionItem{},
-		}), nil
+		return httpserver.NewJsonResponse(ListPartitionsResponse{Partitions: []ListPartitionItem{}}), nil
 	}
 
-	groupBy := partitions[depth].Name
-	groupBy = partitionJSONPathExpr(groupBy, true)
-
+	groupBy := partitionJSONPathExpr(partitions[depth].Name, true)
 	where := sqlc.Eq{"p.table": input.Table}
-	for k, v := range input.Partitions {
-		expr := partitionJSONPathExpr(k, false)
-		where[expr] = v
+
+	for key, value := range input.Partitions {
+		where[partitionJSONPathExpr(key, false)] = value
 	}
 
 	sel := h.sqlClient.Q().From("partitions").As("p").
@@ -140,11 +171,17 @@ func (h *HandlerBrowse) ListPartitions(ctx context.Context, input *ListPartition
 	}), nil
 }
 
-func partitionJSONPathExpr(key string, text bool) string {
-	operator := "->"
-	if text {
-		operator = "->>"
+func (h *HandlerBrowse) ListFiles(ctx context.Context, input *ListFilesInput) (httpserver.Response, error) {
+	var err error
+	var items []DataFileItem
+
+	if items, err = h.files.ListFiles(ctx, input.Table, input.Partitions); err != nil {
+		if isBrowseInputError(err) {
+			return httpserver.GetErrorHandler()(http.StatusBadRequest, err), nil
+		}
+
+		return nil, fmt.Errorf("could not list files: %w", err)
 	}
 
-	return fmt.Sprintf("p.partition%s'$.%q'", operator, key)
+	return httpserver.NewJsonResponse(ListFilesResponse{Files: items}), nil
 }

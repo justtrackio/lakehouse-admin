@@ -140,7 +140,7 @@ func (s *ServiceTasks) EnqueueRemoveOrphanFilesBatch(ctx context.Context, tables
 	})
 }
 
-func (s *ServiceTasks) EnqueueOptimizeBatch(ctx context.Context, tables []BatchOptimizeTable, fileSizeThresholdMb int, from time.Time, to time.Time) (*BatchEnqueueResult, error) {
+func (s *ServiceTasks) EnqueueOptimizeBatch(ctx context.Context, tables []BatchOptimizeTable, targetFileSizeMb int, from time.Time, to time.Time) (*BatchEnqueueResult, error) {
 	if from.IsZero() || to.IsZero() {
 		return nil, fmt.Errorf("from and to dates are required for optimize")
 	}
@@ -160,7 +160,7 @@ func (s *ServiceTasks) EnqueueOptimizeBatch(ctx context.Context, tables []BatchO
 	}
 
 	for _, tableConfig := range normalizedTables {
-		taskIDs, err := s.EnqueueOptimize(ctx, tableConfig.Table, fileSizeThresholdMb, from, to, tableConfig.ChunkBy)
+		taskIDs, err := s.EnqueueOptimize(ctx, tableConfig.Table, targetFileSizeMb, from, to, tableConfig.ChunkBy)
 		if err != nil {
 			s.logger.Warn(ctx, "failed to enqueue optimize maintenance task for table %s: %s", tableConfig.Table, err)
 			result.FailedTables = append(result.FailedTables, BatchEnqueueFailure{
@@ -180,7 +180,7 @@ func (s *ServiceTasks) EnqueueOptimizeBatch(ctx context.Context, tables []BatchO
 
 // EnqueueOptimize queries the partitions table for partitions that need optimization
 // within the given date range and enqueues one optimize task per qualifying chunk.
-func (s *ServiceTasks) EnqueueOptimize(ctx context.Context, table string, fileSizeThresholdMb int, from time.Time, to time.Time, chunkBy string) ([]int64, error) {
+func (s *ServiceTasks) EnqueueOptimize(ctx context.Context, table string, targetFileSizeMb int, from time.Time, to time.Time, chunkBy string) ([]int64, error) {
 	var err error
 	var taskId int64
 	var taskIds []int64
@@ -194,9 +194,9 @@ func (s *ServiceTasks) EnqueueOptimize(ctx context.Context, table string, fileSi
 		return nil, fmt.Errorf("could not resolve engine for optimize task: %w", err)
 	}
 
-	// Apply default threshold
-	if fileSizeThresholdMb < 1 {
-		fileSizeThresholdMb = 128
+	// Apply default target size.
+	if targetFileSizeMb < 1 {
+		targetFileSizeMb = 512
 	}
 
 	// Validate date range
@@ -271,9 +271,9 @@ func (s *ServiceTasks) EnqueueOptimize(ctx context.Context, table string, fileSi
 
 	for _, chunk := range chunkSet {
 		taskInput := map[string]any{
-			"file_size_threshold_mb": fileSizeThresholdMb,
-			"from":                   chunk.from,
-			"to":                     chunk.to,
+			"target_file_size_mb": targetFileSizeMb,
+			"from":                chunk.from,
+			"to":                  chunk.to,
 		}
 
 		if taskId, err = s.serviceTaskQueue.EnqueueTask(ctx, table, string(TaskKindOptimize), string(engine), taskInput); err != nil {

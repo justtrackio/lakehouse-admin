@@ -88,7 +88,8 @@ func (c *SparkClient) DescribeTable(ctx context.Context, table string) (*TableDe
 
 		if len(matches) == 0 {
 			partitions = append(partitions, TablePartition{
-				Name: rows[i]["data_type"],
+				Name:         rows[i]["data_type"],
+				RawFieldName: rows[i]["data_type"],
 			})
 
 			continue
@@ -97,18 +98,18 @@ func (c *SparkClient) DescribeTable(ctx context.Context, table string) (*TableDe
 		switch matches[0][1] {
 		case "days":
 			partitions = append(partitions, []TablePartition{
-				{"year", true, TablePartitionHidden{matches[0][2], "day"}},
-				{"month", true, TablePartitionHidden{matches[0][2], "day"}},
-				{"day", true, TablePartitionHidden{matches[0][2], "day"}},
+				{Name: "year", RawFieldName: rows[i]["data_type"], IsHidden: true, Hidden: TablePartitionHidden{matches[0][2], "day"}},
+				{Name: "month", RawFieldName: rows[i]["data_type"], IsHidden: true, Hidden: TablePartitionHidden{matches[0][2], "day"}},
+				{Name: "day", RawFieldName: rows[i]["data_type"], IsHidden: true, Hidden: TablePartitionHidden{matches[0][2], "day"}},
 			}...)
 		case "months":
 			partitions = append(partitions, []TablePartition{
-				{"year", true, TablePartitionHidden{matches[0][2], "month"}},
-				{"month", true, TablePartitionHidden{matches[0][2], "month"}},
+				{Name: "year", RawFieldName: rows[i]["data_type"], IsHidden: true, Hidden: TablePartitionHidden{matches[0][2], "month"}},
+				{Name: "month", RawFieldName: rows[i]["data_type"], IsHidden: true, Hidden: TablePartitionHidden{matches[0][2], "month"}},
 			}...)
 		case "years":
 			partitions = append(partitions, []TablePartition{
-				{"year", true, TablePartitionHidden{matches[0][2], "year"}},
+				{Name: "year", RawFieldName: rows[i]["data_type"], IsHidden: true, Hidden: TablePartitionHidden{matches[0][2], "year"}},
 			}...)
 		}
 	}

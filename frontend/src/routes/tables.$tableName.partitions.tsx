@@ -4,6 +4,7 @@ import {
   Alert,
   Badge,
   Button,
+  Drawer,
   Popconfirm,
   Space,
   Spin,
@@ -15,8 +16,10 @@ import type { TablePaginationConfig } from 'antd/es/table';
 import { useState } from 'react';
 import {
   fetchTableDetails,
+  fetchPartitionFiles,
   fetchPartitionValues,
   optimizeTable,
+  DataFileItem,
   TableDetails,
   ListPartitionItem,
 } from '../api/schema';
@@ -48,6 +51,7 @@ function PartitionsPage() {
     current: 1,
     pageSize: 50,
   });
+  const [selectedPartition, setSelectedPartition] = useState<Record<string, string> | null>(null);
 
   const {
     data: table,
@@ -68,6 +72,17 @@ function PartitionsPage() {
     queryKey: ['partitions', tableName, partitionFilters],
     queryFn: () => fetchPartitionValues(tableName, partitionFilters || {}),
     enabled: !!table,
+  });
+
+  const {
+    data: partitionFiles,
+    isLoading: isLoadingFiles,
+    isError: isErrorFiles,
+    error: errorFiles,
+  } = useQuery<DataFileItem[], Error>({
+    queryKey: ['partitionFiles', tableName, selectedPartition],
+    queryFn: () => fetchPartitionFiles(tableName, selectedPartition || {}),
+    enabled: !!selectedPartition,
   });
 
   const partitions = table?.partitions ?? [];
@@ -114,8 +129,8 @@ function PartitionsPage() {
   const optimizeMutation = useMutation({
     mutationFn: (partitionName: string) => {
       const { from, to } = deriveDateRange(partitionName);
-      const fileSizeThresholdMb = 128;
-      return optimizeTable(tableName, fileSizeThresholdMb, from, to);
+	      const targetFileSizeMb = 512;
+      return optimizeTable(tableName, targetFileSizeMb, from, to);
     },
     onSuccess: (data, partitionName) => {
       const count = data.task_ids.length;
@@ -184,10 +199,16 @@ function PartitionsPage() {
   }
 
   const handlePartitionClick = (partitionValue: string) => {
+    const isLastLevel = currentLevelIndex === partitions.length - 1;
     const newFilters = {
       ...(partitionFilters || {}),
       [currentPartition.name]: partitionValue,
     };
+
+    if (isLastLevel) {
+      setSelectedPartition(newFilters);
+      return;
+    }
 
     navigate({
       to: '/tables/$tableName/partitions',
@@ -195,6 +216,50 @@ function PartitionsPage() {
       search: { partitions: newFilters },
     });
   };
+
+  const fileColumns: ColumnsType<DataFileItem> = [
+    {
+      title: 'Path',
+      dataIndex: 'file_path',
+      key: 'file_path',
+      ellipsis: true,
+      render: (value: string) => (
+        <Typography.Text code style={{ wordBreak: 'break-all' }}>
+          {value}
+        </Typography.Text>
+      ),
+    },
+    {
+      title: 'Format',
+      dataIndex: 'file_format',
+      key: 'file_format',
+      width: 120,
+    },
+    {
+      title: 'Records',
+      dataIndex: 'record_count',
+      key: 'record_count',
+      align: 'right',
+      width: 120,
+      render: (value: number) => formatNumber(value),
+    },
+    {
+      title: 'Size',
+      dataIndex: 'file_size_in_bytes',
+      key: 'file_size_in_bytes',
+      align: 'right',
+      width: 120,
+      render: (value: number) => formatBytes(value),
+    },
+    {
+      title: 'Spec ID',
+      dataIndex: 'spec_id',
+      key: 'spec_id',
+      align: 'right',
+      width: 100,
+      render: (value: number) => formatNumber(value),
+    },
+  ];
 
   // Build partition breadcrumb
   const partitionBreadcrumb: React.ReactNode[] = [];
@@ -243,19 +308,15 @@ function PartitionsPage() {
       title: 'Name',
       dataIndex: 'name',
       key: 'name',
-      render: (value: string) => {
-        const isLastLevel = currentLevelIndex === partitions.length - 1;
+        render: (value: string) => {
+          const isLastLevel = currentLevelIndex === partitions.length - 1;
 
-        if (isLastLevel) {
-          return value;
-        }
-
-        return (
-          <a onClick={() => handlePartitionClick(value)} style={{ cursor: 'pointer' }}>
-            {value}
-          </a>
-        );
-      },
+          return (
+            <a onClick={() => handlePartitionClick(value)} style={{ cursor: 'pointer' }}>
+              {value}{isLastLevel ? ' (files)' : ''}
+            </a>
+          );
+        },
     },
     {
       title: 'File Count',
@@ -377,6 +438,58 @@ function PartitionsPage() {
           )}
         </>
       )}
+
+      <Drawer
+        title="Partition files"
+        open={selectedPartition !== null}
+        onClose={() => setSelectedPartition(null)}
+        width={'90%'}
+      >
+        {selectedPartition && (
+          <Space direction="vertical" style={{ width: '100%' }} size="middle">
+            <Text type="secondary">
+              {Object.entries(selectedPartition)
+                .map(([key, value]) => `${key}=${value}`)
+                .join(' / ')}
+            </Text>
+
+            {isLoadingFiles && (
+              <div style={{ textAlign: 'center', padding: '24px 0' }}>
+                <Spin size="large" />
+                <div style={{ marginTop: 8 }}>Loading data files...</div>
+              </div>
+            )}
+
+            {isErrorFiles && (
+              <Alert
+                type="error"
+                showIcon
+                message="Failed to load data files"
+                description={errorFiles.message}
+              />
+            )}
+
+            {!isLoadingFiles && !isErrorFiles && (
+              partitionFiles && partitionFiles.length === 0 ? (
+                <Alert
+                  type="info"
+                  showIcon
+                  message="No data files"
+                  description="No current snapshot data files were found for this partition."
+                />
+              ) : (
+                <Table<DataFileItem>
+                  rowKey={(row) => row.file_path}
+                  columns={fileColumns}
+                  dataSource={partitionFiles}
+                  pagination={{ pageSize: 25, showSizeChanger: true }}
+                  scroll={{ x: true }}
+                />
+              )
+            )}
+          </Space>
+        )}
+      </Drawer>
     </Space>
   );
 }

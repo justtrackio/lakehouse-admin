@@ -116,7 +116,7 @@ func (c *IcebergClient) ListSnapshots(ctx context.Context, logicalName string) (
 // or column name for identity transforms).
 func (c *IcebergClient) ListPartitions(ctx context.Context, logicalName string) ([]IcebergPartitionStats, error) {
 	// Hardcoded threshold: 128 MB
-	const smallFileThresholdBytes int64 = 128 * 1024 * 1024
+	const smallFileThresholdBytes int64 = 512 * 1024 * 1024
 	tbl, err := c.LoadTable(ctx, logicalName)
 	if err != nil {
 		return nil, fmt.Errorf("could not load table: %w", err)
@@ -385,12 +385,13 @@ func (c *IcebergClient) extractPartitions(metadata table.Metadata) (db.JSON[[]Ta
 
 		switch pf.Transform.String() {
 		case transformDay, transformMonth, transformYear:
-			partitions = append(partitions, c.expandTimeTransform(pf.Transform.String(), sourceColumnName)...)
+			partitions = append(partitions, c.expandTimeTransform(pf.Transform.String(), sourceColumnName, pf.Name)...)
 		case "identity":
 			partitions = append(partitions, TablePartition{
-				Name:     sourceColumnName,
-				IsHidden: false,
-				Hidden:   TablePartitionHidden{},
+				Name:         sourceColumnName,
+				RawFieldName: pf.Name,
+				IsHidden:     false,
+				Hidden:       TablePartitionHidden{},
 			})
 		default:
 			return db.NewJSON(partitions, db.NonNullable{}), fmt.Errorf("unknown partition transformer type: %s", pf.Transform.String())
@@ -400,26 +401,26 @@ func (c *IcebergClient) extractPartitions(metadata table.Metadata) (db.JSON[[]Ta
 	return db.NewJSON(partitions, db.NonNullable{}), nil
 }
 
-func (c *IcebergClient) expandTimeTransform(transform, sourceCol string) []TablePartition {
+func (c *IcebergClient) expandTimeTransform(transform, sourceCol, rawFieldName string) []TablePartition {
 	switch transform {
 	case transformDay:
 		return []TablePartition{
-			{Name: "year", IsHidden: true, Hidden: TablePartitionHidden{Column: sourceCol, Type: transformDay}},
-			{Name: "month", IsHidden: true, Hidden: TablePartitionHidden{Column: sourceCol, Type: transformDay}},
-			{Name: "day", IsHidden: true, Hidden: TablePartitionHidden{Column: sourceCol, Type: transformDay}},
+			{Name: "year", RawFieldName: rawFieldName, IsHidden: true, Hidden: TablePartitionHidden{Column: sourceCol, Type: transformDay}},
+			{Name: "month", RawFieldName: rawFieldName, IsHidden: true, Hidden: TablePartitionHidden{Column: sourceCol, Type: transformDay}},
+			{Name: "day", RawFieldName: rawFieldName, IsHidden: true, Hidden: TablePartitionHidden{Column: sourceCol, Type: transformDay}},
 		}
 	case transformMonth:
 		return []TablePartition{
-			{Name: "year", IsHidden: true, Hidden: TablePartitionHidden{Column: sourceCol, Type: transformMonth}},
-			{Name: "month", IsHidden: true, Hidden: TablePartitionHidden{Column: sourceCol, Type: transformMonth}},
+			{Name: "year", RawFieldName: rawFieldName, IsHidden: true, Hidden: TablePartitionHidden{Column: sourceCol, Type: transformMonth}},
+			{Name: "month", RawFieldName: rawFieldName, IsHidden: true, Hidden: TablePartitionHidden{Column: sourceCol, Type: transformMonth}},
 		}
 	case transformYear:
 		return []TablePartition{
-			{Name: "year", IsHidden: true, Hidden: TablePartitionHidden{Column: sourceCol, Type: transformYear}},
+			{Name: "year", RawFieldName: rawFieldName, IsHidden: true, Hidden: TablePartitionHidden{Column: sourceCol, Type: transformYear}},
 		}
+	default:
+		return nil
 	}
-
-	return nil
 }
 
 func (c *IcebergClient) formatType(t iceberg.Type) string {

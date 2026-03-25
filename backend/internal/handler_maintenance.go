@@ -25,10 +25,10 @@ type BatchOptimizeTableInput struct {
 }
 
 type BatchOptimizeInput struct {
-	Tables              []BatchOptimizeTableInput `json:"tables"`
-	FileSizeThresholdMb int                       `json:"file_size_threshold_mb"`
-	From                DateTime                  `json:"from"`
-	To                  DateTime                  `json:"to"`
+	Tables           []BatchOptimizeTableInput `json:"tables"`
+	TargetFileSizeMb int                       `json:"target_file_size_mb"`
+	From             DateTime                  `json:"from"`
+	To               DateTime                  `json:"to"`
 }
 
 func NewHandlerMaintenance(ctx context.Context, config cfg.Config, logger log.Logger) (*HandlerMaintenance, error) {
@@ -70,7 +70,7 @@ func (h *HandlerMaintenance) Optimize(ctx context.Context, input *BatchOptimizeI
 		tables = append(tables, BatchOptimizeTable(table))
 	}
 
-	result, err := h.serviceTasks.EnqueueOptimizeBatch(ctx, tables, input.FileSizeThresholdMb, input.From.Time, input.To.Time)
+	result, err := h.serviceTasks.EnqueueOptimizeBatch(ctx, tables, input.TargetFileSizeMb, input.From.Time, input.To.Time)
 	if err != nil {
 		return nil, err
 	}

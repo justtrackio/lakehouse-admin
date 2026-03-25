@@ -77,6 +77,7 @@ func main() {
 				r.GET("/tables", httpserver.BindN(handler.ListTables))
 				r.GET("/:table", httpserver.Bind(handler.TableSummary))
 				r.POST("/:table/partitions", httpserver.Bind(handler.ListPartitions))
+				r.POST("/:table/files", httpserver.Bind(handler.ListFiles))
 			}))
 
 			router.Group("/api/iceberg").HandleWith(httpserver.With(internal.NewHandlerIceberg, func(r *httpserver.Router, handler *internal.HandlerIceberg) {

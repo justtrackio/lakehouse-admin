@@ -86,6 +86,31 @@ export async function fetchPartitionValues(
   return response.partitions;
 }
 
+export interface DataFileItem {
+  content: number;
+  file_path: string;
+  file_format: string;
+  spec_id: number;
+  partition: string;
+  record_count: number;
+  file_size_in_bytes: number;
+}
+
+export interface ListFilesResponse {
+  files: DataFileItem[];
+}
+
+export async function fetchPartitionFiles(
+  tableName: string,
+  partitionFilters: Record<string, string>,
+): Promise<DataFileItem[]> {
+  const response = await apiClient.post<ListFilesResponse>(
+    `/api/browse/${tableName}/files`,
+    { partitions: partitionFilters }
+  );
+  return response.files;
+}
+
 export interface SnapshotItem {
   committed_at: string;
   snapshot_id: string;
@@ -179,7 +204,7 @@ export interface BatchOptimizeTableRequest {
 
 export async function optimizeTable(
   tableName: string,
-  fileSizeThresholdMb: number,
+  targetFileSizeMb: number,
   from?: string,
   to?: string,
   chunkBy: OptimizeChunkBy = 'daily',
@@ -187,7 +212,7 @@ export async function optimizeTable(
   return apiClient.post<OptimizeTaskQueuedResponse>(
     `/api/tasks/by-table/${tableName}/optimize`,
     {
-      file_size_threshold_mb: fileSizeThresholdMb,
+      target_file_size_mb: targetFileSizeMb,
       from: from,
       to: to,
       chunk_by: chunkBy,
@@ -197,7 +222,7 @@ export async function optimizeTable(
 
 export async function batchOptimize(
   tables: BatchOptimizeTableRequest[],
-  fileSizeThresholdMb: number,
+  targetFileSizeMb: number,
   from: string,
   to: string,
 ): Promise<BatchTaskQueuedResponse> {
@@ -205,7 +230,7 @@ export async function batchOptimize(
     '/api/maintenance/optimize',
     {
       tables,
-      file_size_threshold_mb: fileSizeThresholdMb,
+      target_file_size_mb: targetFileSizeMb,
       from,
       to,
     }

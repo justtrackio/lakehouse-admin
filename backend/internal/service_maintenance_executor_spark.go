@@ -16,11 +16,11 @@ import (
 )
 
 type OptimizeResult struct {
-	Table               string `json:"table"`
-	FileSizeThresholdMb int    `json:"file_size_threshold_mb"`
-	Where               string `json:"where"`
-	ApplicationName     string `json:"application_name"`
-	Status              string `json:"status"`
+	Table            string `json:"table"`
+	TargetFileSizeMb int    `json:"target_file_size_mb"`
+	Where            string `json:"where"`
+	ApplicationName  string `json:"application_name"`
+	Status           string `json:"status"`
 }
 
 type RemoveOrphanFilesParameters struct {
@@ -168,11 +168,11 @@ func (s *SparkMaintenanceExecutor) ProcessTask(ctx context.Context, task *Task) 
 }
 
 func (s *SparkMaintenanceExecutor) processOptimize(ctx context.Context, task *Task, input map[string]any) error {
-	fileSizeThresholdMb, _ := input["file_size_threshold_mb"].(float64)
+	targetFileSizeMb, _ := input["target_file_size_mb"].(float64)
 	from := cast.ToTime(input["from"])
 	to := cast.ToTime(input["to"])
 
-	res, err := s.executeOptimize(ctx, task.Id, task.Table, int(fileSizeThresholdMb), from, to)
+	res, err := s.executeOptimize(ctx, task.Id, task.Table, int(targetFileSizeMb), from, to)
 	if err != nil {
 		return fmt.Errorf("could not execute optimize task: %w", err)
 	}
@@ -221,9 +221,9 @@ func (s *SparkMaintenanceExecutor) processRemoveOrphanFiles(ctx context.Context,
 	return nil
 }
 
-func (s *SparkMaintenanceExecutor) executeOptimize(ctx context.Context, taskID int64, table string, fileSizeThresholdMb int, from time.Time, to time.Time) (*OptimizeResult, error) {
-	if fileSizeThresholdMb < 1 {
-		return nil, fmt.Errorf("file size threshold must be at least 1")
+func (s *SparkMaintenanceExecutor) executeOptimize(ctx context.Context, taskID int64, table string, targetFileSizeMb int, from time.Time, to time.Time) (*OptimizeResult, error) {
+	if targetFileSizeMb < 1 {
+		return nil, fmt.Errorf("target file size must be at least 1 MB")
 	}
 
 	var err error
@@ -266,7 +266,7 @@ func (s *SparkMaintenanceExecutor) executeOptimize(ctx context.Context, taskID i
 		"ICEBERG_WHERE_COLUMN":               partitionColumn,
 		"ICEBERG_WHERE_FROM":                 from.Format(time.DateOnly),
 		"ICEBERG_WHERE_UNTIL":                to.Add(time.Hour * 24).Format(time.DateOnly),
-		"TARGET_FILE_SIZE_BYTES":             fmt.Sprintf("%d", int64(fileSizeThresholdMb)*1024*1024),
+		"TARGET_FILE_SIZE_BYTES":             fmt.Sprintf("%d", int64(targetFileSizeMb)*1024*1024),
 		"MIN_INPUT_FILES":                    fmt.Sprintf("%d", 2),
 		"PARTIAL_PROGRESS_ENABLED":           fmt.Sprintf("%t", s.optimizeSettings.PartialProgressEnabled),
 		"PARTIAL_PROGRESS_MAX_COMMITS":       fmt.Sprintf("%d", s.optimizeSettings.PartialProgressMaxCommits),
@@ -282,11 +282,11 @@ func (s *SparkMaintenanceExecutor) executeOptimize(ctx context.Context, taskID i
 	}
 
 	return &OptimizeResult{
-		Table:               table,
-		FileSizeThresholdMb: fileSizeThresholdMb,
-		Where:               whereClause,
-		ApplicationName:     applicationName,
-		Status:              statusSubmitted,
+		Table:            table,
+		TargetFileSizeMb: targetFileSizeMb,
+		Where:            whereClause,
+		ApplicationName:  applicationName,
+		Status:           statusSubmitted,
 	}, nil
 }
 

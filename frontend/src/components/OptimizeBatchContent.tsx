@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import type { Key } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useMutation } from '@tanstack/react-query';
-import { Alert, Button, Card, DatePicker, Form, Popconfirm, Select, Space, Table, Typography } from 'antd';
+import { Alert, Button, Card, DatePicker, Form, Popconfirm, Select, Slider, Space, Table, Typography } from 'antd';
 import type { Dayjs } from 'dayjs';
 import type { ColumnsType } from 'antd/es/table';
 import {
@@ -19,6 +19,7 @@ const { RangePicker } = DatePicker;
 
 interface OptimizeBatchFormValues {
   date_range?: [Dayjs, Dayjs];
+  target_file_size_mb: number;
 }
 
 interface SelectedOptimizeTableConfig {
@@ -44,6 +45,7 @@ export function OptimizeBatchContent() {
   const [form] = Form.useForm<OptimizeBatchFormValues>();
   const messageApi = useMessageApi();
   const handleBatchSuccess = useMaintenanceBatchSuccess();
+  const targetFileSize = Form.useWatch('target_file_size_mb', form) ?? 512;
 
   const selectedTableConfigs = useMemo<SelectedOptimizeTableConfig[]>(
     () => selectedRowKeys.map((key) => {
@@ -69,8 +71,8 @@ export function OptimizeBatchContent() {
   }, [selectedTableConfigs]);
 
   const mutation = useMutation({
-    mutationFn: (values: { tables: BatchOptimizeTableRequest[]; from: string; to: string }) =>
-      batchOptimize(values.tables, 128, values.from, values.to),
+    mutationFn: (values: { tables: BatchOptimizeTableRequest[]; from: string; to: string; target_file_size_mb: number }) =>
+      batchOptimize(values.tables, values.target_file_size_mb, values.from, values.to),
     onSuccess: (data, values) => {
       handleBatchSuccess(data, values.tables.length, 'optimize');
       setSelectedRowKeys([]);
@@ -168,14 +170,30 @@ export function OptimizeBatchContent() {
         <Card title="Batch Optimize" size="small">
           <Space direction="vertical" size="large" style={{ width: '100%' }}>
             <Paragraph style={{ marginBottom: 0 }}>
-              Select the tables you want to optimize, choose one shared date range, and set chunking in bulk or per table before enqueuing tasks.
+              Select the tables you want to optimize, choose one shared date range and target file size, and set chunking in bulk or per table before enqueuing tasks.
             </Paragraph>
 
             <Form<OptimizeBatchFormValues>
               form={form}
               layout="vertical"
+              initialValues={{
+                target_file_size_mb: 512,
+              }}
               disabled={mutation.isPending}
             >
+              <Form.Item
+                label={`Target File Size (MB): ${targetFileSize}`}
+                name="target_file_size_mb"
+                rules={[
+                  { required: true, message: 'Please input target file size' },
+                  { type: 'number', min: 1, message: 'Minimum target size is 1 MB' },
+                ]}
+                extra="Rewritten files across all selected tables will target approximately this size."
+                style={{ maxWidth: 400, marginBottom: 16 }}
+              >
+                <Slider min={512} max={5120} marks={{ 512: '512MB', 1024: '1GB', 2048: '2GB', 5120: '5GB' }} />
+              </Form.Item>
+
               <Form.Item
                 label="Date Range"
                 name="date_range"
@@ -238,6 +256,7 @@ export function OptimizeBatchContent() {
                         tables: selectedTableConfigs,
                         from: from.format('YYYY-MM-DD'),
                         to: to.format('YYYY-MM-DD'),
+                        target_file_size_mb: values.target_file_size_mb,
                       });
                     });
                   }}
