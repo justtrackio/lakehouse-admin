@@ -48,7 +48,7 @@ tasks:
     optimize: spark
   spark:
     optimize:
-      partial_progress_enabled: true
+      partial_progress_enabled: false
       partial_progress_max_commits: 10
       max_concurrent_file_group_rewrites: 5
   spark_callback:
