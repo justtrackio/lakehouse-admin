@@ -7,6 +7,8 @@ import (
 )
 
 func TestResolveBrowseFileSelectionsBuildsHiddenAndIdentityPredicates(t *testing.T) {
+	service := &ServiceBrowseFiles{}
+
 	fields := []TablePartition{
 		{Name: "year", RawFieldName: "createdAt_day", IsHidden: true, Hidden: TablePartitionHidden{Column: "createdAt", Type: transformDay}},
 		{Name: "month", RawFieldName: "createdAt_day", IsHidden: true, Hidden: TablePartitionHidden{Column: "createdAt", Type: transformDay}},
@@ -14,7 +16,7 @@ func TestResolveBrowseFileSelectionsBuildsHiddenAndIdentityPredicates(t *testing
 		{Name: "businessUnitId", RawFieldName: "businessUnitId", IsHidden: false, Hidden: TablePartitionHidden{}},
 	}
 
-	selections, err := resolveBrowseFileSelections(fields, map[string]string{
+	selections, err := service.resolveBrowseFileSelections(fields, map[string]string{
 		"year":           "2026",
 		"month":          "03",
 		"day":            "25",
@@ -28,13 +30,15 @@ func TestResolveBrowseFileSelectionsBuildsHiddenAndIdentityPredicates(t *testing
 }
 
 func TestResolveBrowseFileSelectionsRejectsIncompleteSelection(t *testing.T) {
+	service := &ServiceBrowseFiles{}
+
 	fields := []TablePartition{
 		{Name: "year", RawFieldName: "createdAt_day", IsHidden: true, Hidden: TablePartitionHidden{Column: "createdAt", Type: transformDay}},
 		{Name: "month", RawFieldName: "createdAt_day", IsHidden: true, Hidden: TablePartitionHidden{Column: "createdAt", Type: transformDay}},
 		{Name: "day", RawFieldName: "createdAt_day", IsHidden: true, Hidden: TablePartitionHidden{Column: "createdAt", Type: transformDay}},
 	}
 
-	_, err := resolveBrowseFileSelections(fields, map[string]string{
+	_, err := service.resolveBrowseFileSelections(fields, map[string]string{
 		"year":  "2026",
 		"month": "03",
 	})
@@ -42,9 +46,11 @@ func TestResolveBrowseFileSelectionsRejectsIncompleteSelection(t *testing.T) {
 }
 
 func TestResolveBrowseFileSelectionsRejectsUnknownKeys(t *testing.T) {
+	service := &ServiceBrowseFiles{}
+
 	fields := []TablePartition{{Name: "businessUnitId", RawFieldName: "businessUnitId"}}
 
-	_, err := resolveBrowseFileSelections(fields, map[string]string{
+	_, err := service.resolveBrowseFileSelections(fields, map[string]string{
 		"businessUnitId": "1",
 		"unknown":        "value",
 	})
@@ -52,14 +58,18 @@ func TestResolveBrowseFileSelectionsRejectsUnknownKeys(t *testing.T) {
 }
 
 func TestResolveBrowseFileSelectionsRequiresRawFieldName(t *testing.T) {
+	service := &ServiceBrowseFiles{}
+
 	fields := []TablePartition{{Name: "businessUnitId"}}
 
-	_, err := resolveBrowseFileSelections(fields, map[string]string{"businessUnitId": "1"})
+	_, err := service.resolveBrowseFileSelections(fields, map[string]string{"businessUnitId": "1"})
 	require.EqualError(t, err, "partition \"businessUnitId\" is missing raw field metadata")
 }
 
 func TestBuildBrowseFilesQueryUsesFilesMetadataTable(t *testing.T) {
-	query := buildBrowseFilesQuery("revenueevent", []browseFileSelection{{RawFieldName: "createdAt_day", Value: "2026-03-25"}})
+	service := &ServiceBrowseFiles{}
+
+	query := service.buildBrowseFilesQuery("revenueevent", []browseFileSelection{{RawFieldName: "createdAt_day", Value: "2026-03-25"}})
 
 	require.Contains(t, query, `FROM "lakehouse"."main"."revenueevent$files"`)
 	require.Contains(t, query, `WHERE content = 0`)
@@ -67,13 +77,17 @@ func TestBuildBrowseFilesQueryUsesFilesMetadataTable(t *testing.T) {
 }
 
 func TestBrowseRowValueToStringFormatsPartitionTupleWithFieldNames(t *testing.T) {
-	value, err := browseRowValueToString([]any{"2024-12-24", "2"}, []string{"createdAt_day", "businessUnitId"})
+	service := &ServiceBrowseFiles{}
+
+	value, err := service.browseRowValueToString([]any{"2024-12-24", "2"}, []string{"createdAt_day", "businessUnitId"})
 	require.NoError(t, err)
 	require.Equal(t, "{createdAt_day=2024-12-24, businessUnitId=2}", value)
 }
 
 func TestBrowseRowValueToStringFormatsPartitionMapInSelectionOrder(t *testing.T) {
-	value, err := browseRowValueToString(
+	service := &ServiceBrowseFiles{}
+
+	value, err := service.browseRowValueToString(
 		map[string]any{"businessUnitId": "2", "createdAt_day": "2024-12-24"},
 		[]string{"createdAt_day", "businessUnitId"},
 	)
