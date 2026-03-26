@@ -43,7 +43,7 @@ type ServiceFileIntegrity struct {
 
 func (s *ServiceFileIntegrity) ListMissingFiles(ctx context.Context, tableName string, snapshotID int64) ([]string, error) {
 	var err error
-	var filePaths, missing []string
+	var filePaths []string
 	var group *s3ListGroup
 	var existingKeys funk.Set[string]
 
@@ -63,6 +63,7 @@ func (s *ServiceFileIntegrity) ListMissingFiles(ctx context.Context, tableName s
 		return nil, err
 	}
 
+	missing := make([]string, 0)
 	for key, uri := range group.expectedByKey {
 		if existingKeys.Contains(key) {
 			continue

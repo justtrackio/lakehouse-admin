@@ -27,15 +27,6 @@ type Snapshot struct {
 	Summary      db.JSON[map[string]any, db.NonNullable] `json:"summary" db:"summary"`
 }
 
-type sSnapshot struct {
-	CommittedAt  time.Time      `json:"committed_at" db:"committed_at"`
-	SnapshotId   string         `json:"snapshot_id" db:"snapshot_id"`
-	ParentId     *string        `json:"parent_id" db:"parent_id"`
-	Operation    string         `json:"operation" db:"operation"`
-	ManifestList string         `json:"manifest_list" db:"manifest_list"`
-	Summary      map[string]any `json:"summary" db:"summary"`
-}
-
 type Partition struct {
 	Table                    string                                   `json:"table" db:"table"`
 	Partition                db.JSON[PartitionValues, db.NonNullable] `json:"partition" db:"partition"`
