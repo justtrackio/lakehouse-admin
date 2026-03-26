@@ -51,7 +51,7 @@ func (h *HandlerSettings) GetTaskConcurrency(ctx context.Context) (httpserver.Re
 	var err error
 	var value int
 
-	if value, err = h.serviceSettings.GetIntSetting(ctx, "task_concurrency", h.defaultWorkerCount); err != nil {
+	if value, err = h.serviceSettings.GetIntSetting(ctx, settingKeyTaskConcurrency, h.defaultWorkerCount); err != nil {
 		return nil, fmt.Errorf("failed to get task concurrency setting: %w", err)
 	}
 
@@ -65,7 +65,7 @@ func (h *HandlerSettings) SetTaskConcurrency(ctx context.Context, input *SetTask
 		return nil, fmt.Errorf("task concurrency must be at least 1")
 	}
 
-	if err := h.serviceSettings.SetSetting(ctx, "task_concurrency", fmt.Sprintf("%d", input.Value)); err != nil {
+	if err := h.serviceSettings.SetSetting(ctx, settingKeyTaskConcurrency, fmt.Sprintf("%d", input.Value)); err != nil {
 		return nil, fmt.Errorf("failed to set task concurrency: %w", err)
 	}
 

@@ -397,7 +397,7 @@ func (s *ServiceTasks) UpdateProcedureResult(ctx context.Context, taskID int64, 
 		result["meta"] = callback.Meta
 	}
 
-	if err = s.serviceTaskQueue.UpdateTaskResultNested(ctx, taskID, taskProcedureResultKey, result); err != nil {
+	if err = s.serviceTaskQueue.UpdateTaskResultNested(ctx, taskID, "procedure", result); err != nil {
 		return fmt.Errorf("could not update procedure result for task %d: %w", taskID, err)
 	}
 

@@ -31,15 +31,29 @@ type IcebergPartition struct {
 }
 
 type IcebergPartitionStats struct {
-	Partition         PartitionValues
-	RawPartition      map[int]any
-	SpecID            int32
-	RecordCount       int64
-	FileCount         int64
-	DataFileSizeBytes int64
-	SmallFileCount    int64
-	LastUpdatedAt     int64
-	LastSnapshotID    int64
+	Partition      PartitionValues
+	RawPartition   map[int]any
+	SpecID         int32
+	RecordCount    int64
+	Files          IcebergPartitionStatsFiles
+	LastUpdatedAt  int64
+	LastSnapshotID int64
+}
+
+type IcebergPartitionFileStats struct {
+	SizeBytes int64
+}
+
+type IcebergPartitionStatsFiles []IcebergPartitionFileStats
+
+func (f IcebergPartitionStatsFiles) Len() int64 {
+	return int64(len(f))
+}
+
+func (f IcebergPartitionStatsFiles) Bytes() int64 {
+	return funk.Reduce(f, func(value int64, file IcebergPartitionFileStats, i int) int64 {
+		return value + file.SizeBytes
+	}, 0)
 }
 
 type PartitionValues map[string]any

@@ -48,13 +48,12 @@ const (
 const sparkApplicationNameMaxLength = 63
 
 type SparkMaintenanceExecutor struct {
-	logger           log.Logger
-	metadata         *ServiceMetadata
-	k8s              SparkApplicationCreator
-	taskQueue        TaskClaimer
-	icebergSettings  *IcebergSettings
-	callback         *TaskSparkCallbackSettings
-	optimizeSettings *TaskSparkOptimizeSettings
+	logger          log.Logger
+	metadata        *ServiceMetadata
+	k8s             SparkApplicationCreator
+	taskQueue       TaskClaimer
+	icebergSettings *IcebergSettings
+	settings        *SparkSettings
 }
 
 func sparkTaskProcedure(taskKind TaskKind) (string, error) {
@@ -76,8 +75,7 @@ func NewSparkMaintenanceExecutor(ctx context.Context, config cfg.Config, logger 
 	var k8s *K8sService
 	var taskQueue TaskClaimer
 	var icebergSettings *IcebergSettings
-	var callbackSettings *TaskSparkCallbackSettings
-	var optimizeSettings *TaskSparkOptimizeSettings
+	var settings *SparkSettings
 
 	if metadata, err = NewServiceMetadata(ctx, config, logger); err != nil {
 		return nil, fmt.Errorf("could not create metadata service: %w", err)
@@ -95,22 +93,17 @@ func NewSparkMaintenanceExecutor(ctx context.Context, config cfg.Config, logger 
 		return nil, fmt.Errorf("could not read iceberg settings: %w", err)
 	}
 
-	if callbackSettings, err = ReadTaskSparkCallbackSettings(config); err != nil {
-		return nil, fmt.Errorf("could not read spark callback settings: %w", err)
-	}
-
-	if optimizeSettings, err = ReadTaskSparkOptimizeSettings(config); err != nil {
-		return nil, fmt.Errorf("could not read spark optimize settings: %w", err)
+	if settings, err = ReadSparkSettings(config); err != nil {
+		return nil, fmt.Errorf("could not read spark settings: %w", err)
 	}
 
 	return &SparkMaintenanceExecutor{
-		logger:           logger.WithChannel("maintenance_executor_spark"),
-		metadata:         metadata,
-		k8s:              k8s,
-		taskQueue:        taskQueue,
-		icebergSettings:  icebergSettings,
-		callback:         callbackSettings,
-		optimizeSettings: optimizeSettings,
+		logger:          logger.WithChannel("maintenance_executor_spark"),
+		metadata:        metadata,
+		k8s:             k8s,
+		taskQueue:       taskQueue,
+		icebergSettings: icebergSettings,
+		settings:        settings,
 	}, nil
 }
 
@@ -268,9 +261,9 @@ func (s *SparkMaintenanceExecutor) executeOptimize(ctx context.Context, taskID i
 		"ICEBERG_WHERE_UNTIL":                to.Add(time.Hour * 24).Format(time.DateOnly),
 		"TARGET_FILE_SIZE_BYTES":             fmt.Sprintf("%d", int64(targetFileSizeMb)*1024*1024),
 		"MIN_INPUT_FILES":                    fmt.Sprintf("%d", 2),
-		"PARTIAL_PROGRESS_ENABLED":           fmt.Sprintf("%t", s.optimizeSettings.PartialProgressEnabled),
-		"PARTIAL_PROGRESS_MAX_COMMITS":       fmt.Sprintf("%d", s.optimizeSettings.PartialProgressMaxCommits),
-		"MAX_CONCURRENT_FILE_GROUP_REWRITES": fmt.Sprintf("%d", s.optimizeSettings.MaxConcurrentFileGroupRewrite),
+		"PARTIAL_PROGRESS_ENABLED":           fmt.Sprintf("%t", s.settings.Optimize.PartialProgressEnabled),
+		"PARTIAL_PROGRESS_MAX_COMMITS":       fmt.Sprintf("%d", s.settings.Optimize.PartialProgressMaxCommits),
+		"MAX_CONCURRENT_FILE_GROUP_REWRITES": fmt.Sprintf("%d", s.settings.Optimize.MaxConcurrentFileGroupRewrite),
 	}
 
 	if err = manifest.SetEnvValues(envValues); err != nil {
@@ -384,6 +377,9 @@ func (s *SparkMaintenanceExecutor) prepareSparkApplication(manifest *SparkApplic
 	manifest.SetAnnotation(sparkApplicationTaskIDAnnotation, strconv.FormatInt(taskID, 10))
 	manifest.SetAnnotation(sparkApplicationTaskKindAnnotation, string(taskKind))
 	manifest.SetAnnotation(sparkApplicationTaskTableAnnotation, table)
+	manifest.MergeDriverPodAnnotations(s.settings.PodSpec.Annotations)
+	manifest.MergeDriverNodeSelector(s.settings.PodSpec.NodeSelector)
+	manifest.AppendDriverTolerations(s.settings.PodSpec.Tolerations)
 
 	if err := manifest.SetPyFileName(sparkMaintenancePyFile); err != nil {
 		return fmt.Errorf("could not set spark application pyFiles: %w", err)
@@ -393,10 +389,10 @@ func (s *SparkMaintenanceExecutor) prepareSparkApplication(manifest *SparkApplic
 		"ICEBERG_CATALOG":       s.icebergSettings.Catalog,
 		"ICEBERG_DATABASE":      s.icebergSettings.Database,
 		"ICEBERG_TABLE":         table,
-		"TASK_CALLBACK_ENABLED": fmt.Sprintf("%t", s.callback.Enabled),
+		"TASK_CALLBACK_ENABLED": fmt.Sprintf("%t", s.settings.Callback.Enabled),
+		"TASK_CALLBACK_URL":     BuildTaskProcedureCallbackURL(s.settings.Callback.BackendHost, taskID),
 		"TASK_PROCEDURE":        procedure,
 		"TASK_ID":               strconv.FormatInt(taskID, 10),
-		"TASK_CALLBACK_URL":     BuildTaskProcedureCallbackURL(s.callback.BackendHost, taskID),
 	})
 }
 

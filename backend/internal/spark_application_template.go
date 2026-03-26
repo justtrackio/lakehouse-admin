@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/justtrackio/gosoline/pkg/funk"
 	buildassets "github.com/justtrackio/lakehouse-admin/build"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/yaml"
@@ -85,12 +86,25 @@ type SparkApplicationRoleSpec struct {
 }
 
 type SparkApplicationPodTemplateSpec struct {
-	Spec SparkApplicationPodSpec `yaml:"spec" json:"spec"`
+	Metadata SparkApplicationPodTemplateMetadata `yaml:"metadata,omitempty" json:"metadata,omitempty"`
+	Spec     SparkApplicationPodSpec             `yaml:"spec" json:"spec"`
+}
+
+type SparkApplicationPodTemplateMetadata struct {
+	Annotations map[string]string `yaml:"annotations,omitempty" json:"annotations,omitempty"`
 }
 
 type SparkApplicationPodSpec struct {
 	ServiceAccountName string                          `yaml:"serviceAccountName" json:"serviceAccountName"`
 	Containers         []SparkApplicationContainerSpec `yaml:"containers" json:"containers"`
+	NodeSelector       map[string]string               `yaml:"nodeSelector,omitempty" json:"nodeSelector,omitempty"`
+	Tolerations        []SparkApplicationToleration    `yaml:"tolerations,omitempty" json:"tolerations,omitempty"`
+}
+
+type SparkApplicationToleration struct {
+	Key    string `yaml:"key,omitempty" json:"key,omitempty" cfg:"key"`
+	Value  string `yaml:"value,omitempty" json:"value,omitempty" cfg:"value"`
+	Effect string `yaml:"effect,omitempty" json:"effect,omitempty" cfg:"effect"`
 }
 
 type SparkApplicationContainerSpec struct {
@@ -174,6 +188,22 @@ func (m *SparkApplicationManifest) SetAnnotation(name, value string) {
 	}
 
 	m.Metadata.Annotations[name] = value
+}
+
+func (m *SparkApplicationManifest) MergeDriverPodAnnotations(annotations map[string]string) {
+	m.Spec.DriverSpec.PodTemplateSpec.Metadata.Annotations = funk.MergeMaps(m.Spec.DriverSpec.PodTemplateSpec.Metadata.Annotations, annotations)
+}
+
+func (m *SparkApplicationManifest) MergeDriverNodeSelector(nodeSelector map[string]string) {
+	m.Spec.DriverSpec.PodTemplateSpec.Spec.NodeSelector = funk.MergeMaps(m.Spec.DriverSpec.PodTemplateSpec.Spec.NodeSelector, nodeSelector)
+}
+
+func (m *SparkApplicationManifest) AppendDriverTolerations(tolerations []SparkApplicationToleration) {
+	if len(tolerations) == 0 {
+		return
+	}
+
+	m.Spec.DriverSpec.PodTemplateSpec.Spec.Tolerations = append(m.Spec.DriverSpec.PodTemplateSpec.Spec.Tolerations, tolerations...)
 }
 
 func (m *SparkApplicationManifest) SetEnvValues(values map[string]string) error {

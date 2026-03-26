@@ -7,6 +7,7 @@ import (
 
 	"github.com/apache/iceberg-go/table"
 	"github.com/justtrackio/gosoline/pkg/cfg"
+	"github.com/justtrackio/gosoline/pkg/funk"
 	"github.com/justtrackio/gosoline/pkg/log"
 )
 
@@ -14,9 +15,14 @@ func NewServiceIceberg(ctx context.Context, config cfg.Config, logger log.Logger
 	var err error
 	var client *IcebergClient
 	var settings *IcebergSettings
+	var serviceSettings *ServiceSettings
 
 	if client, err = ProvideIcebergClient(ctx, config, logger); err != nil {
 		return nil, fmt.Errorf("could not create iceberg client: %w", err)
+	}
+
+	if serviceSettings, err = NewServiceSettings(ctx, config, logger); err != nil {
+		return nil, fmt.Errorf("could not create settings service: %w", err)
 	}
 
 	if settings, err = ReadIcebergSettings(config); err != nil {
@@ -24,16 +30,18 @@ func NewServiceIceberg(ctx context.Context, config cfg.Config, logger log.Logger
 	}
 
 	return &ServiceIceberg{
-		logger:   logger.WithChannel("iceberg"),
-		client:   client,
-		settings: settings,
+		logger:          logger.WithChannel("iceberg"),
+		client:          client,
+		settings:        settings,
+		serviceSettings: serviceSettings,
 	}, nil
 }
 
 type ServiceIceberg struct {
-	logger   log.Logger
-	client   *IcebergClient
-	settings *IcebergSettings
+	logger          log.Logger
+	client          *IcebergClient
+	settings        *IcebergSettings
+	serviceSettings *ServiceSettings
 }
 
 func (s *ServiceIceberg) ListSnapshots(ctx context.Context, logicalName string) ([]IcebergSnapshot, error) {
@@ -105,14 +113,19 @@ func (s *ServiceIceberg) ListPartitions(ctx context.Context, logicalName string)
 	var err error
 	var partitionStats []IcebergPartitionStats
 	var needsOptimization bool
+	var smallFileThresholdBytes int64
 
 	if partitionStats, err = s.client.ListPartitions(ctx, logicalName); err != nil {
 		return nil, fmt.Errorf("could not list partitions from iceberg: %w", err)
 	}
 
+	if smallFileThresholdBytes, err = s.serviceSettings.GetInt64Setting(ctx, settingKeySmallFileThresholdBytes, defaultSmallFileThresholdBytes); err != nil {
+		return nil, fmt.Errorf("could not load iceberg small file threshold bytes: %w", err)
+	}
+
 	result := make([]IcebergPartition, len(partitionStats))
 	for i, stats := range partitionStats {
-		if needsOptimization, err = s.partitionNeedsOptimize(stats); err != nil {
+		if needsOptimization, err = s.partitionNeedsOptimize(stats, smallFileThresholdBytes); err != nil {
 			return nil, fmt.Errorf("could not determine optimization for partition %s: %w", stats.Partition.String(), err)
 		}
 
@@ -120,8 +133,8 @@ func (s *ServiceIceberg) ListPartitions(ctx context.Context, logicalName string)
 			Partition:         stats.Partition,
 			SpecID:            stats.SpecID,
 			RecordCount:       stats.RecordCount,
-			FileCount:         stats.FileCount,
-			DataFileSizeBytes: stats.DataFileSizeBytes,
+			FileCount:         stats.Files.Len(),
+			DataFileSizeBytes: stats.Files.Bytes(),
 			NeedsOptimize:     needsOptimization,
 			LastUpdatedAt:     time.UnixMilli(stats.LastUpdatedAt),
 			LastSnapshotID:    stats.LastSnapshotID,
@@ -133,11 +146,15 @@ func (s *ServiceIceberg) ListPartitions(ctx context.Context, logicalName string)
 	return result, nil
 }
 
-func (s *ServiceIceberg) partitionNeedsOptimize(stats IcebergPartitionStats) (bool, error) {
+func (s *ServiceIceberg) partitionNeedsOptimize(stats IcebergPartitionStats, smallFileThresholdBytes int64) (bool, error) {
 	var err error
 	var date *time.Time
 
-	needsOptimize := stats.SmallFileCount > 1
+	smallFiles := funk.Filter(stats.Files, func(f IcebergPartitionFileStats) bool {
+		return f.SizeBytes < smallFileThresholdBytes
+	})
+
+	needsOptimize := len(smallFiles) > 1
 
 	if !needsOptimize {
 		return false, nil

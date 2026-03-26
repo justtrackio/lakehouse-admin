@@ -115,8 +115,6 @@ func (c *IcebergClient) ListSnapshots(ctx context.Context, logicalName string) (
 // that match the TableDescription.Partitions names (year, month, day for time transforms,
 // or column name for identity transforms).
 func (c *IcebergClient) ListPartitions(ctx context.Context, logicalName string) ([]IcebergPartitionStats, error) {
-	// Hardcoded threshold: 128 MB
-	const smallFileThresholdBytes int64 = 512 * 1024 * 1024
 	tbl, err := c.LoadTable(ctx, logicalName)
 	if err != nil {
 		return nil, fmt.Errorf("could not load table: %w", err)
@@ -150,25 +148,21 @@ func (c *IcebergClient) ListPartitions(ctx context.Context, logicalName string) 
 			normalizedPartition := c.normalizePartitionForBrowse(file.Partition(), spec, schema)
 
 			partitionMap[partitionKey] = &IcebergPartitionStats{
-				Partition:         normalizedPartition,
-				RawPartition:      file.Partition(),
-				SpecID:            file.SpecID(),
-				RecordCount:       0,
-				FileCount:         0,
-				DataFileSizeBytes: 0,
-				LastUpdatedAt:     currentSnapshot.TimestampMs,
-				LastSnapshotID:    currentSnapshot.SnapshotID,
+				Partition:      normalizedPartition,
+				RawPartition:   file.Partition(),
+				SpecID:         file.SpecID(),
+				RecordCount:    0,
+				Files:          make(IcebergPartitionStatsFiles, 0),
+				LastUpdatedAt:  currentSnapshot.TimestampMs,
+				LastSnapshotID: currentSnapshot.SnapshotID,
 			}
 		}
 
 		stats := partitionMap[partitionKey]
 		stats.RecordCount += file.Count()
-		stats.FileCount++
-		stats.DataFileSizeBytes += file.FileSizeBytes()
-
-		if file.FileSizeBytes() < smallFileThresholdBytes {
-			stats.SmallFileCount++
-		}
+		stats.Files = append(stats.Files, IcebergPartitionFileStats{
+			SizeBytes: file.FileSizeBytes(),
+		})
 	}
 
 	result := make([]IcebergPartitionStats, 0, len(partitionMap))
