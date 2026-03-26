@@ -8,8 +8,14 @@ import (
 	"github.com/justtrackio/gosoline/pkg/appctx"
 	"github.com/justtrackio/gosoline/pkg/cfg"
 	"github.com/justtrackio/gosoline/pkg/coffin"
+	"github.com/justtrackio/gosoline/pkg/kernel"
 	"github.com/justtrackio/gosoline/pkg/log"
 )
+
+type TaskSettings struct {
+	Enabled      bool          `cfg:"enabled"`
+	PollInterval time.Duration `cfg:"poll_interval" default:"1s"`
+}
 
 type moduleTasksCtxKey struct{}
 
@@ -32,35 +38,42 @@ func NewModuleTasks(ctx context.Context, config cfg.Config, logger log.Logger) (
 		return nil, fmt.Errorf("could not create maintenance executor service: %w", err)
 	}
 
-	pollInterval, err := config.GetDuration("tasks.poll_interval")
-	if err != nil || pollInterval == 0 {
-		pollInterval = time.Second
+	settings := &TaskSettings{}
+	if err = config.UnmarshalKey("tasks", settings); err != nil {
+		return nil, fmt.Errorf("could not unmarshal tasks settings: %w", err)
 	}
 
 	module := &ModuleTasks{
 		logger:                     logger.WithChannel("task_worker"),
 		serviceTaskQueue:           serviceTaskQueue,
 		serviceMaintenanceExecutor: serviceMaintenanceExecutor,
-		pollInterval:               pollInterval,
+		settings:                   settings,
 	}
 
 	return module, nil
 }
 
 type ModuleTasks struct {
+	kernel.ServiceStage
+	kernel.BackgroundModule
+
 	logger                     log.Logger
 	serviceTaskQueue           TaskClaimer
 	serviceMaintenanceExecutor interface {
 		All() []MaintenanceExecutor
 		ForEngine(TaskEngine) (MaintenanceExecutor, error)
 	}
-	pollInterval time.Duration
+	settings *TaskSettings
 }
 
 func (m *ModuleTasks) Run(ctx context.Context) error {
+	if !m.settings.Enabled {
+		return nil
+	}
+
 	m.logger.Info(ctx, "starting task worker with db-backed concurrency control")
 
-	ticker := time.NewTicker(m.pollInterval)
+	ticker := time.NewTicker(m.settings.PollInterval)
 	defer ticker.Stop()
 
 	cfn, ctx := coffin.WithContext(ctx)

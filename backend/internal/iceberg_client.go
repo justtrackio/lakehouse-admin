@@ -111,6 +111,42 @@ func (c *IcebergClient) ListSnapshots(ctx context.Context, logicalName string) (
 	return snapshots, nil
 }
 
+func (c *IcebergClient) ListSnapshotDataFilePaths(ctx context.Context, logicalName string, snapshotID int64) ([]string, error) {
+	tbl, err := c.LoadTable(ctx, logicalName)
+	if err != nil {
+		return nil, fmt.Errorf("could not load table: %w", err)
+	}
+
+	return c.listSnapshotDataFilePaths(ctx, tbl, snapshotID)
+}
+
+func (c *IcebergClient) listSnapshotDataFilePaths(ctx context.Context, tbl *table.Table, snapshotID int64) ([]string, error) {
+	scanner := tbl.Scan(table.WithSnapshotID(snapshotID))
+
+	ctx = utils.WithAwsConfig(ctx, &c.awsCfg)
+	tasks, err := scanner.PlanFiles(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("could not plan files for snapshot %d: %w", snapshotID, err)
+	}
+
+	result := make([]string, 0, len(tasks))
+	seen := make(map[string]struct{}, len(tasks))
+
+	for _, task := range tasks {
+		path := task.File.FilePath()
+		if _, ok := seen[path]; ok {
+			continue
+		}
+
+		seen[path] = struct{}{}
+		result = append(result, path)
+	}
+
+	sort.Strings(result)
+
+	return result, nil
+}
+
 // ListPartitions returns partition stats with browse-compatible keys
 // that match the TableDescription.Partitions names (year, month, day for time transforms,
 // or column name for identity transforms).

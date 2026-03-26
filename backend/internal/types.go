@@ -20,8 +20,8 @@ const (
 type Snapshot struct {
 	Table        string                                  `json:"table" db:"table"`
 	CommittedAt  time.Time                               `json:"committed_at" db:"committed_at"`
-	SnapshotId   int64                                   `json:"snapshot_id" db:"snapshot_id"`
-	ParentId     *int64                                  `json:"parent_id" db:"parent_id"`
+	SnapshotId   int64                                   `json:"snapshot_id,string" db:"snapshot_id"`
+	ParentId     *int64                                  `json:"parent_id,string" db:"parent_id"`
 	Operation    string                                  `json:"operation" db:"operation"`
 	ManifestList string                                  `json:"manifest_list" db:"manifest_list"`
 	Summary      db.JSON[map[string]any, db.NonNullable] `json:"summary" db:"summary"`
@@ -30,7 +30,7 @@ type Snapshot struct {
 type sSnapshot struct {
 	CommittedAt  time.Time      `json:"committed_at" db:"committed_at"`
 	SnapshotId   string         `json:"snapshot_id" db:"snapshot_id"`
-	ParentId     string         `json:"parent_id" db:"parent_id"`
+	ParentId     *string        `json:"parent_id" db:"parent_id"`
 	Operation    string         `json:"operation" db:"operation"`
 	ManifestList string         `json:"manifest_list" db:"manifest_list"`
 	Summary      map[string]any `json:"summary" db:"summary"`
@@ -44,7 +44,7 @@ type Partition struct {
 	FileCount                int64                                    `json:"file_count" db:"file_count"`
 	TotalDataFileSizeInBytes int64                                    `json:"total_data_file_size_in_bytes" db:"total_data_file_size_in_bytes"`
 	LastUpdatedAt            time.Time                                `json:"last_updated_at" db:"last_updated_at"`
-	LastUpdatedSnapshotId    int64                                    `json:"last_updated_snapshot_id" db:"last_updated_snapshot_id"`
+	LastUpdatedSnapshotId    int64                                    `json:"last_updated_snapshot_id,string" db:"last_updated_snapshot_id"`
 	NeedsOptimize            bool                                     `json:"needs_optimize" db:"needs_optimize"`
 }
 

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import {
   Alert,
   Button,
@@ -12,10 +12,12 @@ import {
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import type { TablePaginationConfig } from 'antd/es/table';
-import { fetchSnapshots, SnapshotItem } from '../api/schema';
+import { fetchSnapshotMissingFiles, fetchSnapshots, SnapshotItem } from '../api/schema';
 import { formatTimestamp, formatBytes, formatNumber } from '../utils/format';
-import MetricWithDelta from "../components/MetricWithDelta";
-import SnapshotSummaryModal from "../components/SnapshotSummaryModal";
+import MetricWithDelta from '../components/MetricWithDelta';
+import SnapshotSummaryModal from '../components/SnapshotSummaryModal';
+import SnapshotMissingFilesModal from '../components/SnapshotMissingFilesModal';
+import { useMessageApi } from '../context/MessageContext';
 
 const { Title, Text } = Typography;
 
@@ -25,7 +27,12 @@ export const Route = createFileRoute('/tables/$tableName/snapshots')({
 
 function SnapshotsPage() {
   const { tableName } = Route.useParams();
+  const messageApi = useMessageApi();
   const [selectedSnapshot, setSelectedSnapshot] = useState<SnapshotItem | null>(null);
+  const [missingFilesModalOpen, setMissingFilesModalOpen] = useState(false);
+  const [missingFilesSnapshotId, setMissingFilesSnapshotId] = useState<string | null>(null);
+  const [missingFiles, setMissingFiles] = useState<string[]>([]);
+  const [missingFilesError, setMissingFilesError] = useState<string | null>(null);
   const [pagination, setPagination] = useState<TablePaginationConfig>({
     current: 1,
     pageSize: 20,
@@ -40,6 +47,37 @@ function SnapshotsPage() {
     queryKey: ['snapshots', tableName],
     queryFn: () => fetchSnapshots(tableName),
   });
+
+  const missingFilesMutation = useMutation({
+    mutationFn: (snapshotId: string) => fetchSnapshotMissingFiles(tableName, snapshotId),
+    onSuccess: (data) => {
+      setMissingFiles(data.missing_files);
+      setMissingFilesError(null);
+      if (data.missing_files.length === 0) {
+        messageApi.success(`No missing files found for snapshot ${data.snapshot_id}`);
+      }
+    },
+    onError: (error: Error) => {
+      setMissingFiles([]);
+      setMissingFilesError(error.message);
+    },
+  });
+
+  const handleCheckMissingFiles = (snapshotId: string) => {
+    setMissingFilesSnapshotId(snapshotId);
+    setMissingFiles([]);
+    setMissingFilesError(null);
+    setMissingFilesModalOpen(true);
+    missingFilesMutation.mutate(snapshotId);
+  };
+
+  const handleCloseMissingFilesModal = () => {
+    setMissingFilesModalOpen(false);
+    setMissingFilesSnapshotId(null);
+    setMissingFiles([]);
+    setMissingFilesError(null);
+    missingFilesMutation.reset();
+  };
 
   if (isLoading) {
     return (
@@ -85,8 +123,8 @@ function SnapshotsPage() {
       title: 'Parent ID',
       dataIndex: 'parent_id',
       key: 'parent_id',
-      render: (value: string) =>
-        value ? (
+      render: (value: string | null) =>
+        value !== null ? (
           <code style={{ fontSize: '11px' }}>{value}</code>
         ) : (
           <Text type="secondary">-</Text>
@@ -154,17 +192,26 @@ function SnapshotsPage() {
       title: 'Actions',
       key: 'actions',
       fixed: 'right',
-      width: 100,
+      width: 220,
       render: (_, record: SnapshotItem) => {
         const hasSummary = record.summary && Object.keys(record.summary).length > 0;
         return (
-          <Button
-            size="small"
-            disabled={!hasSummary}
-            onClick={() => setSelectedSnapshot(record)}
-          >
-            Summary
-          </Button>
+          <Space size="small">
+            <Button
+              size="small"
+              disabled={!hasSummary}
+              onClick={() => setSelectedSnapshot(record)}
+            >
+              Summary
+            </Button>
+            <Button
+              size="small"
+              loading={missingFilesMutation.isPending && missingFilesSnapshotId === record.snapshot_id}
+              onClick={() => handleCheckMissingFiles(record.snapshot_id)}
+            >
+              Check Files
+            </Button>
+          </Space>
         );
       },
     },
@@ -202,6 +249,15 @@ function SnapshotsPage() {
       <SnapshotSummaryModal
         snapshot={selectedSnapshot}
         onClose={() => setSelectedSnapshot(null)}
+      />
+
+      <SnapshotMissingFilesModal
+        open={missingFilesModalOpen}
+        snapshotId={missingFilesSnapshotId}
+        missingFiles={missingFiles}
+        isLoading={missingFilesMutation.isPending}
+        errorMessage={missingFilesError}
+        onClose={handleCloseMissingFilesModal}
       />
     </Space>
   );

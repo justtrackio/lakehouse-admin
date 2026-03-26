@@ -40,6 +40,7 @@ refresh:
   interval: 1h
 
 tasks:
+  enabled: true
   worker_count: 1
   poll_interval: 1s
   engines:

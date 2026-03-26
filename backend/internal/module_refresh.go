@@ -44,6 +44,9 @@ func NewModuleRefresh(ctx context.Context, config cfg.Config, logger log.Logger)
 }
 
 type ModuleRefresh struct {
+	kernel.ServiceStage
+	kernel.BackgroundModule
+
 	logger    log.Logger
 	service   *ServiceRefresh
 	sqlClient sqlc.Client

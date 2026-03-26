@@ -114,7 +114,7 @@ export async function fetchPartitionFiles(
 export interface SnapshotItem {
   committed_at: string;
   snapshot_id: string;
-  parent_id: string;
+  parent_id: string | null;
   operation: string;
   manifest_list: string;
   summary: Record<string, unknown>;
@@ -122,6 +122,20 @@ export interface SnapshotItem {
 
 export async function fetchSnapshots(tableName: string): Promise<SnapshotItem[]> {
   return apiClient.get<SnapshotItem[]>(`/api/metadata/snapshots?table=${tableName}`);
+}
+
+export interface SnapshotMissingFilesResponse {
+  snapshot_id: string;
+  missing_files: string[];
+}
+
+export async function fetchSnapshotMissingFiles(
+  tableName: string,
+  snapshotId: string,
+): Promise<SnapshotMissingFilesResponse> {
+  return apiClient.get<SnapshotMissingFilesResponse>(
+    `/api/iceberg/${tableName}/snapshots/${snapshotId}/missing-files`
+  );
 }
 
 export interface TaskQueuedResponse {

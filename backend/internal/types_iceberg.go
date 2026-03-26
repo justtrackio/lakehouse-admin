@@ -11,8 +11,8 @@ import (
 )
 
 type IcebergSnapshot struct {
-	SnapshotID   int64          `json:"snapshot_id"`
-	ParentID     *int64         `json:"parent_id,omitempty"`
+	SnapshotID   int64          `json:"snapshot_id,string"`
+	ParentID     *int64         `json:"parent_id,string,omitempty"`
 	CommittedAt  time.Time      `json:"committed_at"`
 	Operation    string         `json:"operation"`
 	ManifestList string         `json:"manifest_list"`
@@ -27,7 +27,7 @@ type IcebergPartition struct {
 	DataFileSizeBytes int64           `json:"data_file_size_bytes"`
 	NeedsOptimize     bool            `json:"needs_optimize"`
 	LastUpdatedAt     time.Time       `json:"last_updated_at"`
-	LastSnapshotID    int64           `json:"last_snapshot_id"`
+	LastSnapshotID    int64           `json:"last_snapshot_id,string"`
 }
 
 type IcebergPartitionStats struct {
