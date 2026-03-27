@@ -16,6 +16,10 @@ const (
 	settingKeyTaskConcurrency         = "task_concurrency"
 	settingKeySmallFileThresholdBytes = "small_file_threshold_bytes"
 	defaultSmallFileThresholdBytes    = int64(256 * 1024 * 1024)
+	settingKeySmallFileMinCount       = "small_file_min_count"
+	defaultSmallFileMinCount          = 2
+	settingKeySmallFileMinSharePct    = "small_file_min_share_percent"
+	defaultSmallFileMinSharePct       = 25
 )
 
 type ServiceSettings struct {

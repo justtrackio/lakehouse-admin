@@ -7,7 +7,6 @@ import (
 
 	"github.com/apache/iceberg-go/table"
 	"github.com/justtrackio/gosoline/pkg/cfg"
-	"github.com/justtrackio/gosoline/pkg/funk"
 	"github.com/justtrackio/gosoline/pkg/log"
 )
 
@@ -114,6 +113,8 @@ func (s *ServiceIceberg) ListPartitions(ctx context.Context, logicalName string)
 	var partitionStats []IcebergPartitionStats
 	var needsOptimization bool
 	var smallFileThresholdBytes int64
+	var smallFileMinCount int
+	var smallFileMinSharePct int
 
 	if partitionStats, err = s.client.ListPartitions(ctx, logicalName); err != nil {
 		return nil, fmt.Errorf("could not list partitions from iceberg: %w", err)
@@ -123,9 +124,25 @@ func (s *ServiceIceberg) ListPartitions(ctx context.Context, logicalName string)
 		return nil, fmt.Errorf("could not load iceberg small file threshold bytes: %w", err)
 	}
 
+	if smallFileMinCount, err = s.serviceSettings.GetIntSetting(ctx, settingKeySmallFileMinCount, defaultSmallFileMinCount); err != nil {
+		return nil, fmt.Errorf("could not load iceberg small file minimum count: %w", err)
+	}
+
+	if smallFileMinCount < 1 {
+		return nil, fmt.Errorf("iceberg small file minimum count must be at least 1")
+	}
+
+	if smallFileMinSharePct, err = s.serviceSettings.GetIntSetting(ctx, settingKeySmallFileMinSharePct, defaultSmallFileMinSharePct); err != nil {
+		return nil, fmt.Errorf("could not load iceberg small file minimum share percent: %w", err)
+	}
+
+	if smallFileMinSharePct < 0 || smallFileMinSharePct > 100 {
+		return nil, fmt.Errorf("iceberg small file minimum share percent must be between 0 and 100")
+	}
+
 	result := make([]IcebergPartition, len(partitionStats))
 	for i, stats := range partitionStats {
-		if needsOptimization, err = s.partitionNeedsOptimize(stats, smallFileThresholdBytes); err != nil {
+		if needsOptimization, err = s.partitionNeedsOptimize(stats, smallFileThresholdBytes, int64(smallFileMinCount), int64(smallFileMinSharePct)); err != nil {
 			return nil, fmt.Errorf("could not determine optimization for partition %s: %w", stats.Partition.String(), err)
 		}
 
@@ -146,15 +163,23 @@ func (s *ServiceIceberg) ListPartitions(ctx context.Context, logicalName string)
 	return result, nil
 }
 
-func (s *ServiceIceberg) partitionNeedsOptimize(stats IcebergPartitionStats, smallFileThresholdBytes int64) (bool, error) {
+func (s *ServiceIceberg) partitionNeedsOptimize(stats IcebergPartitionStats, smallFileThresholdBytes int64, smallFileMinCount int64, smallFileMinSharePct int64) (bool, error) {
 	var err error
 	var date *time.Time
+	var smallFileCount int64
 
-	smallFiles := funk.Filter(stats.Files, func(f IcebergPartitionFileStats) bool {
-		return f.SizeBytes < smallFileThresholdBytes
-	})
+	totalFileCount := stats.Files.Len()
+	if totalFileCount == 0 {
+		return false, nil
+	}
 
-	needsOptimize := len(smallFiles) > 1
+	for _, file := range stats.Files {
+		if file.SizeBytes < smallFileThresholdBytes {
+			smallFileCount++
+		}
+	}
+
+	needsOptimize := smallFileCount >= smallFileMinCount && smallFileCount*100 >= totalFileCount*smallFileMinSharePct
 
 	if !needsOptimize {
 		return false, nil
