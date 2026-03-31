@@ -28,6 +28,7 @@ type ServiceTasks struct {
 	serviceTaskQueue *ServiceTaskQueue
 	engineResolver   *TaskEngineResolver
 	sqlClient        sqlc.Client
+	settings         *IcebergSettings
 }
 
 type TaskProcedureCallback struct {
@@ -57,6 +58,7 @@ func NewServiceTasks(ctx context.Context, config cfg.Config, logger log.Logger) 
 	var err error
 	var serviceTaskQueue *ServiceTaskQueue
 	var engineResolver *TaskEngineResolver
+	var settings *IcebergSettings
 
 	var sqlClient sqlc.Client
 
@@ -72,11 +74,16 @@ func NewServiceTasks(ctx context.Context, config cfg.Config, logger log.Logger) 
 		return nil, fmt.Errorf("could not create task engine resolver: %w", err)
 	}
 
+	if settings, err = ReadIcebergSettings(config); err != nil {
+		return nil, fmt.Errorf("could not read iceberg settings: %w", err)
+	}
+
 	return &ServiceTasks{
 		logger:           logger.WithChannel("tasks"),
 		serviceTaskQueue: serviceTaskQueue,
 		engineResolver:   engineResolver,
 		sqlClient:        sqlClient,
+		settings:         settings,
 	}, nil
 }
 
@@ -208,6 +215,11 @@ func (s *ServiceTasks) EnqueueOptimize(ctx context.Context, table string, target
 		return nil, fmt.Errorf("from date must be before or equal to the to date")
 	}
 
+	effectiveRange, ok := optimizeRangeWithinDelay(from, to, time.Now().UTC(), s.settings.NeedsOptimizeDelay)
+	if !ok {
+		return []int64{}, nil
+	}
+
 	// Query partitions that need optimization within the date range
 	// The partition column stores JSON like {"year": "2025", "month": "06", "day": "15"}
 	// We need to construct a date from these fields and filter by the date range
@@ -232,8 +244,8 @@ func (s *ServiceTasks) EnqueueOptimize(ctx context.Context, table string, target
 		Column(sqlc.Col("p.partition->>'$.month'").As("month")).
 		Column(sqlc.Col("p.partition->>'$.day'").As("day")).
 		Where(sqlc.Eq{"p.table": table, "p.needs_optimize": true}).
-		Where(datePath.Gte(from.Format(time.DateOnly))).
-		Where(datePath.Lte(to.Format(time.DateOnly))).
+		Where(datePath.Gte(effectiveRange.from.Format(time.DateOnly))).
+		Where(datePath.Lte(effectiveRange.to.Format(time.DateOnly))).
 		OrderBy(datePath.Asc())
 
 	var partitions []partitionRow
@@ -253,11 +265,9 @@ func (s *ServiceTasks) EnqueueOptimize(ctx context.Context, table string, target
 		}
 
 		chunk := optimizeChunkForDate(partitionDate, chunkBy)
-		if chunk.from.Before(from) {
-			chunk.from = from
-		}
-		if chunk.to.After(to) {
-			chunk.to = to
+		chunk, ok = clampOptimizeRange(chunk, effectiveRange)
+		if !ok {
+			continue
 		}
 
 		chunkKey := chunk.from.Format(time.DateOnly) + ":" + chunk.to.Format(time.DateOnly)
@@ -283,46 +293,6 @@ func (s *ServiceTasks) EnqueueOptimize(ctx context.Context, table string, target
 	}
 
 	return taskIds, nil
-}
-
-func normalizeOptimizeChunkBy(chunkBy string) (string, error) {
-	switch strings.TrimSpace(strings.ToLower(chunkBy)) {
-	case "", optimizeChunkDay:
-		return optimizeChunkDay, nil
-	case optimizeChunkWeek:
-		return optimizeChunkWeek, nil
-	case optimizeChunkMonth:
-		return optimizeChunkMonth, nil
-	default:
-		return "", fmt.Errorf("unsupported optimize chunking %q", chunkBy)
-	}
-}
-
-func optimizeChunkForDate(date time.Time, chunkBy string) optimizeRangeChunk {
-	day := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, time.UTC)
-
-	switch chunkBy {
-	case optimizeChunkWeek:
-		weekdayOffset := (int(day.Weekday()) + 6) % 7
-		start := day.AddDate(0, 0, -weekdayOffset)
-
-		return optimizeRangeChunk{
-			from: start,
-			to:   start.AddDate(0, 0, 6),
-		}
-	case optimizeChunkMonth:
-		start := time.Date(day.Year(), day.Month(), 1, 0, 0, 0, 0, time.UTC)
-
-		return optimizeRangeChunk{
-			from: start,
-			to:   start.AddDate(0, 1, -1),
-		}
-	default:
-		return optimizeRangeChunk{
-			from: day,
-			to:   day,
-		}
-	}
 }
 
 func (s *ServiceTasks) enqueueBatch(ctx context.Context, tables []string, enqueue func(context.Context, string) (int64, error)) (*BatchEnqueueResult, error) {
@@ -404,6 +374,108 @@ func (s *ServiceTasks) UpdateProcedureResult(ctx context.Context, taskID int64, 
 	return nil
 }
 
+// ListTasks is a pass-through to ServiceTaskQueue.ListTasks
+func (s *ServiceTasks) ListTasks(ctx context.Context, table string, kinds []string, statuses []string, limit int, offset int) (*PaginatedTasks, error) {
+	result, err := s.serviceTaskQueue.ListTasks(ctx, table, kinds, statuses, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("could not list tasks: %w", err)
+	}
+
+	return result, nil
+}
+
+// TaskCounts is a pass-through to ServiceTaskQueue.TaskCounts
+func (s *ServiceTasks) TaskCounts(ctx context.Context) (running int64, queued int64, err error) {
+	running, queued, err = s.serviceTaskQueue.TaskCounts(ctx)
+	if err != nil {
+		return 0, 0, fmt.Errorf("could not get task counts: %w", err)
+	}
+
+	return running, queued, nil
+}
+
+// FlushTasks is a pass-through to ServiceTaskQueue.FlushTasks
+func (s *ServiceTasks) FlushTasks(ctx context.Context) (int64, error) {
+	deleted, err := s.serviceTaskQueue.FlushTasks(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("could not flush tasks: %w", err)
+	}
+
+	return deleted, nil
+}
+
+func optimizeRangeWithinDelay(from time.Time, to time.Time, now time.Time, delay time.Duration) (optimizeRangeChunk, bool) {
+	from = time.Date(from.Year(), from.Month(), from.Day(), 0, 0, 0, 0, time.UTC)
+	to = time.Date(to.Year(), to.Month(), to.Day(), 0, 0, 0, 0, time.UTC)
+	maxTo := latestOptimizablePartitionDate(now, delay)
+
+	if to.After(maxTo) {
+		to = maxTo
+	}
+
+	if from.After(to) {
+		return optimizeRangeChunk{}, false
+	}
+
+	return optimizeRangeChunk{from: from, to: to}, true
+}
+
+func clampOptimizeRange(candidate optimizeRangeChunk, allowed optimizeRangeChunk) (optimizeRangeChunk, bool) {
+	if candidate.from.Before(allowed.from) {
+		candidate.from = allowed.from
+	}
+
+	if candidate.to.After(allowed.to) {
+		candidate.to = allowed.to
+	}
+
+	if candidate.from.After(candidate.to) {
+		return optimizeRangeChunk{}, false
+	}
+
+	return candidate, true
+}
+
+func normalizeOptimizeChunkBy(chunkBy string) (string, error) {
+	switch strings.TrimSpace(strings.ToLower(chunkBy)) {
+	case "", optimizeChunkDay:
+		return optimizeChunkDay, nil
+	case optimizeChunkWeek:
+		return optimizeChunkWeek, nil
+	case optimizeChunkMonth:
+		return optimizeChunkMonth, nil
+	default:
+		return "", fmt.Errorf("unsupported optimize chunking %q", chunkBy)
+	}
+}
+
+func optimizeChunkForDate(date time.Time, chunkBy string) optimizeRangeChunk {
+	day := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, time.UTC)
+
+	switch chunkBy {
+	case optimizeChunkWeek:
+		weekdayOffset := (int(day.Weekday()) + 6) % 7
+		start := day.AddDate(0, 0, -weekdayOffset)
+
+		return optimizeRangeChunk{
+			from: start,
+			to:   start.AddDate(0, 0, 6),
+		}
+	case optimizeChunkMonth:
+		start := time.Date(day.Year(), day.Month(), 1, 0, 0, 0, 0, time.UTC)
+
+		return optimizeRangeChunk{
+			from: start,
+			to:   start.AddDate(0, 1, -1),
+		}
+	default:
+		return optimizeRangeChunk{
+			from: day,
+			to:   day,
+		}
+	}
+}
+
 func normalizeBatchTables(tables []string) []string {
 	normalized := make([]string, 0, len(tables))
 	seen := make(map[string]struct{}, len(tables))
@@ -447,34 +519,4 @@ func normalizeBatchOptimizeTables(tables []BatchOptimizeTable) []BatchOptimizeTa
 	}
 
 	return normalized
-}
-
-// ListTasks is a pass-through to ServiceTaskQueue.ListTasks
-func (s *ServiceTasks) ListTasks(ctx context.Context, table string, kinds []string, statuses []string, limit int, offset int) (*PaginatedTasks, error) {
-	result, err := s.serviceTaskQueue.ListTasks(ctx, table, kinds, statuses, limit, offset)
-	if err != nil {
-		return nil, fmt.Errorf("could not list tasks: %w", err)
-	}
-
-	return result, nil
-}
-
-// TaskCounts is a pass-through to ServiceTaskQueue.TaskCounts
-func (s *ServiceTasks) TaskCounts(ctx context.Context) (running int64, queued int64, err error) {
-	running, queued, err = s.serviceTaskQueue.TaskCounts(ctx)
-	if err != nil {
-		return 0, 0, fmt.Errorf("could not get task counts: %w", err)
-	}
-
-	return running, queued, nil
-}
-
-// FlushTasks is a pass-through to ServiceTaskQueue.FlushTasks
-func (s *ServiceTasks) FlushTasks(ctx context.Context) (int64, error) {
-	deleted, err := s.serviceTaskQueue.FlushTasks(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("could not flush tasks: %w", err)
-	}
-
-	return deleted, nil
 }

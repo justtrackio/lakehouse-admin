@@ -193,10 +193,22 @@ func (s *ServiceIceberg) partitionNeedsOptimize(stats IcebergPartitionStats, sma
 		return needsOptimize, nil
 	}
 
-	age := time.Since(*date)
-	if age < s.settings.NeedsOptimizeDelay {
+	if !canOptimizePartitionDate(*date, time.Now().UTC(), s.settings.NeedsOptimizeDelay) {
 		return false, nil
 	}
 
 	return needsOptimize, nil
 }
+
+func latestOptimizablePartitionDate(now time.Time, delay time.Duration) time.Time {
+	now = now.Add(-delay)
+
+	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+}
+
+func canOptimizePartitionDate(date time.Time, now time.Time, delay time.Duration) bool {
+	date = time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, time.UTC)
+
+	return !date.After(latestOptimizablePartitionDate(now, delay))
+}
+
