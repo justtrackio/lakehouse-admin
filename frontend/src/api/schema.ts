@@ -130,12 +130,26 @@ export interface SnapshotMissingFilesResponse {
   missing_files: string[];
 }
 
+export interface SnapshotRollbackResponse {
+  snapshot_id: string;
+  status: string;
+}
+
 export async function fetchSnapshotMissingFiles(
   tableName: string,
   snapshotId: string,
 ): Promise<SnapshotMissingFilesResponse> {
   return apiClient.get<SnapshotMissingFilesResponse>(
     `/api/iceberg/${tableName}/snapshots/${snapshotId}/missing-files`
+  );
+}
+
+export async function rollbackToSnapshot(
+  tableName: string,
+  snapshotId: string,
+): Promise<SnapshotRollbackResponse> {
+  return apiClient.post<SnapshotRollbackResponse>(
+    `/api/iceberg/${tableName}/snapshots/${snapshotId}/rollback`
   );
 }
 

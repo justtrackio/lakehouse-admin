@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Alert,
   Button,
+  Popconfirm,
   Space,
   Spin,
   Table,
@@ -16,6 +17,7 @@ import {
   fetchSnapshotMissingFiles,
   fetchSnapshots,
   fetchTableDetails,
+  rollbackToSnapshot,
   SnapshotItem,
   TableDetails,
 } from '../api/schema';
@@ -23,6 +25,7 @@ import { formatTimestamp, formatBytes, formatNumber } from '../utils/format';
 import MetricWithDelta from '../components/MetricWithDelta';
 import SnapshotSummaryModal from '../components/SnapshotSummaryModal';
 import SnapshotMissingFilesModal from '../components/SnapshotMissingFilesModal';
+import { useAdminMode } from '../context/AdminModeContext';
 import { useMessageApi } from '../context/MessageContext';
 
 const { Title, Text } = Typography;
@@ -34,6 +37,8 @@ export const Route = createFileRoute('/tables/$tableName/snapshots')({
 function SnapshotsPage() {
   const { tableName } = Route.useParams();
   const messageApi = useMessageApi();
+  const { isAdminMode } = useAdminMode();
+  const queryClient = useQueryClient();
   const [selectedSnapshot, setSelectedSnapshot] = useState<SnapshotItem | null>(null);
   const [missingFilesModalOpen, setMissingFilesModalOpen] = useState(false);
   const [missingFilesSnapshotId, setMissingFilesSnapshotId] = useState<string | null>(null);
@@ -71,6 +76,20 @@ function SnapshotsPage() {
     onError: (error: Error) => {
       setMissingFiles([]);
       setMissingFilesError(error.message);
+    },
+  });
+
+  const rollbackMutation = useMutation({
+    mutationFn: (snapshotId: string) => rollbackToSnapshot(tableName, snapshotId),
+    onSuccess: (data) => {
+      messageApi.success(`Rolled back table to snapshot ${data.snapshot_id}`);
+      queryClient.invalidateQueries({ queryKey: ['table', tableName] });
+      queryClient.invalidateQueries({ queryKey: ['snapshots', tableName] });
+      queryClient.invalidateQueries({ queryKey: ['partitions', tableName] });
+      queryClient.invalidateQueries({ queryKey: ['tables'] });
+    },
+    onError: (error: Error) => {
+      messageApi.error(`Failed to rollback snapshot: ${error.message}`);
     },
   });
 
@@ -206,9 +225,12 @@ function SnapshotsPage() {
       title: 'Actions',
       key: 'actions',
       fixed: 'right',
-      width: 220,
+      width: isAdminMode ? 320 : 220,
       render: (_, record: SnapshotItem) => {
         const hasSummary = record.summary && Object.keys(record.summary).length > 0;
+        const isCurrentSnapshot = record.snapshot_id === table?.current_snapshot_id;
+        const isRollbackPending = rollbackMutation.isPending && rollbackMutation.variables === record.snapshot_id;
+
         return (
           <Space size="small">
             <Button
@@ -225,6 +247,25 @@ function SnapshotsPage() {
             >
               Check Files
             </Button>
+            {isAdminMode ? (
+              <Popconfirm
+                title="Rollback to snapshot"
+                description={`Rollback table ${tableName} to snapshot ${record.snapshot_id}? This will change the current table state.`}
+                onConfirm={() => rollbackMutation.mutate(record.snapshot_id)}
+                okText="Yes, rollback"
+                cancelText="Cancel"
+                disabled={isCurrentSnapshot || rollbackMutation.isPending}
+              >
+                <Button
+                  size="small"
+                  danger
+                  disabled={isCurrentSnapshot}
+                  loading={isRollbackPending}
+                >
+                  Rollback
+                </Button>
+              </Popconfirm>
+            ) : null}
           </Space>
         );
       },
