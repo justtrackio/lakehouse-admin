@@ -2,14 +2,13 @@ package internal
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/justtrackio/gosoline/pkg/cfg"
 )
 
 type MaintenanceScheduleSettings struct {
 	Enabled           bool                                 `cfg:"enabled"`
-	Interval          time.Duration                        `cfg:"interval" default:"24h"`
+	Cron              string                               `cfg:"cron"`
 	Optimize          MaintenanceScheduleOptimizeSettings  `cfg:"optimize"`
 	ExpireSnapshots   MaintenanceScheduleRetentionSettings `cfg:"expire_snapshots"`
 	RemoveOrphanFiles MaintenanceScheduleRetentionSettings `cfg:"remove_orphan_files"`
@@ -31,8 +30,8 @@ func ReadMaintenanceScheduleSettings(config cfg.Config) (*MaintenanceScheduleSet
 		return nil, fmt.Errorf("could not unmarshal maintenance schedule settings: %w", err)
 	}
 
-	if settings.Interval <= 0 {
-		return nil, fmt.Errorf("tasks.schedule.interval must be greater than 0")
+	if _, err := parseStandardCronSchedule(settings.Cron); err != nil {
+		return nil, fmt.Errorf("invalid maintenance schedule cron expression: %w", err)
 	}
 
 	if settings.Optimize.LookbackDays < 1 {

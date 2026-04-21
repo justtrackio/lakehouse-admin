@@ -44,17 +44,7 @@ func (m *ModuleMaintenanceSchedule) Run(ctx context.Context) error {
 		return nil
 	}
 
-	ticker := time.NewTicker(m.settings.Interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-ticker.C:
-			m.runMaintenanceCycle(ctx)
-		}
-	}
+	return runCronLoop(ctx, m.logger, "maintenance schedule", m.settings.Cron, m.runMaintenanceCycle)
 }
 
 func (m *ModuleMaintenanceSchedule) runMaintenanceCycle(ctx context.Context) {
@@ -62,7 +52,6 @@ func (m *ModuleMaintenanceSchedule) runMaintenanceCycle(ctx context.Context) {
 
 	var err error
 	var result *MaintenanceScheduleCycleResult
-
 
 	if result, err = m.service.RunCycle(ctx, time.Now().UTC()); err != nil {
 		m.logger.Error(ctx, "failed scheduled maintenance cycle: %s", err)

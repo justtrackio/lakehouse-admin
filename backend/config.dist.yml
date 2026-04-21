@@ -37,7 +37,8 @@ log:
   level: info
 
 refresh:
-  interval: 1h
+  enabled: false
+  cron: "0 * * * *"
 
 tasks:
   enabled: true
@@ -45,7 +46,7 @@ tasks:
   poll_interval: 1s
   schedule:
     enabled: false
-    interval: 24h
+    cron: "0 2 * * *"
     optimize:
       lookback_days: 30
       target_file_size_mb: 512
@@ -70,9 +71,6 @@ tasks:
     callback:
       enabled: false
       backend_host: ""
-
-spark:
-  endpoint: sc://spark-connect-server-svc.spark:15002
 
 sqlc:
   default:

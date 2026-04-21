@@ -3,7 +3,6 @@ package internal
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/gosoline-project/sqlc"
 	"github.com/justtrackio/gosoline/pkg/cfg"
@@ -12,7 +11,25 @@ import (
 )
 
 type RefreshSettings struct {
-	Interval time.Duration `cfg:"interval"`
+	Enabled bool   `cfg:"enabled"`
+	Cron    string `cfg:"cron"`
+}
+
+func ReadRefreshSettings(config cfg.Config) (*RefreshSettings, error) {
+	settings := &RefreshSettings{}
+	if err := config.UnmarshalKey("refresh", settings); err != nil {
+		return nil, fmt.Errorf("could not unmarshal refresh settings: %w", err)
+	}
+
+	if !settings.Enabled {
+		return settings, nil
+	}
+
+	if _, err := parseStandardCronSchedule(settings.Cron); err != nil {
+		return nil, fmt.Errorf("invalid refresh cron expression: %w", err)
+	}
+
+	return settings, nil
 }
 
 func NewModuleRefresh(ctx context.Context, config cfg.Config, logger log.Logger) (kernel.Module, error) {
@@ -30,9 +47,9 @@ func NewModuleRefresh(ctx context.Context, config cfg.Config, logger log.Logger)
 		return nil, fmt.Errorf("could not create sqlc client: %w", err)
 	}
 
-	settings := &RefreshSettings{}
-	if err = config.UnmarshalKey("refresh", settings); err != nil {
-		return nil, fmt.Errorf("could not unmarshal refresh settings: %w", err)
+	var settings *RefreshSettings
+	if settings, err = ReadRefreshSettings(config); err != nil {
+		return nil, fmt.Errorf("could not read refresh settings: %w", err)
 	}
 
 	return &ModuleRefresh{
@@ -54,34 +71,28 @@ type ModuleRefresh struct {
 }
 
 func (m *ModuleRefresh) Run(ctx context.Context) error {
-	ticker := time.NewTicker(m.settings.Interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-ticker.C:
-			m.runRefreshCycle(ctx)
-		}
+	if !m.settings.Enabled {
+		return nil
 	}
+
+	return runCronLoop(ctx, m.logger, "table refresh", m.settings.Cron, m.runRefreshCycle)
 }
 
 func (m *ModuleRefresh) runRefreshCycle(ctx context.Context) {
-	m.logger.Info(ctx, "starting periodic table refresh")
+	m.logger.Info(ctx, "starting scheduled table refresh")
 
 	err := m.sqlClient.WithTx(ctx, func(cttx sqlc.Tx) error {
 		if _, err := m.service.RefreshFull(cttx); err != nil {
-			return fmt.Errorf("could not complete periodic full refresh: %w", err)
+			return fmt.Errorf("could not complete scheduled full refresh: %w", err)
 		}
 
 		return nil
 	})
 	if err != nil {
-		m.logger.Error(ctx, "failed periodic table refresh: %s", err)
+		m.logger.Error(ctx, "failed scheduled table refresh: %s", err)
 
 		return
 	}
 
-	m.logger.Info(ctx, "finished periodic table refresh")
+	m.logger.Info(ctx, "finished scheduled table refresh")
 }
