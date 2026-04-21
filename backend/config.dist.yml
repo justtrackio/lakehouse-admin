@@ -43,6 +43,17 @@ tasks:
   enabled: true
   worker_count: 1
   poll_interval: 1s
+  schedule:
+    enabled: false
+    interval: 24h
+    optimize:
+      lookback_days: 30
+      target_file_size_mb: 512
+      chunk_by: daily
+    expire_snapshots:
+      retention_days: 7
+    remove_orphan_files:
+      retention_days: 7
   engines:
     expire_snapshots: trino
     remove_orphan_files: trino

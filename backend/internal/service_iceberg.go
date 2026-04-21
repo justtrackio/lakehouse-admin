@@ -211,4 +211,3 @@ func canOptimizePartitionDate(date time.Time, now time.Time, delay time.Duration
 
 	return !date.After(latestOptimizablePartitionDate(now, delay))
 }
-

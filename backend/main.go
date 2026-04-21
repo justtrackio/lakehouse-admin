@@ -32,6 +32,7 @@ func main() {
 		application.WithModuleFactory("tasks", func(ctx context.Context, config cfg.Config, logger log.Logger) (kernel.Module, error) {
 			return internal.ProvideModuleTasks(ctx, config, logger)
 		}),
+		application.WithModuleFactory("maintenance_schedule", internal.NewModuleMaintenanceSchedule),
 		application.WithModuleFactory("refresh", internal.NewModuleRefresh),
 		application.WithModuleFactory("http", httpserver.NewServer("default", func(ctx context.Context, config cfg.Config, logger log.Logger, router *httpserver.Router) error {
 			router.Use(cors.Default())
