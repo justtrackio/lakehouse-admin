@@ -51,10 +51,11 @@ type sPartition struct {
 }
 
 type TableDescription struct {
-	Name       string                                    `json:"name" db:"name"`
-	Columns    db.JSON[TableColumns, db.NonNullable]     `json:"columns" db:"columns"`
-	Partitions db.JSON[[]TablePartition, db.NonNullable] `json:"partitions" db:"partitions"`
-	UpdatedAt  time.Time                                 `json:"updated_at" db:"updated_at"`
+	Name              string                                    `json:"name" db:"name"`
+	Columns           db.JSON[TableColumns, db.NonNullable]     `json:"columns" db:"columns"`
+	Partitions        db.JSON[[]TablePartition, db.NonNullable] `json:"partitions" db:"partitions"`
+	CurrentSnapshotID *int64                                    `json:"current_snapshot_id,string,omitempty" db:"current_snapshot_id"`
+	UpdatedAt         time.Time                                 `json:"updated_at" db:"updated_at"`
 }
 
 type TableColumns []TableColumn
@@ -79,6 +80,7 @@ type TablePartitionHidden struct {
 type TableSummary struct {
 	Name                     string           `json:"name" db:"name"`
 	Partitions               []TablePartition `json:"partitions" db:"partitions"`
+	CurrentSnapshotID        *int64           `json:"current_snapshot_id,string,omitempty" db:"current_snapshot_id"`
 	SnapshotCount            int64            `json:"snapshot_count" db:"snapshot_count"`
 	PartitionCount           int64            `json:"partition_count" db:"partition_count"`
 	FileCount                int64            `json:"file_count" db:"file_count"`

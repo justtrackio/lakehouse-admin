@@ -34,6 +34,7 @@ export async function fetchTables(): Promise<ListTableItem[]> {
 export interface TableDetails {
   name: string;
   partitions: Partition[];
+  current_snapshot_id?: string;
   snapshot_count: number;
   partition_count: number;
   file_count: number;

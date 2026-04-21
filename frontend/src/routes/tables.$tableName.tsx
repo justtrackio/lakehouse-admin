@@ -179,6 +179,9 @@ function TableLayout() {
           </div>
           <Space direction="horizontal" size="large">
             <Text type="secondary">
+              Current snapshot ID: {table.current_snapshot_id ?? '-'}
+            </Text>
+            <Text type="secondary">
               Snapshots: {formatNumber(table.snapshot_count)}
             </Text>
             <Text type="secondary">

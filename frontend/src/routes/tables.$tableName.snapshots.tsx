@@ -12,7 +12,13 @@ import {
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import type { TablePaginationConfig } from 'antd/es/table';
-import { fetchSnapshotMissingFiles, fetchSnapshots, SnapshotItem } from '../api/schema';
+import {
+  fetchSnapshotMissingFiles,
+  fetchSnapshots,
+  fetchTableDetails,
+  SnapshotItem,
+  TableDetails,
+} from '../api/schema';
 import { formatTimestamp, formatBytes, formatNumber } from '../utils/format';
 import MetricWithDelta from '../components/MetricWithDelta';
 import SnapshotSummaryModal from '../components/SnapshotSummaryModal';
@@ -36,6 +42,11 @@ function SnapshotsPage() {
   const [pagination, setPagination] = useState<TablePaginationConfig>({
     current: 1,
     pageSize: 20,
+  });
+
+  const { data: table } = useQuery<TableDetails, Error>({
+    queryKey: ['table', tableName],
+    queryFn: () => fetchTableDetails(tableName),
   });
 
   const {
@@ -115,7 +126,10 @@ function SnapshotsPage() {
       dataIndex: 'snapshot_id',
       key: 'snapshot_id',
       render: (value: string) => (
-        <code style={{ fontSize: '11px' }}>{value}</code>
+        <Space size="small">
+          <code style={{ fontSize: '11px' }}>{value}</code>
+          {value === table?.current_snapshot_id ? <Tag color="gold">Current</Tag> : null}
+        </Space>
       ),
       width: 150,
     },
@@ -221,7 +235,7 @@ function SnapshotsPage() {
     <Space direction="vertical" style={{ width: '100%' }} size="large">
       <div>
         <Title level={5} style={{ marginBottom: 8 }}>
-          Snapshot History
+          Snapshot History - current snapshot ID: {table?.current_snapshot_id ?? '-'}
         </Title>
       </div>
 
@@ -237,6 +251,11 @@ function SnapshotsPage() {
           rowKey={(row) => row.snapshot_id}
           columns={columns}
           dataSource={snapshots}
+          onRow={(record) => ({
+            style: record.snapshot_id === table?.current_snapshot_id
+              ? { backgroundColor: '#fffbe6' }
+              : undefined,
+          })}
           pagination={{
             ...pagination,
             showSizeChanger: true,

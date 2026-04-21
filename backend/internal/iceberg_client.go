@@ -354,10 +354,15 @@ func (c *IcebergClient) DescribeTable(ctx context.Context, logicalName string) (
 	}
 
 	desc := &TableDescription{
-		Name:       logicalName,
-		Columns:    columns,
-		Partitions: partitions,
-		UpdatedAt:  time.Now(),
+		Name:              logicalName,
+		Columns:           columns,
+		Partitions:        partitions,
+		CurrentSnapshotID: nil,
+		UpdatedAt:         time.Now(),
+	}
+
+	if currentSnapshot := tbl.CurrentSnapshot(); currentSnapshot != nil {
+		desc.CurrentSnapshotID = &currentSnapshot.SnapshotID
 	}
 
 	return desc, nil

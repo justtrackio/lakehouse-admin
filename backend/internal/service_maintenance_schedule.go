@@ -103,7 +103,7 @@ func (s *ServiceMaintenanceSchedule) RunCycle(ctx context.Context, now time.Time
 	return result, nil
 }
 
-func scheduledOptimizeRange(now time.Time, lookbackDays int) (time.Time, time.Time) {
+func scheduledOptimizeRange(now time.Time, lookbackDays int) (from time.Time, to time.Time) {
 	day := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 
 	return day.AddDate(0, 0, -(lookbackDays - 1)), day
