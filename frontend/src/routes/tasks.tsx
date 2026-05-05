@@ -3,24 +3,21 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button, Space, Typography, message, Popconfirm } from 'antd';
 import { MinusOutlined, PlusOutlined, DeleteOutlined, RedoOutlined } from '@ant-design/icons';
 import { MaintenanceTasksTable } from '../components/MaintenanceTasksTable';
-import { fetchTaskConcurrency, setTaskConcurrency, flushTasks, retryAllTasks } from '../api/schema';
-import { normalizeDatabaseSearch } from '../utils/database';
+import { fetchTaskConcurrency, setTaskConcurrency, flushAllTasks, retryAllTasksGlobal } from '../api/schema';
 
 const { Text } = Typography;
 
 export const Route = createFileRoute('/tasks')({
-  validateSearch: normalizeDatabaseSearch,
   component: TasksPage,
 });
 
 function TasksPage() {
   const queryClient = useQueryClient();
-  const { database } = Route.useSearch();
 
   const { data: concurrencyData, isLoading } = useQuery({
     queryKey: ['taskConcurrency'],
     queryFn: fetchTaskConcurrency,
-    staleTime: 30000, // Consider data fresh for 30 seconds
+    staleTime: 30000,
   });
 
   const mutation = useMutation({
@@ -35,10 +32,10 @@ function TasksPage() {
   });
 
   const flushMutation = useMutation({
-    mutationFn: flushTasks,
+    mutationFn: flushAllTasks,
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['tasks', database] });
-      queryClient.invalidateQueries({ queryKey: ['taskCounts', database] });
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['taskCounts'] });
       message.success(`Flushed ${data.deleted} task${data.deleted !== 1 ? 's' : ''}`);
     },
     onError: (error: Error) => {
@@ -47,10 +44,10 @@ function TasksPage() {
   });
 
   const retryAllMutation = useMutation({
-    mutationFn: retryAllTasks,
+    mutationFn: retryAllTasksGlobal,
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['tasks', database] });
-      queryClient.invalidateQueries({ queryKey: ['taskCounts', database] });
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['taskCounts'] });
       message.success(`Retried ${data.retried_count} task${data.retried_count !== 1 ? 's' : ''}`);
     },
     onError: (error: Error) => {
@@ -71,11 +68,11 @@ function TasksPage() {
   };
 
   const handleFlush = () => {
-    flushMutation.mutate(database);
+    flushMutation.mutate(undefined);
   };
 
   const handleRetryAll = () => {
-    retryAllMutation.mutate(database);
+    retryAllMutation.mutate(undefined);
   };
 
   return (
@@ -116,7 +113,7 @@ function TasksPage() {
             </Popconfirm>
             <Popconfirm
               title="Are you sure you want to clear all tasks?"
-              description="This will permanently delete all tasks from the database."
+              description="This will permanently delete all tasks across all databases."
               onConfirm={handleFlush}
               okText="Yes"
               cancelText="No"
@@ -133,7 +130,7 @@ function TasksPage() {
             </Popconfirm>
           </Space>
         </div>
-        <MaintenanceTasksTable database={database} pageSize={100} />
+        <MaintenanceTasksTable global database="" pageSize={100} />
       </Space>
     </div>
   );

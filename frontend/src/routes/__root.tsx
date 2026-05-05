@@ -53,7 +53,7 @@ function RootLayout() {
               },
               {
                 key: 'tasks',
-                label: <Link to="/tasks" search={{ database }}>Tasks</Link>,
+                label: <Link to="/tasks">Tasks</Link>,
               },
             ]}
           />

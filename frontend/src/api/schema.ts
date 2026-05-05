@@ -355,6 +355,25 @@ export async function fetchTasks(
   return apiClient.get<PaginatedTasks>(`/api/tasks/${encodeURIComponent(database)}?${params.toString()}`);
 }
 
+export async function fetchAllTasks(
+  limit: number = 20,
+  offset: number = 0,
+  kinds?: string[],
+  statuses?: string[],
+): Promise<PaginatedTasks> {
+  const params = new URLSearchParams();
+  if (kinds) {
+    kinds.forEach((k) => params.append('kind', k));
+  }
+  if (statuses) {
+    statuses.forEach((s) => params.append('status', s));
+  }
+  params.append('limit', limit.toString());
+  params.append('offset', offset.toString());
+
+  return apiClient.get<PaginatedTasks>(`/api/tasks?${params.toString()}`);
+}
+
 export interface TaskCountsResponse {
   running: number;
   queued: number;
@@ -362,6 +381,10 @@ export interface TaskCountsResponse {
 
 export async function fetchTaskCounts(database: string): Promise<TaskCountsResponse> {
   return apiClient.get<TaskCountsResponse>(`/api/tasks/${encodeURIComponent(database)}/counts`);
+}
+
+export async function fetchAllTaskCounts(): Promise<TaskCountsResponse> {
+  return apiClient.get<TaskCountsResponse>('/api/tasks/counts');
 }
 
 export interface TaskConcurrencyResponse {
@@ -384,12 +407,20 @@ export async function flushTasks(database: string): Promise<FlushTasksResponse> 
   return apiClient.delete<FlushTasksResponse>(`/api/tasks/${encodeURIComponent(database)}`);
 }
 
+export async function flushAllTasks(): Promise<FlushTasksResponse> {
+  return apiClient.delete<FlushTasksResponse>('/api/tasks');
+}
+
 export interface RetryAllTasksResponse {
   retried_count: number;
 }
 
 export async function retryAllTasks(database: string): Promise<RetryAllTasksResponse> {
   return apiClient.post<RetryAllTasksResponse>(`/api/tasks/${encodeURIComponent(database)}/retry-all`);
+}
+
+export async function retryAllTasksGlobal(): Promise<RetryAllTasksResponse> {
+  return apiClient.post<RetryAllTasksResponse>('/api/tasks/retry-all');
 }
 
 export async function retryTask(taskId: number): Promise<TaskQueuedResponse> {

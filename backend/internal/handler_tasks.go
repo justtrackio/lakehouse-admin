@@ -31,6 +31,13 @@ type OptimizeInput struct {
 	ChunkBy          string   `json:"chunk_by"`
 }
 
+type ListAllTasksInput struct {
+	Kind   []string `form:"kind"`
+	Status []string `form:"status"`
+	Limit  int      `form:"limit"`
+	Offset int      `form:"offset"`
+}
+
 type ListTasksInput struct {
 	Database string   `uri:"database"`
 	Table    string   `form:"table"`
@@ -194,5 +201,48 @@ func (h *HandlerTasks) FlushTasks(ctx context.Context, input *DatabaseInput) (ht
 
 	return httpserver.NewJsonResponse(&FlushTasksResponse{
 		Deleted: deleted,
+	}), nil
+}
+
+func (h *HandlerTasks) ListAllTasks(ctx context.Context, input *ListAllTasksInput) (httpserver.Response, error) {
+	result, err := h.serviceTasks.ListTasks(ctx, "", "", input.Kind, input.Status, input.Limit, input.Offset)
+	if err != nil {
+		return nil, err
+	}
+
+	return httpserver.NewJsonResponse(result), nil
+}
+
+func (h *HandlerTasks) AllTaskCounts(ctx context.Context) (httpserver.Response, error) {
+	running, queued, err := h.serviceTasks.TaskCounts(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+
+	return httpserver.NewJsonResponse(&TaskCountsResponse{
+		Running: running,
+		Queued:  queued,
+	}), nil
+}
+
+func (h *HandlerTasks) FlushAllTasks(ctx context.Context) (httpserver.Response, error) {
+	deleted, err := h.serviceTasks.FlushTasks(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+
+	return httpserver.NewJsonResponse(&FlushTasksResponse{
+		Deleted: deleted,
+	}), nil
+}
+
+func (h *HandlerTasks) RetryAllTasksGlobal(ctx context.Context) (httpserver.Response, error) {
+	retriedCount, err := h.serviceTasks.RetryAllTasks(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+
+	return httpserver.NewJsonResponse(&RetryAllTasksResponse{
+		RetriedCount: retriedCount,
 	}), nil
 }
