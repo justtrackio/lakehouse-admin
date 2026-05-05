@@ -49,7 +49,7 @@ type ServiceRefresh struct {
 func (s *ServiceRefresh) LastUpdatedAt(ctx context.Context, database string, name string) (time.Time, error) {
 	table := &TableDescription{}
 	if err := s.sqlClient.Q().From("tables").Where(sqlc.Eq{"database": database, "name": name}).Get(ctx, table); err != nil {
-		return time.Time{}, fmt.Errorf("could not get table description for table %s: %w", name, err)
+		return time.Time{}, fmt.Errorf("could not get table description for table %s.%s: %w", database, name, err)
 	}
 
 	return table.UpdatedAt, nil

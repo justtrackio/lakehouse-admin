@@ -31,7 +31,7 @@ function IndexComponent() {
     mutationFn: refreshFull,
     onSuccess: () => {
       messageApi.success('Full refresh completed successfully');
-      queryClient.invalidateQueries({ queryKey: ['tables', database] });
+      queryClient.invalidateQueries({ queryKey: ['tables'] });
     },
     onError: (error: Error) => {
       messageApi.error(`Full refresh failed: ${error.message}`);

@@ -13,13 +13,12 @@ export function DatabaseProvider({ children }: DatabaseProviderProps) {
   const navigate = useNavigate();
   const search = useRouterState({ select: (state) => state.location.search as Record<string, unknown> });
   const pathnameRef = useRef('');
-  const pathname = useRouterState({
+  useRouterState({
     select: (state) => {
       pathnameRef.current = state.location.pathname;
       return state.location.pathname;
     },
   });
-  void pathname;
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ['databases'],
@@ -64,6 +63,19 @@ export function DatabaseProvider({ children }: DatabaseProviderProps) {
           showIcon
           message="Failed to load databases"
           description={error instanceof Error ? error.message : 'Unknown error'}
+        />
+      </div>
+    );
+  }
+
+  if (!activeDatabase) {
+    return (
+      <div style={{ padding: 24 }}>
+        <Alert
+          type="warning"
+          showIcon
+          message="No database configured"
+          description="No default database was found. Please select a database from the dropdown."
         />
       </div>
     );

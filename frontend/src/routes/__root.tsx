@@ -29,13 +29,13 @@ function RootComponent() {
 
 function RootLayout() {
   const { isAdminMode, setAdminMode } = useAdminMode();
-  const { database, databases, setDatabase } = useDatabase();
+  const { database, databases, defaultDatabase, setDatabase } = useDatabase();
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
       <Header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
         <div style={{ color: 'white', fontSize: '20px', fontWeight: 'bold' }}>
-          <Link to="/">Lakehouse Admin</Link>
+          <Link to="/" search={{ database }}>Lakehouse Admin</Link>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: 0, gap: 16 }}>
           <Menu
@@ -60,7 +60,10 @@ function RootLayout() {
           <Select
             value={database}
             onChange={setDatabase}
-            options={databases.map((name) => ({ value: name, label: name }))}
+            options={databases.map((name) => ({
+              value: name,
+              label: name === defaultDatabase ? `${name} (default)` : name,
+            }))}
             style={{ minWidth: 200 }}
             placeholder="Database"
           />

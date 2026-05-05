@@ -41,8 +41,7 @@ function TableLayout() {
   const { tableName } = Route.useParams();
   const { database } = Route.useSearch();
   const navigate = Route.useNavigate();
-  const routerState = useRouterState();
-  const pathname = routerState.location.pathname;
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
   const messageApi = useMessageApi();
   const queryClient = useQueryClient();
 

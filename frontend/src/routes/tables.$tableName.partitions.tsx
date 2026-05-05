@@ -40,7 +40,7 @@ export const Route = createFileRoute('/tables/$tableName/partitions')({
     const databaseSearch = normalizeDatabaseSearch(search);
     return {
       database: databaseSearch.database,
-      partitions: (search.partitions as Record<string, string>) || {},
+      partitions: (typeof search.partitions === 'object' && search.partitions !== null ? search.partitions as Record<string, string> : {}),
     };
   },
 });
@@ -215,10 +215,10 @@ function PartitionsPage() {
     }
 
     navigate({
-        to: '/tables/$tableName/partitions',
-        params: { tableName },
-        search: { database, partitions: newFilters },
-      });
+      to: '/tables/$tableName/partitions',
+      params: { tableName },
+      search: { database, partitions: newFilters },
+    });
   };
 
   const fileColumns: ColumnsType<DataFileItem> = [
@@ -272,14 +272,14 @@ function PartitionsPage() {
   // Add root link to navigate back to first partition level (no filters)
   if (filterKeys.length > 0) {
     partitionBreadcrumb.push(
-        <Link
-          key="root"
-          to="/tables/$tableName/partitions"
-          params={{ tableName }}
-          search={{ database, partitions: {} }}
-        >
-          {tableName}
-        </Link>
+      <Link
+        key="root"
+        to="/tables/$tableName/partitions"
+        params={{ tableName }}
+        search={{ database, partitions: {} }}
+      >
+        {tableName}
+      </Link>
     );
     partitionBreadcrumb.push(' / ');
   }
@@ -293,12 +293,12 @@ function PartitionsPage() {
     }
 
     partitionBreadcrumb.push(
-        <Link
-          key={i}
-          to="/tables/$tableName/partitions"
-          params={{ tableName }}
-          search={{ database, partitions: partialFilters }}
-        >
+      <Link
+        key={i}
+        to="/tables/$tableName/partitions"
+        params={{ tableName }}
+        search={{ database, partitions: partialFilters }}
+      >
         {key}={value}
       </Link>
     );
@@ -312,15 +312,15 @@ function PartitionsPage() {
       title: 'Name',
       dataIndex: 'name',
       key: 'name',
-        render: (value: string) => {
-          const isLastLevel = currentLevelIndex === partitions.length - 1;
+      render: (value: string) => {
+        const isLastLevel = currentLevelIndex === partitions.length - 1;
 
-          return (
-            <a onClick={() => handlePartitionClick(value)} style={{ cursor: 'pointer' }}>
-              {value}{isLastLevel ? ' (files)' : ''}
-            </a>
-          );
-        },
+        return (
+          <a onClick={() => handlePartitionClick(value)} style={{ cursor: 'pointer' }}>
+            {value}{isLastLevel ? ' (files)' : ''}
+          </a>
+        );
+      },
     },
     {
       title: 'File Count',

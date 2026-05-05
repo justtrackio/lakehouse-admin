@@ -67,7 +67,9 @@ func TestResolveBrowseFileSelectionsRequiresRawFieldName(t *testing.T) {
 }
 
 func TestBuildBrowseFilesQueryUsesFilesMetadataTable(t *testing.T) {
-	service := &ServiceBrowseFiles{}
+	service := &ServiceBrowseFiles{
+		settings: &IcebergSettings{Catalog: "lakehouse"},
+	}
 
 	query := service.buildBrowseFilesQuery("main", "revenueevent", []browseFileSelection{{RawFieldName: "createdAt_day", Value: "2026-03-25"}})
 

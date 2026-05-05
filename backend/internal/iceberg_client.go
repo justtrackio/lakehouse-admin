@@ -38,6 +38,12 @@ func ReadIcebergSettings(config cfg.Config) (*IcebergSettings, error) {
 		return nil, fmt.Errorf("could not unmarshal iceberg settings: %w", err)
 	}
 
+	if settings.DefaultDatabase == "" {
+		if legacyDatabase, _ := config.GetString("iceberg.database"); legacyDatabase != "" {
+			settings.DefaultDatabase = legacyDatabase
+		}
+	}
+
 	return settings, nil
 }
 

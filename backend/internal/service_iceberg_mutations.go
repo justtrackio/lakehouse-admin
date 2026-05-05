@@ -9,31 +9,40 @@ import (
 )
 
 func NewServiceIcebergAdmin(ctx context.Context, config cfg.Config, logger log.Logger) (*ServiceIcebergAdmin, error) {
-	trino, err := ProvideTrinoClient(ctx, config, logger)
-	if err != nil {
+	var err error
+	var trino *TrinoClient
+	var settings *IcebergSettings
+
+	if trino, err = ProvideTrinoClient(ctx, config, logger); err != nil {
 		return nil, fmt.Errorf("could not create trino client: %w", err)
 	}
 
+	if settings, err = ReadIcebergSettings(config); err != nil {
+		return nil, fmt.Errorf("could not read iceberg settings: %w", err)
+	}
+
 	return &ServiceIcebergAdmin{
-		logger: logger.WithChannel("iceberg_admin"),
-		trino:  trino,
+		logger:   logger.WithChannel("iceberg_admin"),
+		trino:    trino,
+		settings: settings,
 	}, nil
 }
 
 type ServiceIcebergAdmin struct {
-	logger log.Logger
-	trino  *TrinoClient
+	logger   log.Logger
+	trino    *TrinoClient
+	settings *IcebergSettings
 }
 
 func (s *ServiceIcebergAdmin) RollbackToSnapshot(ctx context.Context, database string, logicalName string, snapshotID int64) error {
-	qualifiedTable := qualifiedTableName("lakehouse", database, logicalName)
+	qualifiedTable := qualifiedTableName(s.settings.Catalog, database, logicalName)
 	query := fmt.Sprintf("ALTER TABLE %s EXECUTE rollback_to_snapshot(%d)", qualifiedTable, snapshotID)
 
 	if err := s.trino.Exec(ctx, query); err != nil {
-		return fmt.Errorf("could not rollback table %s to snapshot %d: %w", logicalName, snapshotID, err)
+		return fmt.Errorf("could not rollback table %s.%s to snapshot %d: %w", database, logicalName, snapshotID, err)
 	}
 
-	s.logger.Info(ctx, "rolled back table %s to snapshot %d", logicalName, snapshotID)
+	s.logger.Info(ctx, "rolled back table %s.%s to snapshot %d", database, logicalName, snapshotID)
 
 	return nil
 }

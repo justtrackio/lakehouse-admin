@@ -125,7 +125,7 @@ func (h *HandlerIceberg) ListSnapshotMissingFiles(ctx context.Context, input *Sn
 
 func (h *HandlerIceberg) RollbackToSnapshot(ctx context.Context, input *SnapshotRollbackInput) (httpserver.Response, error) {
 	if err := h.admin.RollbackToSnapshot(ctx, input.Database, input.Table, input.SnapshotID); err != nil {
-		return nil, fmt.Errorf("could not rollback table %s to snapshot %d: %w", input.Table, input.SnapshotID, err)
+		return nil, fmt.Errorf("could not rollback table %s.%s to snapshot %d: %w", input.Database, input.Table, input.SnapshotID, err)
 	}
 
 	if err := h.sqlClient.WithTx(ctx, func(cttx sqlc.Tx) error {
@@ -135,7 +135,7 @@ func (h *HandlerIceberg) RollbackToSnapshot(ctx context.Context, input *Snapshot
 
 		return nil
 	}); err != nil {
-		return nil, fmt.Errorf("could not refresh table %s after rollback to snapshot %d: %w", input.Table, input.SnapshotID, err)
+		return nil, fmt.Errorf("could not refresh table %s.%s after rollback to snapshot %d: %w", input.Database, input.Table, input.SnapshotID, err)
 	}
 
 	return httpserver.NewJsonResponse(SnapshotRollbackResponse{

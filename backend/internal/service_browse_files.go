@@ -16,6 +16,7 @@ func NewServiceBrowseFiles(ctx context.Context, config cfg.Config, logger log.Lo
 	var err error
 	var metadata *ServiceMetadata
 	var trino *TrinoClient
+	var settings *IcebergSettings
 
 	if metadata, err = NewServiceMetadata(ctx, config, logger); err != nil {
 		return nil, fmt.Errorf("could not create service metadata: %w", err)
@@ -25,15 +26,21 @@ func NewServiceBrowseFiles(ctx context.Context, config cfg.Config, logger log.Lo
 		return nil, fmt.Errorf("could not create trino client: %w", err)
 	}
 
+	if settings, err = ReadIcebergSettings(config); err != nil {
+		return nil, fmt.Errorf("could not read iceberg settings: %w", err)
+	}
+
 	return &ServiceBrowseFiles{
 		metadata: metadata,
 		trino:    trino,
+		settings: settings,
 	}, nil
 }
 
 type ServiceBrowseFiles struct {
 	metadata *ServiceMetadata
 	trino    *TrinoClient
+	settings *IcebergSettings
 }
 
 func (s *ServiceBrowseFiles) ListFiles(ctx context.Context, database string, tableName string, filters map[string]string) ([]DataFileItem, error) {
@@ -184,7 +191,7 @@ func (s *ServiceBrowseFiles) requireBrowseFilter(filters map[string]string, key 
 }
 
 func (s *ServiceBrowseFiles) buildBrowseFilesQuery(database string, table string, selections []browseFileSelection) string {
-	qualifiedTable := qualifiedTableName("lakehouse", database, table+"$files")
+	qualifiedTable := qualifiedTableName(s.settings.Catalog, database, table+"$files")
 	query := fmt.Sprintf(`
 		SELECT
 			content,

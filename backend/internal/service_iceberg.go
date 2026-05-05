@@ -3,7 +3,6 @@ package internal
 import (
 	"context"
 	"fmt"
-	"sort"
 	"time"
 
 	"github.com/apache/iceberg-go/table"
@@ -178,24 +177,11 @@ func (s *ServiceIceberg) ListDatabases(ctx context.Context) ([]CatalogDatabase, 
 
 	result := make([]CatalogDatabase, 0, len(databases))
 	for _, database := range databases {
-		tables, err := s.client.ListTables(ctx, database)
-		if err != nil {
-			return nil, fmt.Errorf("could not list tables for database %s: %w", database, err)
-		}
-
-		if len(tables) == 0 {
-			continue
-		}
-
 		result = append(result, CatalogDatabase{
 			Name:      database,
 			IsDefault: database == s.settings.DefaultDatabase,
 		})
 	}
-
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].Name < result[j].Name
-	})
 
 	return result, nil
 }
