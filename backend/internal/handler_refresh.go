@@ -74,3 +74,11 @@ func (h *HandlerRefresh) RefreshFull(cttx sqlc.Tx) (httpserver.Response, error) 
 
 	return httpserver.NewJsonResponse(map[string]string{"status": statusOK}), nil
 }
+
+func (h *HandlerRefresh) RefreshDatabase(cttx sqlc.Tx, input *DatabaseInput) (httpserver.Response, error) {
+	if _, err := h.service.RefreshDatabase(cttx, input.Database); err != nil {
+		return nil, fmt.Errorf("could not complete database refresh for %s: %w", input.Database, err)
+	}
+
+	return httpserver.NewJsonResponse(map[string]string{"status": statusOK}), nil
+}

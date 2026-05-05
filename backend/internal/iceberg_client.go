@@ -39,7 +39,7 @@ func ReadIcebergSettings(config cfg.Config) (*IcebergSettings, error) {
 	}
 
 	if settings.DefaultDatabase == "" {
-		if legacyDatabase, _ := config.GetString("iceberg.database"); legacyDatabase != "" {
+		if legacyDatabase, err := config.GetString("iceberg.database"); err == nil && legacyDatabase != "" {
 			settings.DefaultDatabase = legacyDatabase
 		}
 	}

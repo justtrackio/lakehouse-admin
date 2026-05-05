@@ -72,10 +72,11 @@ func main() {
 
 			router.Group("/api/refresh").HandleWith(sqlh.WithTx(internal.NewHandlerRefresh, func(r *httpserver.Router, handler *internal.HandlerRefresh) {
 				r.GET("/tables", sqlh.BindTxN(handler.RefreshTables))
+				r.GET("/full", sqlh.BindTxN(handler.RefreshFull))
+				r.GET("/:database", sqlh.BindTx(handler.RefreshDatabase))
 				r.GET("/:database/:table", sqlh.BindTx(handler.RefreshTable))
 				r.GET("/:database/:table/partitions", sqlh.BindTx(handler.RefreshPartitions))
 				r.GET("/:database/:table/snapshots", sqlh.BindTx(handler.RefreshSnapshots))
-				r.GET("/full", sqlh.BindTxN(handler.RefreshFull))
 			}))
 
 			router.Group("/api/browse").HandleWith(httpserver.With(internal.NewHandlerBrowse, func(r *httpserver.Router, handler *internal.HandlerBrowse) {

@@ -301,6 +301,10 @@ export async function refreshFull(): Promise<RefreshFullResponse> {
   return apiClient.get<RefreshFullResponse>('/api/refresh/full');
 }
 
+export async function refreshDatabase(database: string): Promise<RefreshFullResponse> {
+  return apiClient.get<RefreshFullResponse>(`/api/refresh/${encodeURIComponent(database)}`);
+}
+
 export interface RefreshTableResponse {
   name: string;
 }

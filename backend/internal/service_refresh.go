@@ -61,19 +61,43 @@ func (s *ServiceRefresh) ListTables(ctx context.Context, database string) ([]Cat
 
 func (s *ServiceRefresh) RefreshAllTables(cttx sqlc.Tx) ([]CatalogTable, error) {
 	var err error
-	var tables []CatalogTable
+	var databases []CatalogDatabase
 
-	if tables, err = s.reconcileTableInventory(cttx); err != nil {
-		return nil, fmt.Errorf("could not reconcile table inventory: %w", err)
+	if databases, err = s.iceberg.ListDatabases(cttx); err != nil {
+		return nil, fmt.Errorf("could not list databases: %w", err)
 	}
 
-	for _, table := range tables {
-		if _, err = s.RefreshTable(cttx, table.Database, table.Name); err != nil {
-			return nil, fmt.Errorf("could not refresh table %s.%s: %w", table.Database, table.Name, err)
+	var allTables []CatalogTable
+	for _, database := range databases {
+		icebergTables, err := s.iceberg.ListTables(cttx, database.Name)
+		if err != nil {
+			return nil, fmt.Errorf("could not list tables for database %s: %w", database.Name, err)
 		}
+
+		storedTables, err := s.listStoredTables(cttx, database.Name)
+		if err != nil {
+			return nil, fmt.Errorf("could not list stored tables for database %s: %w", database.Name, err)
+		}
+
+		_, staleTables := funk.Difference(icebergTables, storedTables)
+		for _, table := range staleTables {
+			if err = s.deleteStaleTable(cttx, table.Database, table.Name); err != nil {
+				return nil, fmt.Errorf("could not delete stale table %s.%s: %w", table.Database, table.Name, err)
+			}
+		}
+
+		s.logger.Info(cttx, "deleted %d stale tables from database %s", len(staleTables), database.Name)
+
+		for _, table := range icebergTables {
+			if _, err = s.RefreshTable(cttx, table.Database, table.Name); err != nil {
+				return nil, fmt.Errorf("could not refresh table %s.%s: %w", table.Database, table.Name, err)
+			}
+		}
+
+		allTables = append(allTables, icebergTables...)
 	}
 
-	return tables, nil
+	return allTables, nil
 }
 
 func (s *ServiceRefresh) RefreshTable(cttx sqlc.Tx, database string, table string) (*TableDescription, error) {
@@ -175,20 +199,55 @@ func (s *ServiceRefresh) RefreshSnapshots(cttx sqlc.Tx, database string, table s
 }
 
 func (s *ServiceRefresh) RefreshFull(cttx sqlc.Tx) ([]CatalogTable, error) {
-	tables, err := s.reconcileTableInventory(cttx)
-	if err != nil {
-		return nil, fmt.Errorf("could not reconcile table inventory: %w", err)
+	var err error
+	var databases []CatalogDatabase
+	var tables []CatalogTable
+
+	if databases, err = s.iceberg.ListDatabases(cttx); err != nil {
+		return nil, fmt.Errorf("could not list databases: %w", err)
 	}
 
-	s.logger.Info(cttx, "starting full refresh for %d tables", len(tables))
+	var allTables []CatalogTable
+	for _, database := range databases {
+		if tables, err = s.RefreshDatabase(cttx, database.Name); err != nil {
+			return nil, fmt.Errorf("could not refresh database %s: %w", database.Name, err)
+		}
 
-	for _, table := range tables {
+		allTables = append(allTables, tables...)
+	}
+
+	return allTables, nil
+}
+
+func (s *ServiceRefresh) RefreshDatabase(cttx sqlc.Tx, database string) ([]CatalogTable, error) {
+	var err error
+	var icebergTables, storedTables []CatalogTable
+
+	if icebergTables, err = s.iceberg.ListTables(cttx, database); err != nil {
+		return nil, fmt.Errorf("could not list tables for database %s: %w", database, err)
+	}
+
+	if storedTables, err = s.listStoredTables(cttx, database); err != nil {
+		return nil, fmt.Errorf("could not list stored tables for database %s: %w", database, err)
+	}
+
+	_, staleTables := funk.Difference(icebergTables, storedTables)
+	for _, table := range staleTables {
+		if err = s.deleteStaleTable(cttx, table.Database, table.Name); err != nil {
+			return nil, fmt.Errorf("could not delete stale table %s.%s: %w", table.Database, table.Name, err)
+		}
+	}
+
+	s.logger.Info(cttx, "deleted %d stale tables from database %s", len(staleTables), database)
+	s.logger.Info(cttx, "starting database refresh for %d tables in %s", len(icebergTables), database)
+
+	for _, table := range icebergTables {
 		if err = s.RefreshTableFull(cttx, table.Database, table.Name); err != nil {
 			return nil, fmt.Errorf("could not refresh table %s.%s: %w", table.Database, table.Name, err)
 		}
 	}
 
-	return tables, nil
+	return icebergTables, nil
 }
 
 func (s *ServiceRefresh) RefreshTableFull(cttx sqlc.Tx, database string, table string) error {
@@ -211,56 +270,25 @@ func (s *ServiceRefresh) RefreshTableFull(cttx sqlc.Tx, database string, table s
 	return nil
 }
 
-func (s *ServiceRefresh) reconcileTableInventory(cttx sqlc.Tx) ([]CatalogTable, error) {
-	var err error
-	var databases []CatalogDatabase
-	var icebergTables, databaseTables, staleTables []CatalogTable
-
-	if databases, err = s.iceberg.ListDatabases(cttx); err != nil {
-		return nil, fmt.Errorf("could not list databases: %w", err)
-	}
-
-	icebergTables = make([]CatalogTable, 0)
-	for _, database := range databases {
-		var tables []CatalogTable
-		if tables, err = s.iceberg.ListTables(cttx, database.Name); err != nil {
-			return nil, fmt.Errorf("could not list tables for database %s: %w", database.Name, err)
-		}
-
-		icebergTables = append(icebergTables, tables...)
-	}
-
-	if databaseTables, err = s.listStoredTables(cttx); err != nil {
-		return nil, fmt.Errorf("could not list stored tables: %w", err)
-	}
-
-	_, staleTables = funk.Difference(icebergTables, databaseTables)
-
-	for _, table := range staleTables {
-		if err = s.deleteStaleTable(cttx, table.Database, table.Name); err != nil {
-			return nil, fmt.Errorf("could not delete stale table %s.%s: %w", table.Database, table.Name, err)
-		}
-	}
-
-	s.logger.Info(cttx, "deleted %d stale tables from metadata store", len(staleTables))
-
-	return icebergTables, nil
-}
-
-func (s *ServiceRefresh) listStoredTables(cttx sqlc.Tx) ([]CatalogTable, error) {
+func (s *ServiceRefresh) listStoredTables(cttx sqlc.Tx, database string) ([]CatalogTable, error) {
 	type tableRow struct {
 		Database string `db:"database"`
 		Name     string `db:"name"`
 	}
 
 	rows := make([]tableRow, 0)
-	if err := cttx.Q().From("tables").Column(sqlc.Col("database")).Column(sqlc.Col("name")).Select(cttx, &rows); err != nil {
+	q := cttx.Q().From("tables").Column(sqlc.Col("database")).Column(sqlc.Col("name"))
+	if database != "" {
+		q = q.Where(sqlc.Eq{"database": database})
+	}
+
+	if err := q.Select(cttx, &rows); err != nil {
 		return nil, fmt.Errorf("could not query stored tables: %w", err)
 	}
 
 	tables := make([]CatalogTable, len(rows))
 	for i, row := range rows {
-		tables[i] = CatalogTable{Database: row.Database, Name: row.Name}
+		tables[i] = CatalogTable(row)
 	}
 
 	return tables, nil

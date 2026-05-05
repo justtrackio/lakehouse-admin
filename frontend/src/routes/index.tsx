@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card, Typography, Table, Spin, Alert, Button, Tooltip } from 'antd';
 import { CheckCircleOutlined, WarningOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
-import { fetchTables, ListTableItem, refreshFull } from '../api/schema';
+import { fetchTables, ListTableItem, refreshDatabase } from '../api/schema';
 import { useDatabase } from '../context/DatabaseContext';
 import { formatNumber, formatBytes } from '../utils/format';
 import { useMessageApi } from '../context/MessageContext';
@@ -28,13 +28,13 @@ function IndexComponent() {
   });
 
   const refreshMutation = useMutation({
-    mutationFn: refreshFull,
+    mutationFn: () => refreshDatabase(database),
     onSuccess: () => {
-      messageApi.success('Full refresh completed successfully');
+      messageApi.success('Database refresh completed successfully');
       queryClient.invalidateQueries({ queryKey: ['tables'] });
     },
     onError: (error: Error) => {
-      messageApi.error(`Full refresh failed: ${error.message}`);
+      messageApi.error(`Database refresh failed: ${error.message}`);
     },
   });
 
@@ -125,7 +125,7 @@ function IndexComponent() {
             onClick={() => refreshMutation.mutate()}
             loading={refreshMutation.isPending}
           >
-            Full Refresh
+            Refresh Database
           </Button>
         </div>
       </div>
