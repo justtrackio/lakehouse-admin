@@ -60,7 +60,7 @@ export interface TableDetails {
 }
 
 export async function fetchTableDetails(database: string, tableName: string): Promise<TableDetails> {
-  return apiClient.get<TableDetails>(`/api/browse/${encodeURIComponent(database)}/${tableName}`);
+  return apiClient.get<TableDetails>(`/api/browse/${encodeURIComponent(database)}/${encodeURIComponent(tableName)}`);
 }
 
 export interface TableSchemaColumn {
@@ -77,7 +77,7 @@ export interface TableSchema {
 }
 
 export async function fetchTableSchema(database: string, tableName: string): Promise<TableSchema> {
-  return apiClient.get<TableSchema>(`/api/iceberg/${encodeURIComponent(database)}/${tableName}`);
+  return apiClient.get<TableSchema>(`/api/iceberg/${encodeURIComponent(database)}/${encodeURIComponent(tableName)}`);
 }
 
 export interface ListPartitionItem {
@@ -99,7 +99,7 @@ export async function fetchPartitionValues(
   partitionFilters: Record<string, string>,
 ): Promise<ListPartitionItem[]> {
   const response = await apiClient.post<ListPartitionsResponse>(
-    `/api/browse/${encodeURIComponent(database)}/${tableName}/partitions`,
+    `/api/browse/${encodeURIComponent(database)}/${encodeURIComponent(tableName)}/partitions`,
     { partitions: partitionFilters }
   );
   return response.partitions;
@@ -125,7 +125,7 @@ export async function fetchPartitionFiles(
   partitionFilters: Record<string, string>,
 ): Promise<DataFileItem[]> {
   const response = await apiClient.post<ListFilesResponse>(
-    `/api/browse/${encodeURIComponent(database)}/${tableName}/files`,
+    `/api/browse/${encodeURIComponent(database)}/${encodeURIComponent(tableName)}/files`,
     { partitions: partitionFilters }
   );
   return response.files;
@@ -141,7 +141,7 @@ export interface SnapshotItem {
 }
 
 export async function fetchSnapshots(database: string, tableName: string): Promise<SnapshotItem[]> {
-  return apiClient.get<SnapshotItem[]>(`/api/metadata/${encodeURIComponent(database)}/${tableName}/snapshots`);
+  return apiClient.get<SnapshotItem[]>(`/api/metadata/${encodeURIComponent(database)}/${encodeURIComponent(tableName)}/snapshots`);
 }
 
 export interface SnapshotMissingFilesResponse {
@@ -160,7 +160,7 @@ export async function fetchSnapshotMissingFiles(
   snapshotId: string,
 ): Promise<SnapshotMissingFilesResponse> {
   return apiClient.get<SnapshotMissingFilesResponse>(
-    `/api/iceberg/${encodeURIComponent(database)}/${tableName}/snapshots/${snapshotId}/missing-files`
+    `/api/iceberg/${encodeURIComponent(database)}/${encodeURIComponent(tableName)}/snapshots/${snapshotId}/missing-files`
   );
 }
 
@@ -170,8 +170,7 @@ export async function rollbackToSnapshot(
   snapshotId: string,
 ): Promise<SnapshotRollbackResponse> {
   return apiClient.post<SnapshotRollbackResponse>(
-    `/api/iceberg/${encodeURIComponent(database)}/${tableName}/snapshots/${snapshotId}/rollback`,
-    {}
+    `/api/iceberg/${encodeURIComponent(database)}/${encodeURIComponent(tableName)}/snapshots/${snapshotId}/rollback`
   );
 }
 
@@ -197,7 +196,7 @@ export async function expireSnapshots(
   retentionDays: number,
 ): Promise<TaskQueuedResponse> {
   return apiClient.post<TaskQueuedResponse>(
-    `/api/tasks/${encodeURIComponent(database)}/${tableName}/expire-snapshots`,
+    `/api/tasks/${encodeURIComponent(database)}/${encodeURIComponent(tableName)}/expire-snapshots`,
     {
       retention_days: retentionDays,
     }
@@ -210,7 +209,7 @@ export async function removeOrphanFiles(
   retentionDays: number,
 ): Promise<TaskQueuedResponse> {
   return apiClient.post<TaskQueuedResponse>(
-    `/api/tasks/${encodeURIComponent(database)}/${tableName}/remove-orphan-files`,
+    `/api/tasks/${encodeURIComponent(database)}/${encodeURIComponent(tableName)}/remove-orphan-files`,
     {
       retention_days: retentionDays,
     }
@@ -266,7 +265,7 @@ export async function optimizeTable(
   chunkBy: OptimizeChunkBy = 'daily',
 ): Promise<OptimizeTaskQueuedResponse> {
   return apiClient.post<OptimizeTaskQueuedResponse>(
-    `/api/tasks/${encodeURIComponent(database)}/${tableName}/optimize`,
+    `/api/tasks/${encodeURIComponent(database)}/${encodeURIComponent(tableName)}/optimize`,
     {
       target_file_size_mb: targetFileSizeMb,
       from: from,
@@ -307,7 +306,7 @@ export interface RefreshTableResponse {
 }
 
 export async function refreshTable(database: string, tableName: string): Promise<RefreshTableResponse> {
-  return apiClient.get<RefreshTableResponse>(`/api/refresh/${encodeURIComponent(database)}/${tableName}`);
+  return apiClient.get<RefreshTableResponse>(`/api/refresh/${encodeURIComponent(database)}/${encodeURIComponent(tableName)}`);
 }
 
 export interface Task {
@@ -389,8 +388,8 @@ export interface RetryAllTasksResponse {
   retried_count: number;
 }
 
-export async function retryAllTasks(): Promise<RetryAllTasksResponse> {
-  return apiClient.post<RetryAllTasksResponse>('/api/tasks/retry-all', {});
+export async function retryAllTasks(database: string): Promise<RetryAllTasksResponse> {
+  return apiClient.post<RetryAllTasksResponse>(`/api/tasks/${encodeURIComponent(database)}/retry-all`);
 }
 
 export async function retryTask(taskId: number): Promise<TaskQueuedResponse> {

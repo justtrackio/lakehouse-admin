@@ -133,7 +133,7 @@ function PartitionsPage() {
   const optimizeMutation = useMutation({
     mutationFn: (partitionName: string) => {
       const { from, to } = deriveDateRange(partitionName);
-	      const targetFileSizeMb = 512;
+      const targetFileSizeMb = 512;
       return optimizeTable(database, tableName, targetFileSizeMb, from, to);
     },
     onSuccess: (data, partitionName) => {

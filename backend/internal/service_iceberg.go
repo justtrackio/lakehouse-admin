@@ -183,15 +183,7 @@ func (s *ServiceIceberg) ListDatabases(ctx context.Context) ([]CatalogDatabase, 
 			return nil, fmt.Errorf("could not list tables for database %s: %w", database, err)
 		}
 
-		hasTables := false
-		for _, tbl := range tables {
-			hasTables = true
-			if len(tbl) == 0 {
-				continue
-			}
-		}
-
-		if !hasTables {
+		if len(tables) == 0 {
 			continue
 		}
 

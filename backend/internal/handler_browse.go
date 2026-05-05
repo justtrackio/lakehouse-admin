@@ -24,7 +24,7 @@ type ListTablesResponse struct {
 	Tables []*TableSummary `json:"tables"`
 }
 
-type ListTablesInput struct {
+type DatabaseInput struct {
 	Database string `uri:"database"`
 }
 
@@ -114,7 +114,7 @@ func (h *HandlerBrowse) TableSummary(ctx context.Context, input *TableSelectInpu
 	return httpserver.NewJsonResponse(summary), nil
 }
 
-func (h *HandlerBrowse) ListTables(ctx context.Context, input *ListTablesInput) (httpserver.Response, error) {
+func (h *HandlerBrowse) ListTables(ctx context.Context, input *DatabaseInput) (httpserver.Response, error) {
 	var err error
 	var tables []TableDescription
 

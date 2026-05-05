@@ -75,7 +75,7 @@ function TasksPage() {
   };
 
   const handleRetryAll = () => {
-    retryAllMutation.mutate();
+    retryAllMutation.mutate(database);
   };
 
   return (

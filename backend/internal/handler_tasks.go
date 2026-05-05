@@ -148,8 +148,8 @@ func (h *HandlerTasks) RetryTask(ctx context.Context, input *RetryTaskInput) (ht
 	}), nil
 }
 
-func (h *HandlerTasks) RetryAllTasks(ctx context.Context) (httpserver.Response, error) {
-	retriedCount, err := h.serviceTasks.RetryAllTasks(ctx)
+func (h *HandlerTasks) RetryAllTasks(ctx context.Context, input *DatabaseInput) (httpserver.Response, error) {
+	retriedCount, err := h.serviceTasks.RetryAllTasks(ctx, input.Database)
 	if err != nil {
 		return nil, err
 	}
@@ -174,7 +174,7 @@ func (h *HandlerTasks) ProcedureResultCallback(ctx context.Context, input *TaskP
 	return httpserver.NewJsonResponse(map[string]string{"status": statusOK}), nil
 }
 
-func (h *HandlerTasks) TaskCounts(ctx context.Context, input *ListTablesInput) (httpserver.Response, error) {
+func (h *HandlerTasks) TaskCounts(ctx context.Context, input *DatabaseInput) (httpserver.Response, error) {
 	running, queued, err := h.serviceTasks.TaskCounts(ctx, input.Database)
 	if err != nil {
 		return nil, err
@@ -186,7 +186,7 @@ func (h *HandlerTasks) TaskCounts(ctx context.Context, input *ListTablesInput) (
 	}), nil
 }
 
-func (h *HandlerTasks) FlushTasks(ctx context.Context, input *ListTablesInput) (httpserver.Response, error) {
+func (h *HandlerTasks) FlushTasks(ctx context.Context, input *DatabaseInput) (httpserver.Response, error) {
 	deleted, err := h.serviceTasks.FlushTasks(ctx, input.Database)
 	if err != nil {
 		return nil, err

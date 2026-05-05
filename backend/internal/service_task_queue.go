@@ -106,7 +106,7 @@ func (s *ServiceTaskQueue) RetryTask(ctx context.Context, id int64) (int64, erro
 	return retryTaskID, nil
 }
 
-func (s *ServiceTaskQueue) RetryAllTasks(ctx context.Context) (int64, error) {
+func (s *ServiceTaskQueue) RetryAllTasks(ctx context.Context, database string) (int64, error) {
 	var retriedCount int64
 
 	err := s.sqlClient.WithTx(ctx, func(cttx sqlc.Tx) error {
@@ -116,6 +116,10 @@ func (s *ServiceTaskQueue) RetryAllTasks(ctx context.Context) (int64, error) {
 			From("tasks").
 			Where(sqlc.Eq{"status": taskStatusError, "retried": false}).
 			OrderBy(sqlc.Col("started_at").Asc())
+
+		if database != "" {
+			query = query.Where(sqlc.Eq{"database": database})
+		}
 
 		if err := query.Select(cttx, &tasks); err != nil {
 			return fmt.Errorf("could not list retryable tasks: %w", err)

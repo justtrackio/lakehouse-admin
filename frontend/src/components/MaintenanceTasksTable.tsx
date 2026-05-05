@@ -47,7 +47,7 @@ export function MaintenanceTasksTable({ database, tableName, pageSize }: Mainten
 
   const retryMutation = useMutation({
     mutationFn: retryTask,
-      onSuccess: (result, taskId) => {
+    onSuccess: (result, taskId) => {
       queryClient.invalidateQueries({ queryKey: ['tasks', database] });
       queryClient.invalidateQueries({ queryKey: ['taskCounts', database] });
       messageApi.success(`Retried task ${taskId} as queued task ${result.task_id}`);

@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useRouterState } from '@tanstack/react-router';
 import { Alert, Spin } from 'antd';
@@ -12,7 +12,14 @@ interface DatabaseProviderProps {
 export function DatabaseProvider({ children }: DatabaseProviderProps) {
   const navigate = useNavigate();
   const search = useRouterState({ select: (state) => state.location.search as Record<string, unknown> });
-  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const pathnameRef = useRef('');
+  const pathname = useRouterState({
+    select: (state) => {
+      pathnameRef.current = state.location.pathname;
+      return state.location.pathname;
+    },
+  });
+  void pathname;
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ['databases'],
@@ -31,7 +38,7 @@ export function DatabaseProvider({ children }: DatabaseProviderProps) {
     isLoading,
     setDatabase: (nextDatabase: string) => {
       void navigate({
-        to: pathname,
+        to: pathnameRef.current,
         search: (prev) => ({
           ...(prev as Record<string, unknown>),
           database: nextDatabase,
@@ -39,7 +46,7 @@ export function DatabaseProvider({ children }: DatabaseProviderProps) {
         replace: true,
       });
     },
-  }), [activeDatabase, data, defaultDatabase, isLoading, navigate, pathname]);
+  }), [activeDatabase, data, defaultDatabase, isLoading, navigate]);
 
   if (isLoading) {
     return (

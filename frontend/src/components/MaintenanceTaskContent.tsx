@@ -46,7 +46,7 @@ export function MaintenanceTaskContent({
     queryFn: () => fetchTables(database),
   });
 
-  const columns: ColumnsType<ListTableItem> = [
+  const columns: ColumnsType<ListTableItem> = useMemo(() => [
     {
       title: 'Table Name',
       dataIndex: 'name',
@@ -96,7 +96,7 @@ export function MaintenanceTaskContent({
       key: 'needs_optimize',
       render: (value: boolean) => value ? <Tag color="warning">Needs Optimization</Tag> : <Tag color="success">Healthy</Tag>,
     },
-  ];
+  ], [database]);
 
   if (isError) {
     return (
@@ -110,10 +110,10 @@ export function MaintenanceTaskContent({
   }
 
   return (
-      <BatchTaskLayout
-        tables={tables}
-        columns={columns}
-        isLoading={isLoading}
+    <BatchTaskLayout
+      tables={tables}
+      columns={columns}
+      isLoading={isLoading}
       selectedRowKeys={selectedRowKeys}
       onSelectedRowKeysChange={onSelectedRowKeysChange}
       isSubmitting={isSubmitting}

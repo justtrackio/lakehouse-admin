@@ -211,7 +211,6 @@ func (s *ServiceRefresh) RefreshTableFull(cttx sqlc.Tx, database string, table s
 	return nil
 }
 
-
 func (s *ServiceRefresh) reconcileTableInventory(cttx sqlc.Tx) ([]CatalogTable, error) {
 	var err error
 	var databases []CatalogDatabase
@@ -251,7 +250,7 @@ func (s *ServiceRefresh) reconcileTableInventory(cttx sqlc.Tx) ([]CatalogTable, 
 func (s *ServiceRefresh) listStoredTables(cttx sqlc.Tx) ([]CatalogTable, error) {
 	type tableRow struct {
 		Database string `db:"database"`
-		Name string `db:"name"`
+		Name     string `db:"name"`
 	}
 
 	rows := make([]tableRow, 0)
@@ -276,12 +275,7 @@ func (s *ServiceRefresh) deleteStaleTable(cttx sqlc.Tx, database string, name st
 	}
 
 	for table, column := range cleanupSteps {
-		where := sqlc.Eq{column: name}
-		if table == "tables" {
-			where["database"] = database
-		} else {
-			where["database"] = database
-		}
+		where := sqlc.Eq{column: name, "database": database}
 
 		if _, err := cttx.Q().Delete(table).Where(where).Exec(cttx); err != nil {
 			return fmt.Errorf("could not delete from %s: %w", table, err)

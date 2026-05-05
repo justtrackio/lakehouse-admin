@@ -46,7 +46,7 @@ func main() {
 
 			router.Group("/api/tasks").HandleWith(httpserver.With(internal.NewHandlerTasks, func(r *httpserver.Router, handler *internal.HandlerTasks) {
 				r.POST("/:id/callback-result", httpserver.Bind(handler.ProcedureResultCallback))
-				r.POST("/retry-all", httpserver.BindN(handler.RetryAllTasks))
+				r.POST("/:database/retry-all", httpserver.Bind(handler.RetryAllTasks))
 				r.POST("/retry/:id", httpserver.Bind(handler.RetryTask))
 				r.POST("/:database/:table/expire-snapshots", httpserver.Bind(handler.ExpireSnapshots))
 				r.POST("/:database/:table/remove-orphan-files", httpserver.Bind(handler.RemoveOrphanFiles))

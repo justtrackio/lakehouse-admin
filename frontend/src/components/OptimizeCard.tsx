@@ -31,7 +31,7 @@ export function OptimizeCard({ database, tableName }: OptimizeCardProps) {
         to = values.date_range[1].format('YYYY-MM-DD');
       }
 
-	      return optimizeTable(database, tableName, values.target_file_size_mb, from, to, 'daily');
+      return optimizeTable(database, tableName, values.target_file_size_mb, from, to, 'daily');
     },
     onSuccess: (data) => {
       const count = data.task_ids.length;
@@ -63,7 +63,7 @@ export function OptimizeCard({ database, tableName }: OptimizeCardProps) {
           layout="vertical"
           onFinish={onFinish}
           initialValues={{
-	            target_file_size_mb: 512,
+            target_file_size_mb: 512,
             date_range: null,
           }}
           disabled={mutation.isPending}
@@ -71,13 +71,13 @@ export function OptimizeCard({ database, tableName }: OptimizeCardProps) {
           <Space direction="horizontal" size="large" style={{ width: '100%' }} align="start">
             <div style={{ width: 400 }}>
               <Form.Item
-	                label={`Target File Size (MB): ${targetFileSize}`}
-	                name="target_file_size_mb"
+                label={`Target File Size (MB): ${targetFileSize}`}
+                name="target_file_size_mb"
                 rules={[
-	                  { required: true, message: 'Please input target file size!' },
-	                  { type: 'number', min: 1, message: 'Minimum target size is 1 MB' },
+                  { required: true, message: 'Please input target file size!' },
+                  { type: 'number', min: 1, message: 'Minimum target size is 1 MB' },
                 ]}
-	                extra="Rewritten files will target approximately this size."
+                extra="Rewritten files will target approximately this size."
               >
                 <Slider min={512} max={5120} marks={{ 512: '512MB', 1024: '1GB', 2048: '2GB', 5120: '5GB' }} />
               </Form.Item>

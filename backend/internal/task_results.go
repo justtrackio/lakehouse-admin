@@ -12,7 +12,7 @@ func expireSnapshotsResultMap(res *ExpireSnapshotsResult) map[string]any {
 
 func removeOrphanFilesResultMap(res *RemoveOrphanFilesResult) map[string]any {
 	return map[string]any{
-		"database":      res.Database,
+		"database":       res.Database,
 		"table":          res.Table,
 		"retention_days": res.RetentionDays,
 		"metrics":        res.Metrics,

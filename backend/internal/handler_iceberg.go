@@ -75,10 +75,6 @@ type SnapshotRollbackInput struct {
 	SnapshotID int64  `uri:"snapshotId"`
 }
 
-type IcebergListTablesInput struct {
-	Database string `uri:"database"`
-}
-
 type SnapshotMissingFilesResponse struct {
 	SnapshotID   int64    `json:"snapshot_id,string"`
 	MissingFiles []string `json:"missing_files"`
@@ -148,7 +144,7 @@ func (h *HandlerIceberg) RollbackToSnapshot(ctx context.Context, input *Snapshot
 	}), nil
 }
 
-func (h *HandlerIceberg) ListTables(ctx context.Context, input *IcebergListTablesInput) (httpserver.Response, error) {
+func (h *HandlerIceberg) ListTables(ctx context.Context, input *DatabaseInput) (httpserver.Response, error) {
 	var err error
 	var tables []CatalogTable
 

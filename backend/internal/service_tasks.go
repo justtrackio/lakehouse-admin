@@ -334,8 +334,8 @@ func (s *ServiceTasks) RetryTask(ctx context.Context, taskID int64) (int64, erro
 	return retryTaskID, nil
 }
 
-func (s *ServiceTasks) RetryAllTasks(ctx context.Context) (int64, error) {
-	retriedCount, err := s.serviceTaskQueue.RetryAllTasks(ctx)
+func (s *ServiceTasks) RetryAllTasks(ctx context.Context, database string) (int64, error) {
+	retriedCount, err := s.serviceTaskQueue.RetryAllTasks(ctx, database)
 	if err != nil {
 		return 0, fmt.Errorf("could not retry failed tasks: %w", err)
 	}
