@@ -18,6 +18,7 @@ const (
 )
 
 type Snapshot struct {
+	Database     string                                  `json:"database" db:"database"`
 	Table        string                                  `json:"table" db:"table"`
 	CommittedAt  time.Time                               `json:"committed_at" db:"committed_at"`
 	SnapshotId   int64                                   `json:"snapshot_id,string" db:"snapshot_id"`
@@ -28,6 +29,7 @@ type Snapshot struct {
 }
 
 type Partition struct {
+	Database                 string                                   `json:"database" db:"database"`
 	Table                    string                                   `json:"table" db:"table"`
 	Partition                db.JSON[PartitionValues, db.NonNullable] `json:"partition" db:"partition"`
 	SpecId                   int                                      `json:"spec_id" db:"spec_id"`
@@ -51,6 +53,7 @@ type sPartition struct {
 }
 
 type TableDescription struct {
+	Database          string                                    `json:"database" db:"database"`
 	Name              string                                    `json:"name" db:"name"`
 	Columns           db.JSON[TableColumns, db.NonNullable]     `json:"columns" db:"columns"`
 	Partitions        db.JSON[[]TablePartition, db.NonNullable] `json:"partitions" db:"partitions"`
@@ -78,6 +81,7 @@ type TablePartitionHidden struct {
 }
 
 type TableSummary struct {
+	Database                 string           `json:"database" db:"database"`
 	Name                     string           `json:"name" db:"name"`
 	Partitions               []TablePartition `json:"partitions" db:"partitions"`
 	CurrentSnapshotID        *int64           `json:"current_snapshot_id,string,omitempty" db:"current_snapshot_id"`
@@ -92,6 +96,7 @@ type TableSummary struct {
 
 type Task struct {
 	Id           int64                                   `json:"id" db:"id"`
+	Database     string                                  `json:"database" db:"database"`
 	Table        string                                  `json:"table" db:"table"`
 	Kind         string                                  `json:"kind" db:"kind"`
 	Engine       string                                  `json:"engine" db:"engine"`
@@ -107,6 +112,7 @@ type Task struct {
 
 type sTask struct {
 	Id           int64          `json:"id" db:"id"`
+	Database     string         `json:"database" db:"database"`
 	Table        string         `json:"table" db:"table"`
 	Kind         string         `json:"kind" db:"kind"`
 	Engine       string         `json:"engine" db:"engine"`
@@ -124,4 +130,19 @@ type sTask struct {
 type PaginatedTasks struct {
 	Items []sTask `json:"items"`
 	Total int64   `json:"total"`
+}
+
+type CatalogDatabase struct {
+	Name      string `json:"name"`
+	IsDefault bool   `json:"is_default"`
+}
+
+type CatalogDatabasesResponse struct {
+	Databases       []CatalogDatabase `json:"databases"`
+	DefaultDatabase string            `json:"default_database"`
+}
+
+type CatalogTable struct {
+	Database string `json:"database"`
+	Name     string `json:"name"`
 }

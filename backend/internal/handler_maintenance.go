@@ -10,11 +10,13 @@ import (
 )
 
 type BatchExpireSnapshotsInput struct {
+	Database      string   `uri:"database"`
 	Tables        []string `json:"tables"`
 	RetentionDays int      `json:"retention_days"`
 }
 
 type BatchRemoveOrphanFilesInput struct {
+	Database      string   `uri:"database"`
 	Tables        []string `json:"tables"`
 	RetentionDays int      `json:"retention_days"`
 }
@@ -25,6 +27,7 @@ type BatchOptimizeTableInput struct {
 }
 
 type BatchOptimizeInput struct {
+	Database         string                    `uri:"database"`
 	Tables           []BatchOptimizeTableInput `json:"tables"`
 	TargetFileSizeMb int                       `json:"target_file_size_mb"`
 	From             DateTime                  `json:"from"`
@@ -47,7 +50,7 @@ type HandlerMaintenance struct {
 }
 
 func (h *HandlerMaintenance) ExpireSnapshots(ctx context.Context, input *BatchExpireSnapshotsInput) (httpserver.Response, error) {
-	result, err := h.serviceTasks.EnqueueExpireSnapshotsBatch(ctx, input.Tables, input.RetentionDays)
+	result, err := h.serviceTasks.EnqueueExpireSnapshotsBatch(ctx, input.Database, input.Tables, input.RetentionDays)
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +59,7 @@ func (h *HandlerMaintenance) ExpireSnapshots(ctx context.Context, input *BatchEx
 }
 
 func (h *HandlerMaintenance) RemoveOrphanFiles(ctx context.Context, input *BatchRemoveOrphanFilesInput) (httpserver.Response, error) {
-	result, err := h.serviceTasks.EnqueueRemoveOrphanFilesBatch(ctx, input.Tables, input.RetentionDays)
+	result, err := h.serviceTasks.EnqueueRemoveOrphanFilesBatch(ctx, input.Database, input.Tables, input.RetentionDays)
 	if err != nil {
 		return nil, err
 	}
@@ -70,7 +73,7 @@ func (h *HandlerMaintenance) Optimize(ctx context.Context, input *BatchOptimizeI
 		tables = append(tables, BatchOptimizeTable(table))
 	}
 
-	result, err := h.serviceTasks.EnqueueOptimizeBatch(ctx, tables, input.TargetFileSizeMb, input.From.Time, input.To.Time)
+	result, err := h.serviceTasks.EnqueueOptimizeBatch(ctx, input.Database, tables, input.TargetFileSizeMb, input.From.Time, input.To.Time)
 	if err != nil {
 		return nil, err
 	}

@@ -10,6 +10,7 @@ import (
 )
 
 type ExpireSnapshotsResult struct {
+	Database             string `json:"database"`
 	Table                string `json:"table"`
 	RetentionDays        int    `json:"retention_days"`
 	CleanExpiredMetadata bool   `json:"clean_expired_metadata"`
@@ -17,6 +18,7 @@ type ExpireSnapshotsResult struct {
 }
 
 type RemoveOrphanFilesResult struct {
+	Database      string         `json:"database"`
 	Table         string         `json:"table"`
 	RetentionDays int            `json:"retention_days"`
 	Metrics       map[string]any `json:"metrics"`
@@ -30,6 +32,7 @@ type TrinoMaintenanceExecutor struct {
 	taskQueue TaskClaimer
 	refresher SnapshotRefresher
 	sqlClient sqlc.Client
+	settings  *IcebergSettings
 }
 
 func NewTrinoMaintenanceExecutor(ctx context.Context, config cfg.Config, logger log.Logger) (*TrinoMaintenanceExecutor, error) {
@@ -39,6 +42,7 @@ func NewTrinoMaintenanceExecutor(ctx context.Context, config cfg.Config, logger 
 	var taskQueue TaskClaimer
 	var refresher SnapshotRefresher
 	var sqlClient sqlc.Client
+	var settings *IcebergSettings
 
 	if trino, err = ProvideTrinoClient(ctx, config, logger); err != nil {
 		return nil, fmt.Errorf("could not create trino client: %w", err)
@@ -60,6 +64,10 @@ func NewTrinoMaintenanceExecutor(ctx context.Context, config cfg.Config, logger 
 		return nil, fmt.Errorf("could not create sqlg client: %w", err)
 	}
 
+	if settings, err = ReadIcebergSettings(config); err != nil {
+		return nil, fmt.Errorf("could not read iceberg settings: %w", err)
+	}
+
 	return &TrinoMaintenanceExecutor{
 		logger:    logger.WithChannel("maintenance_executor_trino"),
 		trino:     trino,
@@ -67,6 +75,7 @@ func NewTrinoMaintenanceExecutor(ctx context.Context, config cfg.Config, logger 
 		taskQueue: taskQueue,
 		refresher: refresher,
 		sqlClient: sqlClient,
+		settings:  settings,
 	}, nil
 }
 
@@ -98,13 +107,13 @@ func (s *TrinoMaintenanceExecutor) ProcessTask(ctx context.Context, task *Task) 
 func (s *TrinoMaintenanceExecutor) processExpireSnapshots(ctx context.Context, task *Task, input map[string]any) error {
 	retentionDays, _ := input["retention_days"].(float64)
 
-	res, err := s.executeExpireSnapshots(ctx, task.Table, int(retentionDays))
+	res, err := s.executeExpireSnapshots(ctx, task.Database, task.Table, int(retentionDays))
 	if err != nil {
 		return s.taskQueue.CompleteTask(ctx, task.Id, nil, err)
 	}
 
 	err = s.sqlClient.WithTx(ctx, func(cttx sqlc.Tx) error {
-		_, err := s.refresher.RefreshSnapshots(cttx, task.Table)
+		_, err := s.refresher.RefreshSnapshots(cttx, task.Database, task.Table)
 
 		return err
 	})
@@ -118,7 +127,7 @@ func (s *TrinoMaintenanceExecutor) processExpireSnapshots(ctx context.Context, t
 func (s *TrinoMaintenanceExecutor) processRemoveOrphanFiles(ctx context.Context, task *Task, input map[string]any) error {
 	retentionDays, _ := input["retention_days"].(float64)
 
-	res, err := s.executeRemoveOrphanFiles(ctx, task.Table, int(retentionDays))
+	res, err := s.executeRemoveOrphanFiles(ctx, task.Database, task.Table, int(retentionDays))
 	if err != nil {
 		return s.taskQueue.CompleteTask(ctx, task.Id, nil, err)
 	}
@@ -126,13 +135,13 @@ func (s *TrinoMaintenanceExecutor) processRemoveOrphanFiles(ctx context.Context,
 	return s.taskQueue.CompleteTask(ctx, task.Id, removeOrphanFilesResultMap(res), nil)
 }
 
-func (s *TrinoMaintenanceExecutor) executeExpireSnapshots(ctx context.Context, table string, retentionDays int) (*ExpireSnapshotsResult, error) {
+func (s *TrinoMaintenanceExecutor) executeExpireSnapshots(ctx context.Context, database string, table string, retentionDays int) (*ExpireSnapshotsResult, error) {
 	if retentionDays < 1 {
 		return nil, fmt.Errorf("retention days must be at least 1")
 	}
 
 	retentionThreshold := fmt.Sprintf("%dd", retentionDays)
-	qualifiedTable := qualifiedTableName("lakehouse", "main", table)
+	qualifiedTable := qualifiedTableName(s.settings.Catalog, database, table)
 	query := fmt.Sprintf("ALTER TABLE %s EXECUTE expire_snapshots(retention_threshold => %s, clean_expired_metadata => true)", qualifiedTable, quoteLiteral(retentionThreshold))
 
 	if err := s.trino.Exec(ctx, query); err != nil {
@@ -140,6 +149,7 @@ func (s *TrinoMaintenanceExecutor) executeExpireSnapshots(ctx context.Context, t
 	}
 
 	return &ExpireSnapshotsResult{
+		Database:             database,
 		Table:                table,
 		RetentionDays:        retentionDays,
 		CleanExpiredMetadata: true,
@@ -147,7 +157,7 @@ func (s *TrinoMaintenanceExecutor) executeExpireSnapshots(ctx context.Context, t
 	}, nil
 }
 
-func (s *TrinoMaintenanceExecutor) executeRemoveOrphanFiles(ctx context.Context, table string, retentionDays int) (*RemoveOrphanFilesResult, error) {
+func (s *TrinoMaintenanceExecutor) executeRemoveOrphanFiles(ctx context.Context, database string, table string, retentionDays int) (*RemoveOrphanFilesResult, error) {
 	if retentionDays < 1 {
 		return nil, fmt.Errorf("retention days must be at least 1")
 	}
@@ -156,7 +166,7 @@ func (s *TrinoMaintenanceExecutor) executeRemoveOrphanFiles(ctx context.Context,
 	var err error
 
 	retentionThreshold := fmt.Sprintf("%dd", retentionDays)
-	qualifiedTable := qualifiedTableName("lakehouse", "main", table)
+	qualifiedTable := qualifiedTableName(s.settings.Catalog, database, table)
 	query := fmt.Sprintf("ALTER TABLE %s EXECUTE remove_orphan_files(retention_threshold => %s)", qualifiedTable, quoteLiteral(retentionThreshold))
 
 	if rows, err = s.trino.QueryRows(ctx, query); err != nil {
@@ -174,6 +184,7 @@ func (s *TrinoMaintenanceExecutor) executeRemoveOrphanFiles(ctx context.Context,
 	}
 
 	return &RemoveOrphanFilesResult{
+		Database:      database,
 		Table:         table,
 		RetentionDays: retentionDays,
 		Metrics:       metrics,

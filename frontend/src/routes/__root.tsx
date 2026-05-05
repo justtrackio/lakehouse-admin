@@ -1,10 +1,12 @@
 import { createRootRoute, Link, Outlet } from '@tanstack/react-router';
 import { TanStackRouterDevtools } from '@tanstack/router-devtools';
-import { Layout, Menu, Space, Switch, Typography } from 'antd';
+import { Layout, Menu, Select, Space, Switch, Typography } from 'antd';
 import { AdminModeProvider } from '../components/AdminModeProvider';
+import { DatabaseProvider } from '../components/DatabaseProvider';
 import { MessageProvider } from '../components/MessageProvider';
 import { TaskStatusIndicator } from '../components/TaskStatusIndicator';
 import { useAdminMode } from '../context/AdminModeContext';
+import { useDatabase } from '../context/DatabaseContext';
 
 const { Header, Content, Footer } = Layout;
 const { Text } = Typography;
@@ -16,15 +18,18 @@ export const Route = createRootRoute({
 function RootComponent() {
   return (
     <MessageProvider>
-      <AdminModeProvider>
-        <RootLayout />
-      </AdminModeProvider>
+      <DatabaseProvider>
+        <AdminModeProvider>
+          <RootLayout />
+        </AdminModeProvider>
+      </DatabaseProvider>
     </MessageProvider>
   );
 }
 
 function RootLayout() {
   const { isAdminMode, setAdminMode } = useAdminMode();
+  const { database, databases, setDatabase } = useDatabase();
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
@@ -40,17 +45,24 @@ function RootLayout() {
             items={[
               {
                 key: 'home',
-                label: <Link to="/">Home</Link>,
+                label: <Link to="/" search={{ database }}>Home</Link>,
               },
               {
                 key: 'maintenance',
-                label: <Link to="/maintenance">Maintenance</Link>,
+                label: <Link to="/maintenance" search={{ database }}>Maintenance</Link>,
               },
               {
                 key: 'tasks',
-                label: <Link to="/tasks">Tasks</Link>,
+                label: <Link to="/tasks" search={{ database }}>Tasks</Link>,
               },
             ]}
+          />
+          <Select
+            value={database}
+            onChange={setDatabase}
+            options={databases.map((name) => ({ value: name, label: name }))}
+            style={{ minWidth: 200 }}
+            placeholder="Database"
           />
           <TaskStatusIndicator />
         </div>

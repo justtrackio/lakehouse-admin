@@ -69,7 +69,7 @@ func TestResolveBrowseFileSelectionsRequiresRawFieldName(t *testing.T) {
 func TestBuildBrowseFilesQueryUsesFilesMetadataTable(t *testing.T) {
 	service := &ServiceBrowseFiles{}
 
-	query := service.buildBrowseFilesQuery("revenueevent", []browseFileSelection{{RawFieldName: "createdAt_day", Value: "2026-03-25"}})
+	query := service.buildBrowseFilesQuery("main", "revenueevent", []browseFileSelection{{RawFieldName: "createdAt_day", Value: "2026-03-25"}})
 
 	require.Contains(t, query, `FROM "lakehouse"."main"."revenueevent$files"`)
 	require.Contains(t, query, `WHERE content = 0`)

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { Key } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { batchRemoveOrphanFiles } from '../api/schema';
+import { useDatabase } from '../context/DatabaseContext';
 import { useMessageApi } from '../context/MessageContext';
 import { MaintenanceTaskContent } from './MaintenanceTaskContent';
 import { RetentionActionCard } from './RetentionActionCard';
@@ -15,12 +16,13 @@ const config = {
 
 export function RemoveOrphanFilesBatchContent() {
   const [selectedRowKeys, setSelectedRowKeys] = useState<Key[]>([]);
+  const { database } = useDatabase();
   const handleBatchSuccess = useMaintenanceBatchSuccess();
   const messageApi = useMessageApi();
 
   const mutation = useMutation({
     mutationFn: (values: { tables: string[]; retention_days: number }) =>
-      batchRemoveOrphanFiles(values.tables, values.retention_days),
+      batchRemoveOrphanFiles(database, values.tables, values.retention_days),
     onSuccess: (data, values) => {
       handleBatchSuccess(data, values.tables.length, 'remove orphan files');
       setSelectedRowKeys([]);
@@ -32,6 +34,7 @@ export function RemoveOrphanFilesBatchContent() {
 
   return (
     <MaintenanceTaskContent
+      database={database}
       config={config}
       selectedRowKeys={selectedRowKeys}
       onSelectedRowKeysChange={setSelectedRowKeys}

@@ -28,7 +28,7 @@ const (
 
 type IcebergSettings struct {
 	Catalog            string        `cfg:"catalog" default:"lakehouse"`
-	Database           string        `cfg:"database" default:"main"`
+	DefaultDatabase    string        `cfg:"default_database" default:"main"`
 	NeedsOptimizeDelay time.Duration `cfg:"needs_optimize_delay" default:"24h"`
 }
 
@@ -77,8 +77,8 @@ type IcebergClient struct {
 	logger   log.Logger
 }
 
-func (c *IcebergClient) LoadTable(ctx context.Context, logicalName string) (*table.Table, error) {
-	identifier := c.resolveTableIdentifier(logicalName)
+func (c *IcebergClient) LoadTable(ctx context.Context, database string, logicalName string) (*table.Table, error) {
+	identifier := c.resolveTableIdentifier(database, logicalName)
 
 	ctx = utils.WithAwsConfig(ctx, &c.awsCfg)
 	tbl, err := c.catalog.LoadTable(ctx, identifier)
@@ -89,18 +89,22 @@ func (c *IcebergClient) LoadTable(ctx context.Context, logicalName string) (*tab
 	return tbl, nil
 }
 
-func (c *IcebergClient) resolveTableIdentifier(logicalName string) table.Identifier {
+func (c *IcebergClient) resolveTableIdentifier(database string, logicalName string) table.Identifier {
 	if strings.Contains(logicalName, ".") {
 		parts := strings.Split(logicalName, ".")
 
 		return parts
 	}
 
-	return []string{c.settings.Database, logicalName}
+	if database == "" {
+		database = c.settings.DefaultDatabase
+	}
+
+	return []string{database, logicalName}
 }
 
-func (c *IcebergClient) ListSnapshots(ctx context.Context, logicalName string) ([]table.Snapshot, error) {
-	tbl, err := c.LoadTable(ctx, logicalName)
+func (c *IcebergClient) ListSnapshots(ctx context.Context, database string, logicalName string) ([]table.Snapshot, error) {
+	tbl, err := c.LoadTable(ctx, database, logicalName)
 	if err != nil {
 		return nil, fmt.Errorf("could not load table: %w", err)
 	}
@@ -111,8 +115,8 @@ func (c *IcebergClient) ListSnapshots(ctx context.Context, logicalName string) (
 	return snapshots, nil
 }
 
-func (c *IcebergClient) ListSnapshotDataFilePaths(ctx context.Context, logicalName string, snapshotID int64) ([]string, error) {
-	tbl, err := c.LoadTable(ctx, logicalName)
+func (c *IcebergClient) ListSnapshotDataFilePaths(ctx context.Context, database string, logicalName string, snapshotID int64) ([]string, error) {
+	tbl, err := c.LoadTable(ctx, database, logicalName)
 	if err != nil {
 		return nil, fmt.Errorf("could not load table: %w", err)
 	}
@@ -150,8 +154,8 @@ func (c *IcebergClient) listSnapshotDataFilePaths(ctx context.Context, tbl *tabl
 // ListPartitions returns partition stats with browse-compatible keys
 // that match the TableDescription.Partitions names (year, month, day for time transforms,
 // or column name for identity transforms).
-func (c *IcebergClient) ListPartitions(ctx context.Context, logicalName string) ([]IcebergPartitionStats, error) {
-	tbl, err := c.LoadTable(ctx, logicalName)
+func (c *IcebergClient) ListPartitions(ctx context.Context, database string, logicalName string) ([]IcebergPartitionStats, error) {
+	tbl, err := c.LoadTable(ctx, database, logicalName)
 	if err != nil {
 		return nil, fmt.Errorf("could not load table: %w", err)
 	}
@@ -316,13 +320,17 @@ func (c *IcebergClient) findSourceColumnName(schema *iceberg.Schema, sourceID in
 	return sourceField.Name, true
 }
 
-func (c *IcebergClient) ListTables(ctx context.Context) ([]table.Identifier, error) {
+func (c *IcebergClient) ListTables(ctx context.Context, database string) ([]table.Identifier, error) {
 	var err error
 	var t table.Identifier
 	var tables []table.Identifier
 
+	if database == "" {
+		database = c.settings.DefaultDatabase
+	}
+
 	ctx = utils.WithAwsConfig(ctx, &c.awsCfg)
-	iterator := c.catalog.ListTables(ctx, table.Identifier{c.settings.Database})
+	iterator := c.catalog.ListTables(ctx, table.Identifier{database})
 
 	for t, err = range iterator {
 		if err != nil {
@@ -335,8 +343,8 @@ func (c *IcebergClient) ListTables(ctx context.Context) ([]table.Identifier, err
 	return tables, nil
 }
 
-func (c *IcebergClient) DescribeTable(ctx context.Context, logicalName string) (*TableDescription, error) {
-	tbl, err := c.LoadTable(ctx, logicalName)
+func (c *IcebergClient) DescribeTable(ctx context.Context, database string, logicalName string) (*TableDescription, error) {
+	tbl, err := c.LoadTable(ctx, database, logicalName)
 	if err != nil {
 		return nil, fmt.Errorf("could not load table: %w", err)
 	}
@@ -354,6 +362,7 @@ func (c *IcebergClient) DescribeTable(ctx context.Context, logicalName string) (
 	}
 
 	desc := &TableDescription{
+		Database:          database,
 		Name:              logicalName,
 		Columns:           columns,
 		Partitions:        partitions,
@@ -366,6 +375,28 @@ func (c *IcebergClient) DescribeTable(ctx context.Context, logicalName string) (
 	}
 
 	return desc, nil
+}
+
+func (c *IcebergClient) ListDatabases(ctx context.Context) ([]string, error) {
+	ctx = utils.WithAwsConfig(ctx, &c.awsCfg)
+
+	namespaces, err := c.catalog.ListNamespaces(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("could not list namespaces from iceberg catalog: %w", err)
+	}
+
+	databases := make([]string, 0, len(namespaces))
+	for _, namespace := range namespaces {
+		if len(namespace) == 0 {
+			continue
+		}
+
+		databases = append(databases, namespace[len(namespace)-1])
+	}
+
+	sort.Strings(databases)
+
+	return databases, nil
 }
 
 func (c *IcebergClient) extractColumns(schema *iceberg.Schema) (db.JSON[TableColumns, db.NonNullable], error) {

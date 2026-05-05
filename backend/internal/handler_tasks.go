@@ -11,16 +11,19 @@ import (
 )
 
 type ExpireSnapshotsInput struct {
+	Database      string `uri:"database"`
 	Table         string `uri:"table"`
 	RetentionDays int    `json:"retention_days"`
 }
 
 type RemoveOrphanFilesInput struct {
+	Database      string `uri:"database"`
 	Table         string `uri:"table"`
 	RetentionDays int    `json:"retention_days"`
 }
 
 type OptimizeInput struct {
+	Database         string   `uri:"database"`
 	Table            string   `uri:"table"`
 	TargetFileSizeMb int      `json:"target_file_size_mb"`
 	From             DateTime `json:"from"`
@@ -29,11 +32,12 @@ type OptimizeInput struct {
 }
 
 type ListTasksInput struct {
-	Table  string   `form:"table"`
-	Kind   []string `form:"kind"`
-	Status []string `form:"status"`
-	Limit  int      `form:"limit"`
-	Offset int      `form:"offset"`
+	Database string   `uri:"database"`
+	Table    string   `form:"table"`
+	Kind     []string `form:"kind"`
+	Status   []string `form:"status"`
+	Limit    int      `form:"limit"`
+	Offset   int      `form:"offset"`
 }
 
 type RetryTaskInput struct {
@@ -88,7 +92,7 @@ type HandlerTasks struct {
 }
 
 func (h *HandlerTasks) ExpireSnapshots(ctx context.Context, input *ExpireSnapshotsInput) (httpserver.Response, error) {
-	taskId, err := h.serviceTasks.EnqueueExpireSnapshots(ctx, input.Table, input.RetentionDays)
+	taskId, err := h.serviceTasks.EnqueueExpireSnapshots(ctx, input.Database, input.Table, input.RetentionDays)
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +104,7 @@ func (h *HandlerTasks) ExpireSnapshots(ctx context.Context, input *ExpireSnapsho
 }
 
 func (h *HandlerTasks) RemoveOrphanFiles(ctx context.Context, input *RemoveOrphanFilesInput) (httpserver.Response, error) {
-	taskId, err := h.serviceTasks.EnqueueRemoveOrphanFiles(ctx, input.Table, input.RetentionDays)
+	taskId, err := h.serviceTasks.EnqueueRemoveOrphanFiles(ctx, input.Database, input.Table, input.RetentionDays)
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +116,7 @@ func (h *HandlerTasks) RemoveOrphanFiles(ctx context.Context, input *RemoveOrpha
 }
 
 func (h *HandlerTasks) Optimize(ctx context.Context, input *OptimizeInput) (httpserver.Response, error) {
-	taskIds, err := h.serviceTasks.EnqueueOptimize(ctx, input.Table, input.TargetFileSizeMb, input.From.Time, input.To.Time, input.ChunkBy)
+	taskIds, err := h.serviceTasks.EnqueueOptimize(ctx, input.Database, input.Table, input.TargetFileSizeMb, input.From.Time, input.To.Time, input.ChunkBy)
 	if err != nil {
 		return nil, err
 	}
@@ -124,7 +128,7 @@ func (h *HandlerTasks) Optimize(ctx context.Context, input *OptimizeInput) (http
 }
 
 func (h *HandlerTasks) ListTasks(ctx context.Context, input *ListTasksInput) (httpserver.Response, error) {
-	result, err := h.serviceTasks.ListTasks(ctx, input.Table, input.Kind, input.Status, input.Limit, input.Offset)
+	result, err := h.serviceTasks.ListTasks(ctx, input.Database, input.Table, input.Kind, input.Status, input.Limit, input.Offset)
 	if err != nil {
 		return nil, err
 	}
@@ -170,8 +174,8 @@ func (h *HandlerTasks) ProcedureResultCallback(ctx context.Context, input *TaskP
 	return httpserver.NewJsonResponse(map[string]string{"status": statusOK}), nil
 }
 
-func (h *HandlerTasks) TaskCounts(ctx context.Context) (httpserver.Response, error) {
-	running, queued, err := h.serviceTasks.TaskCounts(ctx)
+func (h *HandlerTasks) TaskCounts(ctx context.Context, input *ListTablesInput) (httpserver.Response, error) {
+	running, queued, err := h.serviceTasks.TaskCounts(ctx, input.Database)
 	if err != nil {
 		return nil, err
 	}
@@ -182,8 +186,8 @@ func (h *HandlerTasks) TaskCounts(ctx context.Context) (httpserver.Response, err
 	}), nil
 }
 
-func (h *HandlerTasks) FlushTasks(ctx context.Context) (httpserver.Response, error) {
-	deleted, err := h.serviceTasks.FlushTasks(ctx)
+func (h *HandlerTasks) FlushTasks(ctx context.Context, input *ListTablesInput) (httpserver.Response, error) {
+	deleted, err := h.serviceTasks.FlushTasks(ctx, input.Database)
 	if err != nil {
 		return nil, err
 	}

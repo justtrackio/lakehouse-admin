@@ -64,13 +64,19 @@ type IcebergListPartitionsResponse struct {
 }
 
 type SnapshotMissingFilesInput struct {
+	Database   string `uri:"database"`
 	Table      string `uri:"table"`
 	SnapshotID int64  `uri:"snapshotId"`
 }
 
 type SnapshotRollbackInput struct {
+	Database   string `uri:"database"`
 	Table      string `uri:"table"`
 	SnapshotID int64  `uri:"snapshotId"`
+}
+
+type IcebergListTablesInput struct {
+	Database string `uri:"database"`
 }
 
 type SnapshotMissingFilesResponse struct {
@@ -87,7 +93,7 @@ func (h *HandlerIceberg) ListSnapshots(ctx context.Context, input *TableSelectIn
 	var err error
 	var snapshots []IcebergSnapshot
 
-	if snapshots, err = h.service.ListSnapshots(ctx, input.Table); err != nil {
+	if snapshots, err = h.service.ListSnapshots(ctx, input.Database, input.Table); err != nil {
 		return nil, fmt.Errorf("could not list snapshots: %w", err)
 	}
 
@@ -100,7 +106,7 @@ func (h *HandlerIceberg) ListPartitions(ctx context.Context, input *TableSelectI
 	var err error
 	var partitions []IcebergPartition
 
-	if partitions, err = h.service.ListPartitions(ctx, input.Table); err != nil {
+	if partitions, err = h.service.ListPartitions(ctx, input.Database, input.Table); err != nil {
 		return nil, fmt.Errorf("could not list partitions: %w", err)
 	}
 
@@ -110,7 +116,7 @@ func (h *HandlerIceberg) ListPartitions(ctx context.Context, input *TableSelectI
 }
 
 func (h *HandlerIceberg) ListSnapshotMissingFiles(ctx context.Context, input *SnapshotMissingFilesInput) (httpserver.Response, error) {
-	missingFiles, err := h.files.ListMissingFiles(ctx, input.Table, input.SnapshotID)
+	missingFiles, err := h.files.ListMissingFiles(ctx, input.Database, input.Table, input.SnapshotID)
 	if err != nil {
 		return nil, fmt.Errorf("could not list missing files for snapshot %d: %w", input.SnapshotID, err)
 	}
@@ -122,12 +128,12 @@ func (h *HandlerIceberg) ListSnapshotMissingFiles(ctx context.Context, input *Sn
 }
 
 func (h *HandlerIceberg) RollbackToSnapshot(ctx context.Context, input *SnapshotRollbackInput) (httpserver.Response, error) {
-	if err := h.admin.RollbackToSnapshot(ctx, input.Table, input.SnapshotID); err != nil {
+	if err := h.admin.RollbackToSnapshot(ctx, input.Database, input.Table, input.SnapshotID); err != nil {
 		return nil, fmt.Errorf("could not rollback table %s to snapshot %d: %w", input.Table, input.SnapshotID, err)
 	}
 
 	if err := h.sqlClient.WithTx(ctx, func(cttx sqlc.Tx) error {
-		if err := h.refresh.RefreshTableFull(cttx, input.Table); err != nil {
+		if err := h.refresh.RefreshTableFull(cttx, input.Database, input.Table); err != nil {
 			return fmt.Errorf("could not refresh table metadata after rollback: %w", err)
 		}
 
@@ -142,22 +148,34 @@ func (h *HandlerIceberg) RollbackToSnapshot(ctx context.Context, input *Snapshot
 	}), nil
 }
 
-func (h *HandlerIceberg) ListTables(ctx context.Context) (httpserver.Response, error) {
+func (h *HandlerIceberg) ListTables(ctx context.Context, input *IcebergListTablesInput) (httpserver.Response, error) {
 	var err error
-	var tables []string
+	var tables []CatalogTable
 
-	if tables, err = h.service.ListTables(ctx); err != nil {
+	if tables, err = h.service.ListTables(ctx, input.Database); err != nil {
 		return nil, fmt.Errorf("could not list tables: %w", err)
 	}
 
 	return httpserver.NewJsonResponse(tables), nil
 }
 
+func (h *HandlerIceberg) ListDatabases(ctx context.Context) (httpserver.Response, error) {
+	databases, err := h.service.ListDatabases(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("could not list databases: %w", err)
+	}
+
+	return httpserver.NewJsonResponse(CatalogDatabasesResponse{
+		Databases:       databases,
+		DefaultDatabase: h.service.settings.DefaultDatabase,
+	}), nil
+}
+
 func (h *HandlerIceberg) DescribeTable(ctx context.Context, input *TableSelectInput) (httpserver.Response, error) {
 	var err error
 	var desc *TableDescription
 
-	if desc, err = h.service.DescribeTable(ctx, input.Table); err != nil {
+	if desc, err = h.service.DescribeTable(ctx, input.Database, input.Table); err != nil {
 		return nil, fmt.Errorf("could not describe table: %w", err)
 	}
 

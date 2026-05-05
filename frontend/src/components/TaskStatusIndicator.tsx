@@ -3,11 +3,13 @@ import { Link } from '@tanstack/react-router';
 import { Badge, Space } from 'antd';
 import { LoadingOutlined, ClockCircleOutlined } from '@ant-design/icons';
 import { fetchTaskCounts } from '../api/schema';
+import { useDatabase } from '../context/DatabaseContext';
 
 export function TaskStatusIndicator() {
+  const { database } = useDatabase();
   const { data } = useQuery({
-    queryKey: ['taskCounts'],
-    queryFn: fetchTaskCounts,
+    queryKey: ['taskCounts', database],
+    queryFn: () => fetchTaskCounts(database),
     refetchInterval: 5000, // Poll every 5 seconds (same as MaintenanceTasksTable)
   });
 
@@ -17,7 +19,7 @@ export function TaskStatusIndicator() {
   }
 
   return (
-    <Link to="/tasks" style={{ textDecoration: 'none' }}>
+    <Link to="/tasks" search={{ database }} style={{ textDecoration: 'none' }}>
       <Space size="small" style={{ marginLeft: '16px', cursor: 'pointer' }}>
         {data.running > 0 && (
           <Badge count={data.running} style={{ backgroundColor: '#1890ff' }}>

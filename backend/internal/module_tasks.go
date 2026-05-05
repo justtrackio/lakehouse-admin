@@ -112,7 +112,7 @@ func (m *ModuleTasks) tryProcessTasks(ctx context.Context, cfn coffin.Coffin) {
 			return
 		}
 
-		m.logger.Info(ctx, "picked up task %d (%s for %s)", task.Id, task.Kind, task.Table)
+		m.logger.Info(ctx, "picked up task %d (%s for %s.%s)", task.Id, task.Kind, task.Database, task.Table)
 		claimedTask := task
 		cfn.GoWithContext(ctx, func(ctx context.Context) error {
 			if err := m.processTask(ctx, claimedTask); err != nil {

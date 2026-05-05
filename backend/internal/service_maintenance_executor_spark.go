@@ -16,6 +16,7 @@ import (
 )
 
 type OptimizeResult struct {
+	Database         string `json:"database"`
 	Table            string `json:"table"`
 	TargetFileSizeMb int    `json:"target_file_size_mb"`
 	Where            string `json:"where"`
@@ -165,7 +166,7 @@ func (s *SparkMaintenanceExecutor) processOptimize(ctx context.Context, task *Ta
 	from := cast.ToTime(input["from"])
 	to := cast.ToTime(input["to"])
 
-	res, err := s.executeOptimize(ctx, task.Id, task.Table, int(targetFileSizeMb), from, to)
+	res, err := s.executeOptimize(ctx, task.Id, task.Database, task.Table, int(targetFileSizeMb), from, to)
 	if err != nil {
 		return fmt.Errorf("could not execute optimize task: %w", err)
 	}
@@ -183,7 +184,7 @@ func (s *SparkMaintenanceExecutor) processOptimize(ctx context.Context, task *Ta
 func (s *SparkMaintenanceExecutor) processExpireSnapshots(ctx context.Context, task *Task, input map[string]any) error {
 	retentionDays, _ := input["retention_days"].(float64)
 
-	result, err := s.executeExpireSnapshots(ctx, task.Id, task.Table, int(retentionDays))
+	result, err := s.executeExpireSnapshots(ctx, task.Id, task.Database, task.Table, int(retentionDays))
 	if err != nil {
 		return fmt.Errorf("could not execute expire snapshots task: %w", err)
 	}
@@ -200,7 +201,7 @@ func (s *SparkMaintenanceExecutor) processExpireSnapshots(ctx context.Context, t
 func (s *SparkMaintenanceExecutor) processRemoveOrphanFiles(ctx context.Context, task *Task, input map[string]any) error {
 	retentionDays, _ := input["retention_days"].(float64)
 
-	result, err := s.executeRemoveOrphanFiles(ctx, task.Id, task.Table, int(retentionDays))
+	result, err := s.executeRemoveOrphanFiles(ctx, task.Id, task.Database, task.Table, int(retentionDays))
 	if err != nil {
 		return fmt.Errorf("could not execute remove orphan files task: %w", err)
 	}
@@ -214,7 +215,7 @@ func (s *SparkMaintenanceExecutor) processRemoveOrphanFiles(ctx context.Context,
 	return nil
 }
 
-func (s *SparkMaintenanceExecutor) executeOptimize(ctx context.Context, taskID int64, table string, targetFileSizeMb int, from time.Time, to time.Time) (*OptimizeResult, error) {
+func (s *SparkMaintenanceExecutor) executeOptimize(ctx context.Context, taskID int64, database string, table string, targetFileSizeMb int, from time.Time, to time.Time) (*OptimizeResult, error) {
 	if targetFileSizeMb < 1 {
 		return nil, fmt.Errorf("target file size must be at least 1 MB")
 	}
@@ -228,7 +229,7 @@ func (s *SparkMaintenanceExecutor) executeOptimize(ctx context.Context, taskID i
 		return nil, fmt.Errorf("from date must be before or equal to the to date")
 	}
 
-	if desc, err = s.metadata.GetTable(ctx, table); err != nil {
+	if desc, err = s.metadata.GetTable(ctx, database, table); err != nil {
 		return nil, fmt.Errorf("could not get table metadata: %w", err)
 	}
 
@@ -251,7 +252,7 @@ func (s *SparkMaintenanceExecutor) executeOptimize(ctx context.Context, taskID i
 		return nil, fmt.Errorf("could not load spark application template: %w", err)
 	}
 
-	if err = s.prepareSparkApplication(manifest, TaskKindOptimize, taskID, table, applicationName); err != nil {
+	if err = s.prepareSparkApplication(manifest, TaskKindOptimize, taskID, database, table, applicationName); err != nil {
 		return nil, fmt.Errorf("could not prepare spark application manifest: %w", err)
 	}
 
@@ -275,6 +276,7 @@ func (s *SparkMaintenanceExecutor) executeOptimize(ctx context.Context, taskID i
 	}
 
 	return &OptimizeResult{
+		Database:         database,
 		Table:            table,
 		TargetFileSizeMb: targetFileSizeMb,
 		Where:            whereClause,
@@ -283,7 +285,7 @@ func (s *SparkMaintenanceExecutor) executeOptimize(ctx context.Context, taskID i
 	}, nil
 }
 
-func (s *SparkMaintenanceExecutor) executeExpireSnapshots(ctx context.Context, taskID int64, table string, retentionDays int) (map[string]any, error) {
+func (s *SparkMaintenanceExecutor) executeExpireSnapshots(ctx context.Context, taskID int64, database string, table string, retentionDays int) (map[string]any, error) {
 	if retentionDays < 1 {
 		return nil, fmt.Errorf("retention days must be at least 1")
 	}
@@ -297,7 +299,7 @@ func (s *SparkMaintenanceExecutor) executeExpireSnapshots(ctx context.Context, t
 		return nil, fmt.Errorf("could not load spark application template: %w", err)
 	}
 
-	if err = s.prepareSparkApplication(manifest, TaskKindExpireSnapshots, taskID, table, applicationName); err != nil {
+	if err = s.prepareSparkApplication(manifest, TaskKindExpireSnapshots, taskID, database, table, applicationName); err != nil {
 		return nil, fmt.Errorf("could not prepare spark application manifest: %w", err)
 	}
 
@@ -316,6 +318,7 @@ func (s *SparkMaintenanceExecutor) executeExpireSnapshots(ctx context.Context, t
 	}
 
 	return map[string]any{
+		"database":               database,
 		"table":                  table,
 		"retention_days":         retentionDays,
 		"older_than":             olderThan,
@@ -326,7 +329,7 @@ func (s *SparkMaintenanceExecutor) executeExpireSnapshots(ctx context.Context, t
 	}, nil
 }
 
-func (s *SparkMaintenanceExecutor) executeRemoveOrphanFiles(ctx context.Context, taskID int64, table string, retentionDays int) (map[string]any, error) {
+func (s *SparkMaintenanceExecutor) executeRemoveOrphanFiles(ctx context.Context, taskID int64, database string, table string, retentionDays int) (map[string]any, error) {
 	if retentionDays < 1 {
 		return nil, fmt.Errorf("retention days must be at least 1")
 	}
@@ -340,7 +343,7 @@ func (s *SparkMaintenanceExecutor) executeRemoveOrphanFiles(ctx context.Context,
 		return nil, fmt.Errorf("could not load spark application template: %w", err)
 	}
 
-	if err = s.prepareSparkApplication(manifest, TaskKindRemoveOrphanFiles, taskID, table, applicationName); err != nil {
+	if err = s.prepareSparkApplication(manifest, TaskKindRemoveOrphanFiles, taskID, database, table, applicationName); err != nil {
 		return nil, fmt.Errorf("could not prepare spark application manifest: %w", err)
 	}
 
@@ -358,6 +361,7 @@ func (s *SparkMaintenanceExecutor) executeRemoveOrphanFiles(ctx context.Context,
 	}
 
 	return map[string]any{
+		"database":         database,
 		"table":            table,
 		"retention_days":   retentionDays,
 		"older_than":       olderThan,
@@ -367,7 +371,7 @@ func (s *SparkMaintenanceExecutor) executeRemoveOrphanFiles(ctx context.Context,
 	}, nil
 }
 
-func (s *SparkMaintenanceExecutor) prepareSparkApplication(manifest *SparkApplicationManifest, taskKind TaskKind, taskID int64, table string, applicationName string) error {
+func (s *SparkMaintenanceExecutor) prepareSparkApplication(manifest *SparkApplicationManifest, taskKind TaskKind, taskID int64, database string, table string, applicationName string) error {
 	procedure, err := sparkTaskProcedure(taskKind)
 	if err != nil {
 		return fmt.Errorf("could not determine spark task procedure: %w", err)
@@ -387,7 +391,7 @@ func (s *SparkMaintenanceExecutor) prepareSparkApplication(manifest *SparkApplic
 
 	return manifest.SetEnvValues(map[string]string{
 		"ICEBERG_CATALOG":       s.icebergSettings.Catalog,
-		"ICEBERG_DATABASE":      s.icebergSettings.Database,
+		"ICEBERG_DATABASE":      database,
 		"ICEBERG_TABLE":         table,
 		"TASK_CALLBACK_ENABLED": fmt.Sprintf("%t", s.settings.Callback.Enabled),
 		"TASK_CALLBACK_URL":     BuildTaskProcedureCallbackURL(s.settings.Callback.BackendHost, taskID),

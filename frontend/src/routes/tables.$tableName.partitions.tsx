@@ -23,19 +23,23 @@ import {
   TableDetails,
   ListPartitionItem,
 } from '../api/schema';
+import { normalizeDatabaseSearch } from '../utils/database';
 import { formatNumber, formatBytes } from '../utils/format';
 import { useMessageApi } from '../context/MessageContext';
 
 const { Title, Text } = Typography;
 
 interface SearchParams {
+  database: string;
   partitions?: Record<string, string>;
 }
 
 export const Route = createFileRoute('/tables/$tableName/partitions')({
   component: PartitionsPage,
   validateSearch: (search: Record<string, unknown>): SearchParams => {
+    const databaseSearch = normalizeDatabaseSearch(search);
     return {
+      database: databaseSearch.database,
       partitions: (search.partitions as Record<string, string>) || {},
     };
   },
@@ -43,7 +47,7 @@ export const Route = createFileRoute('/tables/$tableName/partitions')({
 
 function PartitionsPage() {
   const { tableName } = Route.useParams();
-  const { partitions: partitionFilters } = Route.useSearch();
+  const { database, partitions: partitionFilters } = Route.useSearch();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const messageApi = useMessageApi();
@@ -59,8 +63,8 @@ function PartitionsPage() {
     isError: isErrorTable,
     error: errorTable,
   } = useQuery<TableDetails, Error>({
-    queryKey: ['table', tableName],
-    queryFn: () => fetchTableDetails(tableName),
+    queryKey: ['table', database, tableName],
+    queryFn: () => fetchTableDetails(database, tableName),
   });
 
   const {
@@ -69,8 +73,8 @@ function PartitionsPage() {
     isError: isErrorPartitions,
     error: errorPartitions,
   } = useQuery<ListPartitionItem[], Error>({
-    queryKey: ['partitions', tableName, partitionFilters],
-    queryFn: () => fetchPartitionValues(tableName, partitionFilters || {}),
+    queryKey: ['partitions', database, tableName, partitionFilters],
+    queryFn: () => fetchPartitionValues(database, tableName, partitionFilters || {}),
     enabled: !!table,
   });
 
@@ -80,8 +84,8 @@ function PartitionsPage() {
     isError: isErrorFiles,
     error: errorFiles,
   } = useQuery<DataFileItem[], Error>({
-    queryKey: ['partitionFiles', tableName, selectedPartition],
-    queryFn: () => fetchPartitionFiles(tableName, selectedPartition || {}),
+    queryKey: ['partitionFiles', database, tableName, selectedPartition],
+    queryFn: () => fetchPartitionFiles(database, tableName, selectedPartition || {}),
     enabled: !!selectedPartition,
   });
 
@@ -130,15 +134,15 @@ function PartitionsPage() {
     mutationFn: (partitionName: string) => {
       const { from, to } = deriveDateRange(partitionName);
 	      const targetFileSizeMb = 512;
-      return optimizeTable(tableName, targetFileSizeMb, from, to);
+      return optimizeTable(database, tableName, targetFileSizeMb, from, to);
     },
     onSuccess: (data, partitionName) => {
       const count = data.task_ids.length;
       messageApi.success(
         `Enqueued ${count} optimize task${count === 1 ? '' : 's'} for partition ${partitionName} (IDs: ${data.task_ids.slice(0, 3).join(', ')}${count > 3 ? '...' : ''})`
       );
-      queryClient.invalidateQueries({ queryKey: ['tasks', tableName] });
-      queryClient.invalidateQueries({ queryKey: ['partitions', tableName, partitionFilters] });
+      queryClient.invalidateQueries({ queryKey: ['tasks', database, tableName] });
+      queryClient.invalidateQueries({ queryKey: ['partitions', database, tableName, partitionFilters] });
     },
     onError: (error: Error, partitionName) => {
       messageApi.error(`Failed to enqueue optimize task for partition ${partitionName}: ${error.message}`);
@@ -211,10 +215,10 @@ function PartitionsPage() {
     }
 
     navigate({
-      to: '/tables/$tableName/partitions',
-      params: { tableName },
-      search: { partitions: newFilters },
-    });
+        to: '/tables/$tableName/partitions',
+        params: { tableName },
+        search: { database, partitions: newFilters },
+      });
   };
 
   const fileColumns: ColumnsType<DataFileItem> = [
@@ -268,14 +272,14 @@ function PartitionsPage() {
   // Add root link to navigate back to first partition level (no filters)
   if (filterKeys.length > 0) {
     partitionBreadcrumb.push(
-      <Link
-        key="root"
-        to="/tables/$tableName/partitions"
-        params={{ tableName }}
-        search={{}}
-      >
-        {tableName}
-      </Link>
+        <Link
+          key="root"
+          to="/tables/$tableName/partitions"
+          params={{ tableName }}
+          search={{ database, partitions: {} }}
+        >
+          {tableName}
+        </Link>
     );
     partitionBreadcrumb.push(' / ');
   }
@@ -289,12 +293,12 @@ function PartitionsPage() {
     }
 
     partitionBreadcrumb.push(
-      <Link
-        key={i}
-        to="/tables/$tableName/partitions"
-        params={{ tableName }}
-        search={{ partitions: partialFilters }}
-      >
+        <Link
+          key={i}
+          to="/tables/$tableName/partitions"
+          params={{ tableName }}
+          search={{ database, partitions: partialFilters }}
+        >
         {key}={value}
       </Link>
     );

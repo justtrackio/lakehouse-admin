@@ -44,5 +44,5 @@ type SparkApplicationCreator interface {
 
 // SnapshotRefresher abstracts the snapshot refresh operation.
 type SnapshotRefresher interface {
-	RefreshSnapshots(cttx sqlc.Tx, table string) ([]Snapshot, error)
+	RefreshSnapshots(cttx sqlc.Tx, database string, table string) ([]Snapshot, error)
 }

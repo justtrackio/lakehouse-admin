@@ -3,6 +3,7 @@ package internal
 import (
 	"context"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/apache/iceberg-go/table"
@@ -43,8 +44,8 @@ type ServiceIceberg struct {
 	serviceSettings *ServiceSettings
 }
 
-func (s *ServiceIceberg) ListSnapshots(ctx context.Context, logicalName string) ([]IcebergSnapshot, error) {
-	snapshots, err := s.client.ListSnapshots(ctx, logicalName)
+func (s *ServiceIceberg) ListSnapshots(ctx context.Context, database string, logicalName string) ([]IcebergSnapshot, error) {
+	snapshots, err := s.client.ListSnapshots(ctx, database, logicalName)
 	if err != nil {
 		return nil, fmt.Errorf("could not list snapshots from iceberg: %w", err)
 	}
@@ -73,42 +74,48 @@ func (s *ServiceIceberg) ListSnapshots(ctx context.Context, logicalName string) 
 		}
 	}
 
-	s.logger.Info(ctx, "listed %d snapshots for table %s", len(result), logicalName)
+	s.logger.Info(ctx, "listed %d snapshots for table %s.%s", len(result), database, logicalName)
 
 	return result, nil
 }
 
-func (s *ServiceIceberg) ListTables(ctx context.Context) ([]string, error) {
+func (s *ServiceIceberg) ListTables(ctx context.Context, database string) ([]CatalogTable, error) {
 	var err error
 	var tables []table.Identifier
 
-	if tables, err = s.client.ListTables(ctx); err != nil {
+	if tables, err = s.client.ListTables(ctx, database); err != nil {
 		return nil, fmt.Errorf("could not list tables from iceberg: %w", err)
 	}
 
-	result := make([]string, len(tables))
+	result := make([]CatalogTable, len(tables))
 	for i, t := range tables {
-		// The identifier comes as [database, table]
-		result[i] = t[len(t)-1]
+		if len(t) < 2 {
+			return nil, fmt.Errorf("unexpected table identifier: %v", t)
+		}
+
+		result[i] = CatalogTable{
+			Database: t[len(t)-2],
+			Name:     t[len(t)-1],
+		}
 	}
 
-	s.logger.Info(ctx, "listed %d tables", len(result))
+	s.logger.Info(ctx, "listed %d tables for database %s", len(result), database)
 
 	return result, nil
 }
 
-func (s *ServiceIceberg) DescribeTable(ctx context.Context, logicalName string) (*TableDescription, error) {
-	desc, err := s.client.DescribeTable(ctx, logicalName)
+func (s *ServiceIceberg) DescribeTable(ctx context.Context, database string, logicalName string) (*TableDescription, error) {
+	desc, err := s.client.DescribeTable(ctx, database, logicalName)
 	if err != nil {
 		return nil, fmt.Errorf("could not describe table: %w", err)
 	}
 
-	s.logger.Info(ctx, "described table %s", logicalName)
+	s.logger.Info(ctx, "described table %s.%s", database, logicalName)
 
 	return desc, nil
 }
 
-func (s *ServiceIceberg) ListPartitions(ctx context.Context, logicalName string) ([]IcebergPartition, error) {
+func (s *ServiceIceberg) ListPartitions(ctx context.Context, database string, logicalName string) ([]IcebergPartition, error) {
 	var err error
 	var partitionStats []IcebergPartitionStats
 	var needsOptimization bool
@@ -116,7 +123,7 @@ func (s *ServiceIceberg) ListPartitions(ctx context.Context, logicalName string)
 	var smallFileMinCount int
 	var smallFileMinSharePct int
 
-	if partitionStats, err = s.client.ListPartitions(ctx, logicalName); err != nil {
+	if partitionStats, err = s.client.ListPartitions(ctx, database, logicalName); err != nil {
 		return nil, fmt.Errorf("could not list partitions from iceberg: %w", err)
 	}
 
@@ -158,7 +165,45 @@ func (s *ServiceIceberg) ListPartitions(ctx context.Context, logicalName string)
 		}
 	}
 
-	s.logger.Info(ctx, "listed %d partitions for table %s", len(result), logicalName)
+	s.logger.Info(ctx, "listed %d partitions for table %s.%s", len(result), database, logicalName)
+
+	return result, nil
+}
+
+func (s *ServiceIceberg) ListDatabases(ctx context.Context) ([]CatalogDatabase, error) {
+	databases, err := s.client.ListDatabases(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("could not list databases from iceberg: %w", err)
+	}
+
+	result := make([]CatalogDatabase, 0, len(databases))
+	for _, database := range databases {
+		tables, err := s.client.ListTables(ctx, database)
+		if err != nil {
+			return nil, fmt.Errorf("could not list tables for database %s: %w", database, err)
+		}
+
+		hasTables := false
+		for _, tbl := range tables {
+			hasTables = true
+			if len(tbl) == 0 {
+				continue
+			}
+		}
+
+		if !hasTables {
+			continue
+		}
+
+		result = append(result, CatalogDatabase{
+			Name:      database,
+			IsDefault: database == s.settings.DefaultDatabase,
+		})
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Name < result[j].Name
+	})
 
 	return result, nil
 }

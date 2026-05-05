@@ -1,14 +1,16 @@
 import { useQueryClient } from '@tanstack/react-query';
 import type { BatchTaskQueuedResponse } from '../api/schema';
+import { useDatabase } from '../context/DatabaseContext';
 import { useMessageApi } from '../context/MessageContext';
 
 export function useMaintenanceBatchSuccess() {
   const queryClient = useQueryClient();
   const messageApi = useMessageApi();
+  const { database } = useDatabase();
 
   return (data: BatchTaskQueuedResponse, requestedCount: number, actionLabel: string) => {
-    queryClient.invalidateQueries({ queryKey: ['tasks'] });
-    queryClient.invalidateQueries({ queryKey: ['taskCounts'] });
+    queryClient.invalidateQueries({ queryKey: ['tasks', database] });
+    queryClient.invalidateQueries({ queryKey: ['taskCounts', database] });
 
     if (data.failed_tables.length === 0) {
       messageApi.success(

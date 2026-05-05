@@ -4,6 +4,7 @@ import { Card, Typography, Table, Spin, Alert, Button, Tooltip } from 'antd';
 import { CheckCircleOutlined, WarningOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { fetchTables, ListTableItem, refreshFull } from '../api/schema';
+import { useDatabase } from '../context/DatabaseContext';
 import { formatNumber, formatBytes } from '../utils/format';
 import { useMessageApi } from '../context/MessageContext';
 
@@ -15,21 +16,22 @@ export const Route = createFileRoute('/')({
 function IndexComponent() {
   const queryClient = useQueryClient();
   const messageApi = useMessageApi();
+  const { database } = useDatabase();
   const {
     data: tables,
     isLoading,
     isError,
     error,
   } = useQuery<ListTableItem[], Error>({
-    queryKey: ['tables'],
-    queryFn: fetchTables,
+    queryKey: ['tables', database],
+    queryFn: () => fetchTables(database),
   });
 
   const refreshMutation = useMutation({
     mutationFn: refreshFull,
     onSuccess: () => {
       messageApi.success('Full refresh completed successfully');
-      queryClient.invalidateQueries({ queryKey: ['tables'] });
+      queryClient.invalidateQueries({ queryKey: ['tables', database] });
     },
     onError: (error: Error) => {
       messageApi.error(`Full refresh failed: ${error.message}`);
@@ -45,6 +47,7 @@ function IndexComponent() {
         <Link
           to="/tables/$tableName"
           params={{ tableName: record.name }}
+          search={{ database }}
         >
           {record.name}
         </Link>

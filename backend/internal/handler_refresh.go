@@ -38,7 +38,7 @@ func (h *HandlerRefresh) RefreshTables(cttx sqlc.Tx) (httpserver.Response, error
 func (h *HandlerRefresh) RefreshTable(cttx sqlc.Tx, input *TableSelectInput) (httpserver.Response, error) {
 	var err error
 
-	if err = h.service.RefreshTableFull(cttx, input.Table); err != nil {
+	if err = h.service.RefreshTableFull(cttx, input.Database, input.Table); err != nil {
 		return nil, fmt.Errorf("could not refresh table: %w", err)
 	}
 
@@ -49,7 +49,7 @@ func (h *HandlerRefresh) RefreshPartitions(cttx sqlc.Tx, input *TableSelectInput
 	var err error
 	var partitions []Partition
 
-	if partitions, err = h.service.RefreshPartitions(cttx, input.Table); err != nil {
+	if partitions, err = h.service.RefreshPartitions(cttx, input.Database, input.Table); err != nil {
 		return nil, fmt.Errorf("could not list snapshots: %w", err)
 	}
 
@@ -60,7 +60,7 @@ func (h *HandlerRefresh) RefreshSnapshots(cttx sqlc.Tx, input *TableSelectInput)
 	var err error
 	var snapshots []Snapshot
 
-	if snapshots, err = h.service.RefreshSnapshots(cttx, input.Table); err != nil {
+	if snapshots, err = h.service.RefreshSnapshots(cttx, input.Database, input.Table); err != nil {
 		return nil, fmt.Errorf("could not refresh snapshots: %w", err)
 	}
 

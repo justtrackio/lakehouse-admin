@@ -24,6 +24,10 @@ type ListTablesResponse struct {
 	Tables []*TableSummary `json:"tables"`
 }
 
+type ListTablesInput struct {
+	Database string `uri:"database"`
+}
+
 type ListPartitionsResponse struct {
 	Partitions []ListPartitionItem `json:"partitions"`
 }
@@ -52,11 +56,13 @@ type DataFileItem struct {
 }
 
 type ListPartitionsInput struct {
+	Database   string            `uri:"database"`
 	Table      string            `uri:"table"`
 	Partitions map[string]string `form:"partitions"`
 }
 
 type ListFilesInput struct {
+	Database   string            `uri:"database"`
 	Table      string            `uri:"table"`
 	Partitions map[string]string `json:"partitions" form:"partitions"`
 }
@@ -97,7 +103,7 @@ func (h *HandlerBrowse) TableSummary(ctx context.Context, input *TableSelectInpu
 	var table *TableDescription
 	var summary *TableSummary
 
-	if table, err = h.metadata.GetTable(ctx, input.Table); err != nil {
+	if table, err = h.metadata.GetTable(ctx, input.Database, input.Table); err != nil {
 		return nil, fmt.Errorf("could not describe table: %w", err)
 	}
 
@@ -108,11 +114,11 @@ func (h *HandlerBrowse) TableSummary(ctx context.Context, input *TableSelectInpu
 	return httpserver.NewJsonResponse(summary), nil
 }
 
-func (h *HandlerBrowse) ListTables(ctx context.Context) (httpserver.Response, error) {
+func (h *HandlerBrowse) ListTables(ctx context.Context, input *ListTablesInput) (httpserver.Response, error) {
 	var err error
 	var tables []TableDescription
 
-	if tables, err = h.metadata.ListTables(ctx); err != nil {
+	if tables, err = h.metadata.ListTables(ctx, input.Database); err != nil {
 		return nil, fmt.Errorf("could not list tables from db: %w", err)
 	}
 
@@ -132,7 +138,7 @@ func (h *HandlerBrowse) ListPartitions(ctx context.Context, input *ListPartition
 	var err error
 	var table *TableDescription
 
-	if table, err = h.metadata.GetTable(ctx, input.Table); err != nil {
+	if table, err = h.metadata.GetTable(ctx, input.Database, input.Table); err != nil {
 		return nil, fmt.Errorf("could not describe table: %w", err)
 	}
 
@@ -144,7 +150,7 @@ func (h *HandlerBrowse) ListPartitions(ctx context.Context, input *ListPartition
 	}
 
 	groupBy := partitionJSONPathExpr(partitions[depth].Name, true)
-	where := sqlc.Eq{"p.table": input.Table}
+	where := sqlc.Eq{"p.database": input.Database, "p.table": input.Table}
 
 	for key, value := range input.Partitions {
 		where[partitionJSONPathExpr(key, false)] = value
@@ -175,7 +181,7 @@ func (h *HandlerBrowse) ListFiles(ctx context.Context, input *ListFilesInput) (h
 	var err error
 	var items []DataFileItem
 
-	if items, err = h.files.ListFiles(ctx, input.Table, input.Partitions); err != nil {
+	if items, err = h.files.ListFiles(ctx, input.Database, input.Table, input.Partitions); err != nil {
 		if isBrowseInputError(err) {
 			return httpserver.GetErrorHandler()(http.StatusBadRequest, err), nil
 		}

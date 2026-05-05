@@ -3,16 +3,19 @@ import { useQuery } from '@tanstack/react-query';
 import { Alert, Space, Spin, Table, Tag, Tooltip, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { fetchTableSchema, type TableSchemaColumn } from '../api/schema';
+import { normalizeDatabaseSearch } from '../utils/database';
 import { formatSchemaType } from '../utils/format';
 
 const { Text } = Typography;
 
 export const Route = createFileRoute('/tables/$tableName/schema')({
+  validateSearch: normalizeDatabaseSearch,
   component: TableSchemaPage,
 });
 
 function TableSchemaPage() {
   const { tableName } = Route.useParams();
+  const { database } = Route.useSearch();
 
   const {
     data: tableSchema,
@@ -20,8 +23,8 @@ function TableSchemaPage() {
     isError,
     error,
   } = useQuery({
-    queryKey: ['tableSchema', tableName],
-    queryFn: () => fetchTableSchema(tableName),
+    queryKey: ['tableSchema', database, tableName],
+    queryFn: () => fetchTableSchema(database, tableName),
   });
 
   if (isLoading) {

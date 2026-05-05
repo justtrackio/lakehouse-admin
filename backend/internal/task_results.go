@@ -2,6 +2,7 @@ package internal
 
 func expireSnapshotsResultMap(res *ExpireSnapshotsResult) map[string]any {
 	return map[string]any{
+		"database":               res.Database,
 		"table":                  res.Table,
 		"retention_days":         res.RetentionDays,
 		"clean_expired_metadata": res.CleanExpiredMetadata,
@@ -11,6 +12,7 @@ func expireSnapshotsResultMap(res *ExpireSnapshotsResult) map[string]any {
 
 func removeOrphanFilesResultMap(res *RemoveOrphanFilesResult) map[string]any {
 	return map[string]any{
+		"database":      res.Database,
 		"table":          res.Table,
 		"retention_days": res.RetentionDays,
 		"metrics":        res.Metrics,
@@ -20,6 +22,7 @@ func removeOrphanFilesResultMap(res *RemoveOrphanFilesResult) map[string]any {
 
 func optimizeResultMap(res *OptimizeResult) map[string]any {
 	return map[string]any{
+		"database":            res.Database,
 		"table":               res.Table,
 		"target_file_size_mb": res.TargetFileSizeMb,
 		"where":               res.Where,

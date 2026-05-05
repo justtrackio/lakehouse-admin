@@ -8,10 +8,11 @@ const { Paragraph } = Typography;
 const { RangePicker } = DatePicker;
 
 interface OptimizeCardProps {
+  database: string;
   tableName: string;
 }
 
-export function OptimizeCard({ tableName }: OptimizeCardProps) {
+export function OptimizeCard({ database, tableName }: OptimizeCardProps) {
   const queryClient = useQueryClient();
   const [form] = Form.useForm();
   const messageApi = useMessageApi();
@@ -30,12 +31,12 @@ export function OptimizeCard({ tableName }: OptimizeCardProps) {
         to = values.date_range[1].format('YYYY-MM-DD');
       }
 
-	      return optimizeTable(tableName, values.target_file_size_mb, from, to, 'daily');
+	      return optimizeTable(database, tableName, values.target_file_size_mb, from, to, 'daily');
     },
     onSuccess: (data) => {
       const count = data.task_ids.length;
       messageApi.success(`Enqueued ${count} optimize task${count === 1 ? '' : 's'} (IDs: ${data.task_ids.slice(0, 3).join(', ')}${count > 3 ? '...' : ''})`);
-      queryClient.invalidateQueries({ queryKey: ['tasks', tableName] });
+      queryClient.invalidateQueries({ queryKey: ['tasks', database, tableName] });
     },
     onError: (error: Error) => {
       messageApi.error(`Failed to enqueue optimize task: ${error.message}`);

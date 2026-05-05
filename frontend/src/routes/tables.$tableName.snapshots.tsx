@@ -21,6 +21,7 @@ import {
   SnapshotItem,
   TableDetails,
 } from '../api/schema';
+import { normalizeDatabaseSearch } from '../utils/database';
 import { formatTimestamp, formatBytes, formatNumber } from '../utils/format';
 import MetricWithDelta from '../components/MetricWithDelta';
 import SnapshotSummaryModal from '../components/SnapshotSummaryModal';
@@ -31,11 +32,13 @@ import { useMessageApi } from '../context/MessageContext';
 const { Title, Text } = Typography;
 
 export const Route = createFileRoute('/tables/$tableName/snapshots')({
+  validateSearch: normalizeDatabaseSearch,
   component: SnapshotsPage,
 });
 
 function SnapshotsPage() {
   const { tableName } = Route.useParams();
+  const { database } = Route.useSearch();
   const messageApi = useMessageApi();
   const { isAdminMode } = useAdminMode();
   const queryClient = useQueryClient();
@@ -50,8 +53,8 @@ function SnapshotsPage() {
   });
 
   const { data: table } = useQuery<TableDetails, Error>({
-    queryKey: ['table', tableName],
-    queryFn: () => fetchTableDetails(tableName),
+    queryKey: ['table', database, tableName],
+    queryFn: () => fetchTableDetails(database, tableName),
   });
 
   const {
@@ -60,12 +63,12 @@ function SnapshotsPage() {
     isError,
     error,
   } = useQuery<SnapshotItem[], Error>({
-    queryKey: ['snapshots', tableName],
-    queryFn: () => fetchSnapshots(tableName),
+    queryKey: ['snapshots', database, tableName],
+    queryFn: () => fetchSnapshots(database, tableName),
   });
 
   const missingFilesMutation = useMutation({
-    mutationFn: (snapshotId: string) => fetchSnapshotMissingFiles(tableName, snapshotId),
+    mutationFn: (snapshotId: string) => fetchSnapshotMissingFiles(database, tableName, snapshotId),
     onSuccess: (data) => {
       setMissingFiles(data.missing_files);
       setMissingFilesError(null);
@@ -80,13 +83,13 @@ function SnapshotsPage() {
   });
 
   const rollbackMutation = useMutation({
-    mutationFn: (snapshotId: string) => rollbackToSnapshot(tableName, snapshotId),
+    mutationFn: (snapshotId: string) => rollbackToSnapshot(database, tableName, snapshotId),
     onSuccess: (data) => {
       messageApi.success(`Rolled back table to snapshot ${data.snapshot_id}`);
-      queryClient.invalidateQueries({ queryKey: ['table', tableName] });
-      queryClient.invalidateQueries({ queryKey: ['snapshots', tableName] });
-      queryClient.invalidateQueries({ queryKey: ['partitions', tableName] });
-      queryClient.invalidateQueries({ queryKey: ['tables'] });
+      queryClient.invalidateQueries({ queryKey: ['table', database, tableName] });
+      queryClient.invalidateQueries({ queryKey: ['snapshots', database, tableName] });
+      queryClient.invalidateQueries({ queryKey: ['partitions', database, tableName] });
+      queryClient.invalidateQueries({ queryKey: ['tables', database] });
     },
     onError: (error: Error) => {
       messageApi.error(`Failed to rollback snapshot: ${error.message}`);

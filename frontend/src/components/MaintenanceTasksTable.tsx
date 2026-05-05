@@ -11,11 +11,12 @@ import { formatDuration } from '../utils/format';
 const { Title } = Typography;
 
 interface MaintenanceTasksTableProps {
+  database: string;
   tableName?: string;
   pageSize?: number;
 }
 
-export function MaintenanceTasksTable({ tableName, pageSize }: MaintenanceTasksTableProps) {
+export function MaintenanceTasksTable({ database, tableName, pageSize }: MaintenanceTasksTableProps) {
   const queryClient = useQueryClient();
   const messageApi = useMessageApi();
   const [viewModalOpen, setViewModalOpen] = useState(false);
@@ -31,9 +32,10 @@ export function MaintenanceTasksTable({ tableName, pageSize }: MaintenanceTasksT
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
 
   const { data, isLoading, isError, error } = useQuery({
-    queryKey: ['tasks', tableName, pagination.current, pagination.pageSize, selectedKinds, selectedStatuses],
+    queryKey: ['tasks', database, tableName, pagination.current, pagination.pageSize, selectedKinds, selectedStatuses],
     queryFn: () =>
       fetchTasks(
+        database,
         tableName,
         pagination.pageSize || 10,
         ((pagination.current || 1) - 1) * (pagination.pageSize || 10),
@@ -45,9 +47,9 @@ export function MaintenanceTasksTable({ tableName, pageSize }: MaintenanceTasksT
 
   const retryMutation = useMutation({
     mutationFn: retryTask,
-    onSuccess: (result, taskId) => {
-      queryClient.invalidateQueries({ queryKey: ['tasks'] });
-      queryClient.invalidateQueries({ queryKey: ['taskCounts'] });
+      onSuccess: (result, taskId) => {
+      queryClient.invalidateQueries({ queryKey: ['tasks', database] });
+      queryClient.invalidateQueries({ queryKey: ['taskCounts', database] });
       messageApi.success(`Retried task ${taskId} as queued task ${result.task_id}`);
     },
     onError: (mutationError: Error) => {
@@ -93,8 +95,8 @@ export function MaintenanceTasksTable({ tableName, pageSize }: MaintenanceTasksT
       dataIndex: 'table',
       key: 'table',
       hidden: !!tableName, // Hide if showing history for a specific table
-      render: (text: string) => (
-        <Link to="/tables/$tableName/tasks" params={{ tableName: text }}>
+      render: (text: string, record: Task) => (
+        <Link to="/tables/$tableName/tasks" params={{ tableName: text }} search={{ database: record.database }}>
           {text}
         </Link>
       ),

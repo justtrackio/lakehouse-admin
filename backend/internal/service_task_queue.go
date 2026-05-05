@@ -49,12 +49,12 @@ func NewServiceTaskQueue(ctx context.Context, config cfg.Config, logger log.Logg
 	}, nil
 }
 
-func (s *ServiceTaskQueue) EnqueueTask(ctx context.Context, table string, kind string, engine string, input map[string]any) (int64, error) {
+func (s *ServiceTaskQueue) EnqueueTask(ctx context.Context, database string, table string, kind string, engine string, input map[string]any) (int64, error) {
 	var err error
 	var res sqlc.Result
 	var id int64
 
-	entry := newQueuedTask(table, kind, engine, input)
+	entry := newQueuedTask(database, table, kind, engine, input)
 
 	ins := s.sqlClient.Q().Into("tasks").Records(entry)
 	if res, err = ins.Exec(ctx); err != nil {
@@ -183,7 +183,7 @@ func (s *ServiceTaskQueue) retryTaskInTx(ctx sqlc.Tx, task *Task) (int64, error)
 		return 0, fmt.Errorf("task %d has already been retried: %w", task.Id, errTaskAlreadyRetried)
 	}
 
-	insert := ctx.Q().Into("tasks").Records(newQueuedTask(task.Table, task.Kind, task.Engine, task.Input.Get()))
+	insert := ctx.Q().Into("tasks").Records(newQueuedTask(task.Database, task.Table, task.Kind, task.Engine, task.Input.Get()))
 	res, err = insert.Exec(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("could not enqueue retry for task %d: %w", task.Id, err)
@@ -197,12 +197,13 @@ func (s *ServiceTaskQueue) retryTaskInTx(ctx sqlc.Tx, task *Task) (int64, error)
 	return retryTaskID, nil
 }
 
-func newQueuedTask(table string, kind string, engine string, input map[string]any) *Task {
+func newQueuedTask(database string, table string, kind string, engine string, input map[string]any) *Task {
 	if input == nil {
 		input = map[string]any{}
 	}
 
 	return &Task{
+		Database:  database,
 		Table:     table,
 		Kind:      kind,
 		Engine:    engine,
@@ -403,7 +404,7 @@ func mergeTaskResult(existing map[string]any, update map[string]any) map[string]
 	return merged
 }
 
-func (s *ServiceTaskQueue) TaskCounts(ctx context.Context) (running int64, queued int64, err error) {
+func (s *ServiceTaskQueue) TaskCounts(ctx context.Context, database string) (running int64, queued int64, err error) {
 	var results []struct {
 		Status string `db:"status"`
 		Count  int64  `db:"count"`
@@ -416,6 +417,10 @@ func (s *ServiceTaskQueue) TaskCounts(ctx context.Context) (running int64, queue
 		Column(sqlc.Col("*").Count().As("count")).
 		Where(sqlc.Col("status").In(taskStatusQueued, taskStatusRunning)).
 		GroupBy(sqlc.Col("status"))
+
+	if database != "" {
+		query = query.Where(sqlc.Eq{"database": database})
+	}
 
 	if err = query.Select(ctx, &results); err != nil {
 		return 0, 0, fmt.Errorf("could not get task counts: %w", err)
@@ -433,7 +438,7 @@ func (s *ServiceTaskQueue) TaskCounts(ctx context.Context) (running int64, queue
 	return running, queued, nil
 }
 
-func (s *ServiceTaskQueue) ListTasks(ctx context.Context, table string, kinds []string, statuses []string, limit int, offset int) (*PaginatedTasks, error) {
+func (s *ServiceTaskQueue) ListTasks(ctx context.Context, database string, table string, kinds []string, statuses []string, limit int, offset int) (*PaginatedTasks, error) {
 	var err error
 	var result []Task
 	var count struct {
@@ -459,6 +464,9 @@ func (s *ServiceTaskQueue) ListTasks(ctx context.Context, table string, kinds []
 
 	// 1. Get total count
 	cnt := s.sqlClient.Q().From("tasks").Column(sqlc.Col("*").Count().As("total"))
+	if database != "" {
+		cnt = cnt.Where(sqlc.Eq{"database": database})
+	}
 	if table != "" {
 		cnt = cnt.Where(sqlc.Eq{"table": table})
 	}
@@ -475,6 +483,9 @@ func (s *ServiceTaskQueue) ListTasks(ctx context.Context, table string, kinds []
 
 	// 2. Get paginated items
 	sel := s.sqlClient.Q().From("tasks").OrderBy(sqlc.Col("started_at").Desc())
+	if database != "" {
+		sel = sel.Where(sqlc.Eq{"database": database})
+	}
 
 	if table != "" {
 		sel = sel.Where(sqlc.Eq{"table": table})
@@ -497,6 +508,7 @@ func (s *ServiceTaskQueue) ListTasks(ctx context.Context, table string, kinds []
 	for i, r := range result {
 		dtos[i] = sTask{
 			Id:           r.Id,
+			Database:     r.Database,
 			Table:        r.Table,
 			Kind:         r.Kind,
 			Engine:       r.Engine,
@@ -518,12 +530,15 @@ func (s *ServiceTaskQueue) ListTasks(ctx context.Context, table string, kinds []
 	}, nil
 }
 
-func (s *ServiceTaskQueue) FlushTasks(ctx context.Context) (int64, error) {
+func (s *ServiceTaskQueue) FlushTasks(ctx context.Context, database string) (int64, error) {
 	var err error
 	var res sqlc.Result
 	var affected int64
 
 	del := s.sqlClient.Q().Delete("tasks")
+	if database != "" {
+		del = del.Where(sqlc.Eq{"database": database})
+	}
 	if res, err = del.Exec(ctx); err != nil {
 		return 0, fmt.Errorf("could not flush tasks: %w", err)
 	}

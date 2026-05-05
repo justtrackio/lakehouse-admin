@@ -57,7 +57,7 @@ func (s *ServiceMaintenanceSchedule) RunCycle(ctx context.Context, now time.Time
 	var tables []TableDescription
 	var taskIDs []int64
 
-	if tables, err = s.metadata.ListTables(ctx); err != nil {
+	if tables, err = s.metadata.ListAllTables(ctx); err != nil {
 		return nil, fmt.Errorf("could not list tables for maintenance scheduling: %w", err)
 	}
 
@@ -68,9 +68,9 @@ func (s *ServiceMaintenanceSchedule) RunCycle(ctx context.Context, now time.Time
 
 	from, to := scheduledOptimizeRange(now.UTC(), s.settings.Optimize.LookbackDays)
 	for _, table := range tables {
-		if taskIDs, err = s.tasks.EnqueueOptimize(ctx, table.Name, s.settings.Optimize.TargetFileSizeMb, from, to, s.settings.Optimize.ChunkBy); err != nil {
+		if taskIDs, err = s.tasks.EnqueueOptimize(ctx, table.Database, table.Name, s.settings.Optimize.TargetFileSizeMb, from, to, s.settings.Optimize.ChunkBy); err != nil {
 			result.OptimizeFailureCount++
-			s.logger.Warn(ctx, "failed to enqueue scheduled optimize for table %s: %s", table.Name, err)
+			s.logger.Warn(ctx, "failed to enqueue scheduled optimize for table %s.%s: %s", table.Database, table.Name, err)
 
 			continue
 		}
@@ -79,9 +79,9 @@ func (s *ServiceMaintenanceSchedule) RunCycle(ctx context.Context, now time.Time
 	}
 
 	for _, table := range tables {
-		if _, err = s.tasks.EnqueueExpireSnapshots(ctx, table.Name, s.settings.ExpireSnapshots.RetentionDays); err != nil {
+		if _, err = s.tasks.EnqueueExpireSnapshots(ctx, table.Database, table.Name, s.settings.ExpireSnapshots.RetentionDays); err != nil {
 			result.ExpireSnapshotsFailureCount++
-			s.logger.Warn(ctx, "failed to enqueue scheduled expire_snapshots for table %s: %s", table.Name, err)
+			s.logger.Warn(ctx, "failed to enqueue scheduled expire_snapshots for table %s.%s: %s", table.Database, table.Name, err)
 
 			continue
 		}
@@ -90,9 +90,9 @@ func (s *ServiceMaintenanceSchedule) RunCycle(ctx context.Context, now time.Time
 	}
 
 	for _, table := range tables {
-		if _, err = s.tasks.EnqueueRemoveOrphanFiles(ctx, table.Name, s.settings.RemoveOrphanFiles.RetentionDays); err != nil {
+		if _, err = s.tasks.EnqueueRemoveOrphanFiles(ctx, table.Database, table.Name, s.settings.RemoveOrphanFiles.RetentionDays); err != nil {
 			result.RemoveOrphanFilesFailureCount++
-			s.logger.Warn(ctx, "failed to enqueue scheduled remove_orphan_files for table %s: %s", table.Name, err)
+			s.logger.Warn(ctx, "failed to enqueue scheduled remove_orphan_files for table %s.%s: %s", table.Database, table.Name, err)
 
 			continue
 		}

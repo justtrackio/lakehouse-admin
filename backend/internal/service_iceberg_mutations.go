@@ -25,8 +25,8 @@ type ServiceIcebergAdmin struct {
 	trino  *TrinoClient
 }
 
-func (s *ServiceIcebergAdmin) RollbackToSnapshot(ctx context.Context, logicalName string, snapshotID int64) error {
-	qualifiedTable := qualifiedTableName("lakehouse", "main", logicalName)
+func (s *ServiceIcebergAdmin) RollbackToSnapshot(ctx context.Context, database string, logicalName string, snapshotID int64) error {
+	qualifiedTable := qualifiedTableName("lakehouse", database, logicalName)
 	query := fmt.Sprintf("ALTER TABLE %s EXECUTE rollback_to_snapshot(%d)", qualifiedTable, snapshotID)
 
 	if err := s.trino.Exec(ctx, query); err != nil {

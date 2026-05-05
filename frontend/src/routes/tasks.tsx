@@ -4,15 +4,18 @@ import { Button, Space, Typography, message, Popconfirm } from 'antd';
 import { MinusOutlined, PlusOutlined, DeleteOutlined, RedoOutlined } from '@ant-design/icons';
 import { MaintenanceTasksTable } from '../components/MaintenanceTasksTable';
 import { fetchTaskConcurrency, setTaskConcurrency, flushTasks, retryAllTasks } from '../api/schema';
+import { normalizeDatabaseSearch } from '../utils/database';
 
 const { Text } = Typography;
 
 export const Route = createFileRoute('/tasks')({
+  validateSearch: normalizeDatabaseSearch,
   component: TasksPage,
 });
 
 function TasksPage() {
   const queryClient = useQueryClient();
+  const { database } = Route.useSearch();
 
   const { data: concurrencyData, isLoading } = useQuery({
     queryKey: ['taskConcurrency'],
@@ -34,8 +37,8 @@ function TasksPage() {
   const flushMutation = useMutation({
     mutationFn: flushTasks,
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['tasks'] });
-      queryClient.invalidateQueries({ queryKey: ['taskCounts'] });
+      queryClient.invalidateQueries({ queryKey: ['tasks', database] });
+      queryClient.invalidateQueries({ queryKey: ['taskCounts', database] });
       message.success(`Flushed ${data.deleted} task${data.deleted !== 1 ? 's' : ''}`);
     },
     onError: (error: Error) => {
@@ -46,8 +49,8 @@ function TasksPage() {
   const retryAllMutation = useMutation({
     mutationFn: retryAllTasks,
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['tasks'] });
-      queryClient.invalidateQueries({ queryKey: ['taskCounts'] });
+      queryClient.invalidateQueries({ queryKey: ['tasks', database] });
+      queryClient.invalidateQueries({ queryKey: ['taskCounts', database] });
       message.success(`Retried ${data.retried_count} task${data.retried_count !== 1 ? 's' : ''}`);
     },
     onError: (error: Error) => {
@@ -68,7 +71,7 @@ function TasksPage() {
   };
 
   const handleFlush = () => {
-    flushMutation.mutate();
+    flushMutation.mutate(database);
   };
 
   const handleRetryAll = () => {
@@ -130,7 +133,7 @@ function TasksPage() {
             </Popconfirm>
           </Space>
         </div>
-        <MaintenanceTasksTable pageSize={100} />
+        <MaintenanceTasksTable database={database} pageSize={100} />
       </Space>
     </div>
   );

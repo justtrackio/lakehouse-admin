@@ -12,17 +12,25 @@ import {
 } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import { fetchTableDetails, TableDetails, refreshTable } from '../api/schema';
+import { normalizeDatabaseSearch } from '../utils/database';
 import { formatNumber, formatBytes, formatDateTime } from '../utils/format';
 import { useMessageApi } from '../context/MessageContext';
 
 const { Title, Text } = Typography;
 
 export const Route = createFileRoute('/tables/$tableName')({
+  validateSearch: normalizeDatabaseSearch,
   beforeLoad: ({ location, params }) => {
+    const search = location.search as Record<string, unknown>;
+
     if (location.pathname === `/tables/${params.tableName}` || location.pathname === `/tables/${params.tableName}/`) {
       throw redirect({
         to: '/tables/$tableName/partitions',
         params: { tableName: params.tableName },
+        search: {
+          database: typeof search.database === 'string' ? search.database : '',
+          partitions: {},
+        },
       });
     }
   },
@@ -31,6 +39,7 @@ export const Route = createFileRoute('/tables/$tableName')({
 
 function TableLayout() {
   const { tableName } = Route.useParams();
+  const { database } = Route.useSearch();
   const navigate = Route.useNavigate();
   const routerState = useRouterState();
   const pathname = routerState.location.pathname;
@@ -43,19 +52,19 @@ function TableLayout() {
     isError,
     error,
   } = useQuery<TableDetails, Error>({
-    queryKey: ['table', tableName],
-    queryFn: () => fetchTableDetails(tableName),
+    queryKey: ['table', database, tableName],
+    queryFn: () => fetchTableDetails(database, tableName),
   });
 
   const refreshTableMutation = useMutation({
-    mutationFn: () => refreshTable(tableName),
+    mutationFn: () => refreshTable(database, tableName),
     onSuccess: () => {
-      messageApi.success(`Successfully refreshed table ${tableName}`);
-      queryClient.invalidateQueries({ queryKey: ['table', tableName] });
-      queryClient.invalidateQueries({ queryKey: ['tableSchema', tableName] });
-      queryClient.invalidateQueries({ queryKey: ['partitions', tableName] });
-      queryClient.invalidateQueries({ queryKey: ['snapshots', tableName] });
-      queryClient.invalidateQueries({ queryKey: ['tables'] }); // Also update the main list
+      messageApi.success(`Successfully refreshed table ${database}.${tableName}`);
+      queryClient.invalidateQueries({ queryKey: ['table', database, tableName] });
+      queryClient.invalidateQueries({ queryKey: ['tableSchema', database, tableName] });
+      queryClient.invalidateQueries({ queryKey: ['partitions', database, tableName] });
+      queryClient.invalidateQueries({ queryKey: ['snapshots', database, tableName] });
+      queryClient.invalidateQueries({ queryKey: ['tables', database] });
     },
     onError: (error: Error) => {
       messageApi.error(`Failed to refresh table: ${error.message}`);
@@ -95,10 +104,10 @@ function TableLayout() {
 
   const breadcrumbItems = [
     {
-      title: <Link to="/">Tables</Link>,
+      title: <Link to="/" search={{ database }}>Tables</Link>,
     },
     {
-      title: table.name,
+      title: `${table.database}.${table.name}`,
     },
   ];
 
@@ -134,22 +143,25 @@ function TableLayout() {
       navigate({
         to: '/tables/$tableName/schema',
         params: { tableName },
+        search: { database },
       });
     } else if (key === 'partitions') {
       navigate({
         to: '/tables/$tableName/partitions',
         params: { tableName },
-        search: {},
+        search: { database, partitions: {} },
       });
     } else if (key === 'snapshots') {
       navigate({
         to: '/tables/$tableName/snapshots',
         params: { tableName },
+        search: { database },
       });
     } else if (key === 'tasks') {
       navigate({
         to: '/tables/$tableName/tasks',
         params: { tableName },
+        search: { database },
       });
     }
   };
@@ -210,7 +222,7 @@ function TableLayout() {
           </div>
         </Card>
 
-        <Link to="/">← Back to tables</Link>
+        <Link to="/" search={{ database }}>← Back to tables</Link>
       </Space>
     </div>
   );

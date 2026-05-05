@@ -10,6 +10,7 @@ import {
   type BatchOptimizeTableRequest,
   type OptimizeChunkBy,
 } from '../api/schema';
+import { useDatabase } from '../context/DatabaseContext';
 import { useMessageApi } from '../context/MessageContext';
 import { MaintenanceTaskContent } from './MaintenanceTaskContent';
 import { useMaintenanceBatchSuccess } from './useMaintenanceBatchSuccess';
@@ -43,6 +44,7 @@ export function OptimizeBatchContent() {
   const [selectedRowKeys, setSelectedRowKeys] = useState<Key[]>([]);
   const [tableConfigs, setTableConfigs] = useState<Record<string, OptimizeChunkBy>>({});
   const [form] = Form.useForm<OptimizeBatchFormValues>();
+  const { database } = useDatabase();
   const messageApi = useMessageApi();
   const handleBatchSuccess = useMaintenanceBatchSuccess();
   const targetFileSize = Form.useWatch('target_file_size_mb', form) ?? 512;
@@ -72,7 +74,7 @@ export function OptimizeBatchContent() {
 
   const mutation = useMutation({
     mutationFn: (values: { tables: BatchOptimizeTableRequest[]; from: string; to: string; target_file_size_mb: number }) =>
-      batchOptimize(values.tables, values.target_file_size_mb, values.from, values.to),
+      batchOptimize(database, values.tables, values.target_file_size_mb, values.from, values.to),
     onSuccess: (data, values) => {
       handleBatchSuccess(data, values.tables.length, 'optimize');
       setSelectedRowKeys([]);
@@ -117,7 +119,7 @@ export function OptimizeBatchContent() {
       dataIndex: 'table',
       key: 'table',
       render: (value: string) => (
-        <Link to="/tables/$tableName/tasks" params={{ tableName: value }}>
+        <Link to="/tables/$tableName/tasks" params={{ tableName: value }} search={{ database }}>
           {value}
         </Link>
       ),
@@ -162,6 +164,7 @@ export function OptimizeBatchContent() {
 
   return (
     <MaintenanceTaskContent
+      database={database}
       config={config}
       selectedRowKeys={selectedRowKeys}
       onSelectedRowKeysChange={handleSelectedRowKeysChange}

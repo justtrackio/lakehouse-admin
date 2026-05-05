@@ -36,8 +36,8 @@ type ServiceBrowseFiles struct {
 	trino    *TrinoClient
 }
 
-func (s *ServiceBrowseFiles) ListFiles(ctx context.Context, tableName string, filters map[string]string) ([]DataFileItem, error) {
-	table, err := s.metadata.GetTable(ctx, tableName)
+func (s *ServiceBrowseFiles) ListFiles(ctx context.Context, database string, tableName string, filters map[string]string) ([]DataFileItem, error) {
+	table, err := s.metadata.GetTable(ctx, database, tableName)
 	if err != nil {
 		return nil, fmt.Errorf("could not load table metadata for files browse: %w", err)
 	}
@@ -49,7 +49,7 @@ func (s *ServiceBrowseFiles) ListFiles(ctx context.Context, tableName string, fi
 
 	partitionFieldNames := s.browseSelectionFieldNames(selections)
 
-	rows, err := s.trino.QueryRows(ctx, s.buildBrowseFilesQuery(tableName, selections))
+	rows, err := s.trino.QueryRows(ctx, s.buildBrowseFilesQuery(table.Database, tableName, selections))
 	if err != nil {
 		return nil, fmt.Errorf("could not query data files from trino: %w", err)
 	}
@@ -183,8 +183,8 @@ func (s *ServiceBrowseFiles) requireBrowseFilter(filters map[string]string, key 
 	return value, nil
 }
 
-func (s *ServiceBrowseFiles) buildBrowseFilesQuery(table string, selections []browseFileSelection) string {
-	qualifiedTable := qualifiedTableName("lakehouse", "main", table+"$files")
+func (s *ServiceBrowseFiles) buildBrowseFilesQuery(database string, table string, selections []browseFileSelection) string {
+	qualifiedTable := qualifiedTableName("lakehouse", database, table+"$files")
 	query := fmt.Sprintf(`
 		SELECT
 			content,

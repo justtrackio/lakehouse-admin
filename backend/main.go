@@ -39,21 +39,21 @@ func main() {
 			router.UseFactory(httpserver.CreateEmbeddedStaticServe(publicFs, "public", "/api"))
 
 			router.Group("/api/maintenance").HandleWith(httpserver.With(internal.NewHandlerMaintenance, func(r *httpserver.Router, handler *internal.HandlerMaintenance) {
-				r.POST("/expire-snapshots", httpserver.Bind(handler.ExpireSnapshots))
-				r.POST("/remove-orphan-files", httpserver.Bind(handler.RemoveOrphanFiles))
-				r.POST("/optimize", httpserver.Bind(handler.Optimize))
+				r.POST("/:database/expire-snapshots", httpserver.Bind(handler.ExpireSnapshots))
+				r.POST("/:database/remove-orphan-files", httpserver.Bind(handler.RemoveOrphanFiles))
+				r.POST("/:database/optimize", httpserver.Bind(handler.Optimize))
 			}))
 
 			router.Group("/api/tasks").HandleWith(httpserver.With(internal.NewHandlerTasks, func(r *httpserver.Router, handler *internal.HandlerTasks) {
 				r.POST("/:id/callback-result", httpserver.Bind(handler.ProcedureResultCallback))
 				r.POST("/retry-all", httpserver.BindN(handler.RetryAllTasks))
 				r.POST("/retry/:id", httpserver.Bind(handler.RetryTask))
-				r.POST("/by-table/:table/expire-snapshots", httpserver.Bind(handler.ExpireSnapshots))
-				r.POST("/by-table/:table/remove-orphan-files", httpserver.Bind(handler.RemoveOrphanFiles))
-				r.POST("/by-table/:table/optimize", httpserver.Bind(handler.Optimize))
-				r.GET("", httpserver.Bind(handler.ListTasks))
-				r.GET("/counts", httpserver.BindN(handler.TaskCounts))
-				r.DELETE("", httpserver.BindN(handler.FlushTasks))
+				r.POST("/:database/:table/expire-snapshots", httpserver.Bind(handler.ExpireSnapshots))
+				r.POST("/:database/:table/remove-orphan-files", httpserver.Bind(handler.RemoveOrphanFiles))
+				r.POST("/:database/:table/optimize", httpserver.Bind(handler.Optimize))
+				r.GET("/:database", httpserver.Bind(handler.ListTasks))
+				r.GET("/:database/counts", httpserver.Bind(handler.TaskCounts))
+				r.DELETE("/:database", httpserver.Bind(handler.FlushTasks))
 			}))
 
 			router.Group("/api/settings").HandleWith(httpserver.With(internal.NewHandlerSettings, func(r *httpserver.Router, handler *internal.HandlerSettings) {
@@ -62,32 +62,33 @@ func main() {
 			}))
 
 			router.Group("/api/metadata").HandleWith(httpserver.With(internal.NewHandlerMetadata, func(r *httpserver.Router, handler *internal.HandlerMetadata) {
-				r.GET("/partitions", httpserver.Bind(handler.ListPartitions))
-				r.GET("/snapshots", httpserver.Bind(handler.ListSnapshots))
+				r.GET("/:database/:table/partitions", httpserver.Bind(handler.ListPartitions))
+				r.GET("/:database/:table/snapshots", httpserver.Bind(handler.ListSnapshots))
 			}))
 
 			router.Group("/api/refresh").HandleWith(sqlh.WithTx(internal.NewHandlerRefresh, func(r *httpserver.Router, handler *internal.HandlerRefresh) {
 				r.GET("/tables", sqlh.BindTxN(handler.RefreshTables))
-				r.GET("/table", sqlh.BindTx(handler.RefreshTable))
-				r.GET("/table/partitions", sqlh.BindTx(handler.RefreshPartitions))
-				r.GET("/table/snapshots", sqlh.BindTx(handler.RefreshSnapshots))
+				r.GET("/:database/:table", sqlh.BindTx(handler.RefreshTable))
+				r.GET("/:database/:table/partitions", sqlh.BindTx(handler.RefreshPartitions))
+				r.GET("/:database/:table/snapshots", sqlh.BindTx(handler.RefreshSnapshots))
 				r.GET("/full", sqlh.BindTxN(handler.RefreshFull))
 			}))
 
 			router.Group("/api/browse").HandleWith(httpserver.With(internal.NewHandlerBrowse, func(r *httpserver.Router, handler *internal.HandlerBrowse) {
-				r.GET("/tables", httpserver.BindN(handler.ListTables))
-				r.GET("/:table", httpserver.Bind(handler.TableSummary))
-				r.POST("/:table/partitions", httpserver.Bind(handler.ListPartitions))
-				r.POST("/:table/files", httpserver.Bind(handler.ListFiles))
+				r.GET("/:database/tables", httpserver.Bind(handler.ListTables))
+				r.GET("/:database/:table", httpserver.Bind(handler.TableSummary))
+				r.POST("/:database/:table/partitions", httpserver.Bind(handler.ListPartitions))
+				r.POST("/:database/:table/files", httpserver.Bind(handler.ListFiles))
 			}))
 
 			router.Group("/api/iceberg").HandleWith(httpserver.With(internal.NewHandlerIceberg, func(r *httpserver.Router, handler *internal.HandlerIceberg) {
-				r.GET("/tables", httpserver.BindN(handler.ListTables))
-				r.GET("/:table", httpserver.Bind(handler.DescribeTable))
-				r.POST("/:table/snapshots/:snapshotId/rollback", httpserver.Bind(handler.RollbackToSnapshot))
-				r.GET("/:table/snapshots/:snapshotId/missing-files", httpserver.Bind(handler.ListSnapshotMissingFiles))
-				r.GET("/snapshots", httpserver.Bind(handler.ListSnapshots))
-				r.GET("/partitions", httpserver.Bind(handler.ListPartitions))
+				r.GET("/databases", httpserver.BindN(handler.ListDatabases))
+				r.GET("/:database/tables", httpserver.Bind(handler.ListTables))
+				r.GET("/:database/:table", httpserver.Bind(handler.DescribeTable))
+				r.POST("/:database/:table/snapshots/:snapshotId/rollback", httpserver.Bind(handler.RollbackToSnapshot))
+				r.GET("/:database/:table/snapshots/:snapshotId/missing-files", httpserver.Bind(handler.ListSnapshotMissingFiles))
+				r.GET("/:database/:table/snapshots", httpserver.Bind(handler.ListSnapshots))
+				r.GET("/:database/:table/partitions", httpserver.Bind(handler.ListPartitions))
 			}))
 
 			return nil

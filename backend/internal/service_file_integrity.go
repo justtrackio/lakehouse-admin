@@ -41,13 +41,13 @@ type ServiceFileIntegrity struct {
 	s3Client      *awsS3.Client
 }
 
-func (s *ServiceFileIntegrity) ListMissingFiles(ctx context.Context, tableName string, snapshotID int64) ([]string, error) {
+func (s *ServiceFileIntegrity) ListMissingFiles(ctx context.Context, database string, tableName string, snapshotID int64) ([]string, error) {
 	var err error
 	var filePaths []string
 	var group *s3ListGroup
 	var existingKeys funk.Set[string]
 
-	if filePaths, err = s.icebergClient.ListSnapshotDataFilePaths(ctx, tableName, snapshotID); err != nil {
+	if filePaths, err = s.icebergClient.ListSnapshotDataFilePaths(ctx, database, tableName, snapshotID); err != nil {
 		return nil, fmt.Errorf("could not list data files for snapshot %d in table %s: %w", snapshotID, tableName, err)
 	}
 

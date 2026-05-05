@@ -38,8 +38,8 @@ func (_m *MockSnapshotRefresher) EXPECT() *MockSnapshotRefresher_Expecter {
 }
 
 // RefreshSnapshots provides a mock function for the type MockSnapshotRefresher
-func (_mock *MockSnapshotRefresher) RefreshSnapshots(cttx sqlc.Tx, table string) ([]internal.Snapshot, error) {
-	ret := _mock.Called(cttx, table)
+func (_mock *MockSnapshotRefresher) RefreshSnapshots(cttx sqlc.Tx, database string, table string) ([]internal.Snapshot, error) {
+	ret := _mock.Called(cttx, database, table)
 
 	if len(ret) == 0 {
 		panic("no return value specified for RefreshSnapshots")
@@ -47,18 +47,18 @@ func (_mock *MockSnapshotRefresher) RefreshSnapshots(cttx sqlc.Tx, table string)
 
 	var r0 []internal.Snapshot
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(sqlc.Tx, string) ([]internal.Snapshot, error)); ok {
-		return returnFunc(cttx, table)
+	if returnFunc, ok := ret.Get(0).(func(sqlc.Tx, string, string) ([]internal.Snapshot, error)); ok {
+		return returnFunc(cttx, database, table)
 	}
-	if returnFunc, ok := ret.Get(0).(func(sqlc.Tx, string) []internal.Snapshot); ok {
-		r0 = returnFunc(cttx, table)
+	if returnFunc, ok := ret.Get(0).(func(sqlc.Tx, string, string) []internal.Snapshot); ok {
+		r0 = returnFunc(cttx, database, table)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]internal.Snapshot)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(sqlc.Tx, string) error); ok {
-		r1 = returnFunc(cttx, table)
+	if returnFunc, ok := ret.Get(1).(func(sqlc.Tx, string, string) error); ok {
+		r1 = returnFunc(cttx, database, table)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -72,12 +72,13 @@ type MockSnapshotRefresher_RefreshSnapshots_Call struct {
 
 // RefreshSnapshots is a helper method to define mock.On call
 //   - cttx sqlc.Tx
+//   - database string
 //   - table string
-func (_e *MockSnapshotRefresher_Expecter) RefreshSnapshots(cttx interface{}, table interface{}) *MockSnapshotRefresher_RefreshSnapshots_Call {
-	return &MockSnapshotRefresher_RefreshSnapshots_Call{Call: _e.mock.On("RefreshSnapshots", cttx, table)}
+func (_e *MockSnapshotRefresher_Expecter) RefreshSnapshots(cttx interface{}, database interface{}, table interface{}) *MockSnapshotRefresher_RefreshSnapshots_Call {
+	return &MockSnapshotRefresher_RefreshSnapshots_Call{Call: _e.mock.On("RefreshSnapshots", cttx, database, table)}
 }
 
-func (_c *MockSnapshotRefresher_RefreshSnapshots_Call) Run(run func(cttx sqlc.Tx, table string)) *MockSnapshotRefresher_RefreshSnapshots_Call {
+func (_c *MockSnapshotRefresher_RefreshSnapshots_Call) Run(run func(cttx sqlc.Tx, database string, table string)) *MockSnapshotRefresher_RefreshSnapshots_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 sqlc.Tx
 		if args[0] != nil {
@@ -87,9 +88,14 @@ func (_c *MockSnapshotRefresher_RefreshSnapshots_Call) Run(run func(cttx sqlc.Tx
 		if args[1] != nil {
 			arg1 = args[1].(string)
 		}
+		var arg2 string
+		if args[2] != nil {
+			arg2 = args[2].(string)
+		}
 		run(
 			arg0,
 			arg1,
+			arg2,
 		)
 	})
 	return _c
@@ -100,7 +106,7 @@ func (_c *MockSnapshotRefresher_RefreshSnapshots_Call) Return(snapshots []intern
 	return _c
 }
 
-func (_c *MockSnapshotRefresher_RefreshSnapshots_Call) RunAndReturn(run func(cttx sqlc.Tx, table string) ([]internal.Snapshot, error)) *MockSnapshotRefresher_RefreshSnapshots_Call {
+func (_c *MockSnapshotRefresher_RefreshSnapshots_Call) RunAndReturn(run func(cttx sqlc.Tx, database string, table string) ([]internal.Snapshot, error)) *MockSnapshotRefresher_RefreshSnapshots_Call {
 	_c.Call.Return(run)
 	return _c
 }

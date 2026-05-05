@@ -13,10 +13,11 @@ import (
 )
 
 type icebergRefresher interface {
-	ListTables(ctx context.Context) ([]string, error)
-	DescribeTable(ctx context.Context, logicalName string) (*TableDescription, error)
-	ListPartitions(ctx context.Context, logicalName string) ([]IcebergPartition, error)
-	ListSnapshots(ctx context.Context, logicalName string) ([]IcebergSnapshot, error)
+	ListDatabases(ctx context.Context) ([]CatalogDatabase, error)
+	ListTables(ctx context.Context, database string) ([]CatalogTable, error)
+	DescribeTable(ctx context.Context, database string, logicalName string) (*TableDescription, error)
+	ListPartitions(ctx context.Context, database string, logicalName string) ([]IcebergPartition, error)
+	ListSnapshots(ctx context.Context, database string, logicalName string) ([]IcebergSnapshot, error)
 }
 
 func NewServiceRefresh(ctx context.Context, config cfg.Config, logger log.Logger) (*ServiceRefresh, error) {
@@ -45,41 +46,41 @@ type ServiceRefresh struct {
 	sqlClient sqlc.Client
 }
 
-func (s *ServiceRefresh) LastUpdatedAt(ctx context.Context, name string) (time.Time, error) {
+func (s *ServiceRefresh) LastUpdatedAt(ctx context.Context, database string, name string) (time.Time, error) {
 	table := &TableDescription{}
-	if err := s.sqlClient.Q().From("tables").Where(sqlc.Eq{"name": name}).Get(ctx, table); err != nil {
+	if err := s.sqlClient.Q().From("tables").Where(sqlc.Eq{"database": database, "name": name}).Get(ctx, table); err != nil {
 		return time.Time{}, fmt.Errorf("could not get table description for table %s: %w", name, err)
 	}
 
 	return table.UpdatedAt, nil
 }
 
-func (s *ServiceRefresh) ListTables(ctx context.Context) ([]string, error) {
-	return s.iceberg.ListTables(ctx)
+func (s *ServiceRefresh) ListTables(ctx context.Context, database string) ([]CatalogTable, error) {
+	return s.iceberg.ListTables(ctx, database)
 }
 
-func (s *ServiceRefresh) RefreshAllTables(cttx sqlc.Tx) ([]string, error) {
+func (s *ServiceRefresh) RefreshAllTables(cttx sqlc.Tx) ([]CatalogTable, error) {
 	var err error
-	var tables []string
+	var tables []CatalogTable
 
 	if tables, err = s.reconcileTableInventory(cttx); err != nil {
 		return nil, fmt.Errorf("could not reconcile table inventory: %w", err)
 	}
 
 	for _, table := range tables {
-		if _, err = s.RefreshTable(cttx, table); err != nil {
-			return nil, fmt.Errorf("could not refresh table %s: %w", table, err)
+		if _, err = s.RefreshTable(cttx, table.Database, table.Name); err != nil {
+			return nil, fmt.Errorf("could not refresh table %s.%s: %w", table.Database, table.Name, err)
 		}
 	}
 
 	return tables, nil
 }
 
-func (s *ServiceRefresh) RefreshTable(cttx sqlc.Tx, table string) (*TableDescription, error) {
+func (s *ServiceRefresh) RefreshTable(cttx sqlc.Tx, database string, table string) (*TableDescription, error) {
 	var err error
 	var desc *TableDescription
 
-	if desc, err = s.iceberg.DescribeTable(cttx, table); err != nil {
+	if desc, err = s.iceberg.DescribeTable(cttx, database, table); err != nil {
 		return nil, fmt.Errorf("could not describe table: %w", err)
 	}
 
@@ -88,26 +89,27 @@ func (s *ServiceRefresh) RefreshTable(cttx sqlc.Tx, table string) (*TableDescrip
 		return nil, fmt.Errorf("could not save table description: %w", err)
 	}
 
-	s.logger.Info(cttx, "refreshed table %s", table)
+	s.logger.Info(cttx, "refreshed table %s.%s", database, table)
 
 	return desc, nil
 }
 
-func (s *ServiceRefresh) RefreshPartitions(cttx sqlc.Tx, table string) ([]Partition, error) {
+func (s *ServiceRefresh) RefreshPartitions(cttx sqlc.Tx, database string, table string) ([]Partition, error) {
 	var err error
 	var result []IcebergPartition
 
-	if _, err = cttx.Q().Delete("partitions").Where(sqlc.Eq{"table": table}).Exec(cttx); err != nil {
+	if _, err = cttx.Q().Delete("partitions").Where(sqlc.Eq{"database": database, "table": table}).Exec(cttx); err != nil {
 		return nil, fmt.Errorf("could not delete existing partitions: %w", err)
 	}
 
-	if result, err = s.iceberg.ListPartitions(cttx, table); err != nil {
+	if result, err = s.iceberg.ListPartitions(cttx, database, table); err != nil {
 		return nil, fmt.Errorf("could not list partitions: %w", err)
 	}
 
 	partitions := make([]Partition, len(result))
 	for i, p := range result {
 		partitions[i] = Partition{
+			Database:                 database,
 			Table:                    table,
 			Partition:                db.NewJSON(p.Partition, db.NonNullable{}),
 			SpecId:                   int(p.SpecID),
@@ -129,25 +131,26 @@ func (s *ServiceRefresh) RefreshPartitions(cttx sqlc.Tx, table string) ([]Partit
 		}
 	}
 
-	s.logger.Info(cttx, "refreshed %d partitions for table %s", len(partitions), table)
+	s.logger.Info(cttx, "refreshed %d partitions for table %s.%s", len(partitions), database, table)
 
 	return partitions, nil
 }
 
-func (s *ServiceRefresh) RefreshSnapshots(cttx sqlc.Tx, table string) ([]Snapshot, error) {
+func (s *ServiceRefresh) RefreshSnapshots(cttx sqlc.Tx, database string, table string) ([]Snapshot, error) {
 	var err error
 	var result []IcebergSnapshot
 
-	if _, err = cttx.Q().Delete("snapshots").Where(sqlc.Eq{"table": table}).Exec(cttx); err != nil {
+	if _, err = cttx.Q().Delete("snapshots").Where(sqlc.Eq{"database": database, "table": table}).Exec(cttx); err != nil {
 		return nil, fmt.Errorf("could not delete existing snapshots: %w", err)
 	}
 
-	if result, err = s.iceberg.ListSnapshots(cttx, table); err != nil {
+	if result, err = s.iceberg.ListSnapshots(cttx, database, table); err != nil {
 		return nil, fmt.Errorf("could not list snapshots: %w", err)
 	}
 
 	snapshots := make([]Snapshot, len(result))
 	for i := range result {
+		snapshots[i].Database = database
 		snapshots[i].Table = table
 		snapshots[i].CommittedAt = result[i].CommittedAt
 		snapshots[i].SnapshotId = result[i].SnapshotID
@@ -166,12 +169,12 @@ func (s *ServiceRefresh) RefreshSnapshots(cttx sqlc.Tx, table string) ([]Snapsho
 		}
 	}
 
-	s.logger.Info(cttx, "refreshed %d snapshots for table %s", len(snapshots), table)
+	s.logger.Info(cttx, "refreshed %d snapshots for table %s.%s", len(snapshots), database, table)
 
 	return snapshots, nil
 }
 
-func (s *ServiceRefresh) RefreshFull(cttx sqlc.Tx) ([]string, error) {
+func (s *ServiceRefresh) RefreshFull(cttx sqlc.Tx) ([]CatalogTable, error) {
 	tables, err := s.reconcileTableInventory(cttx)
 	if err != nil {
 		return nil, fmt.Errorf("could not reconcile table inventory: %w", err)
@@ -180,40 +183,52 @@ func (s *ServiceRefresh) RefreshFull(cttx sqlc.Tx) ([]string, error) {
 	s.logger.Info(cttx, "starting full refresh for %d tables", len(tables))
 
 	for _, table := range tables {
-		if err = s.RefreshTableFull(cttx, table); err != nil {
-			return nil, fmt.Errorf("could not refresh table %s: %w", table, err)
+		if err = s.RefreshTableFull(cttx, table.Database, table.Name); err != nil {
+			return nil, fmt.Errorf("could not refresh table %s.%s: %w", table.Database, table.Name, err)
 		}
 	}
 
 	return tables, nil
 }
 
-func (s *ServiceRefresh) RefreshTableFull(cttx sqlc.Tx, table string) error {
+func (s *ServiceRefresh) RefreshTableFull(cttx sqlc.Tx, database string, table string) error {
 	var err error
 
-	s.logger.Info(cttx, "refreshing table %s", table)
+	s.logger.Info(cttx, "refreshing table %s.%s", database, table)
 
-	if _, err = s.RefreshTable(cttx, table); err != nil {
-		return fmt.Errorf("could not refresh table %s: %w", table, err)
+	if _, err = s.RefreshTable(cttx, database, table); err != nil {
+		return fmt.Errorf("could not refresh table %s.%s: %w", database, table, err)
 	}
 
-	if _, err = s.RefreshPartitions(cttx, table); err != nil {
-		return fmt.Errorf("could not refresh partitions for table %s: %w", table, err)
+	if _, err = s.RefreshPartitions(cttx, database, table); err != nil {
+		return fmt.Errorf("could not refresh partitions for table %s.%s: %w", database, table, err)
 	}
 
-	if _, err = s.RefreshSnapshots(cttx, table); err != nil {
-		return fmt.Errorf("could not refresh snapshots for table %s: %w", table, err)
+	if _, err = s.RefreshSnapshots(cttx, database, table); err != nil {
+		return fmt.Errorf("could not refresh snapshots for table %s.%s: %w", database, table, err)
 	}
 
 	return nil
 }
 
-func (s *ServiceRefresh) reconcileTableInventory(cttx sqlc.Tx) ([]string, error) {
-	var err error
-	var icebergTables, databaseTables, staleTables []string
 
-	if icebergTables, err = s.iceberg.ListTables(cttx); err != nil {
-		return nil, fmt.Errorf("could not list tables: %w", err)
+func (s *ServiceRefresh) reconcileTableInventory(cttx sqlc.Tx) ([]CatalogTable, error) {
+	var err error
+	var databases []CatalogDatabase
+	var icebergTables, databaseTables, staleTables []CatalogTable
+
+	if databases, err = s.iceberg.ListDatabases(cttx); err != nil {
+		return nil, fmt.Errorf("could not list databases: %w", err)
+	}
+
+	icebergTables = make([]CatalogTable, 0)
+	for _, database := range databases {
+		var tables []CatalogTable
+		if tables, err = s.iceberg.ListTables(cttx, database.Name); err != nil {
+			return nil, fmt.Errorf("could not list tables for database %s: %w", database.Name, err)
+		}
+
+		icebergTables = append(icebergTables, tables...)
 	}
 
 	if databaseTables, err = s.listStoredTables(cttx); err != nil {
@@ -223,8 +238,8 @@ func (s *ServiceRefresh) reconcileTableInventory(cttx sqlc.Tx) ([]string, error)
 	_, staleTables = funk.Difference(icebergTables, databaseTables)
 
 	for _, table := range staleTables {
-		if err = s.deleteStaleTable(cttx, table); err != nil {
-			return nil, fmt.Errorf("could not delete stale table %s: %w", table, err)
+		if err = s.deleteStaleTable(cttx, table.Database, table.Name); err != nil {
+			return nil, fmt.Errorf("could not delete stale table %s.%s: %w", table.Database, table.Name, err)
 		}
 	}
 
@@ -233,25 +248,26 @@ func (s *ServiceRefresh) reconcileTableInventory(cttx sqlc.Tx) ([]string, error)
 	return icebergTables, nil
 }
 
-func (s *ServiceRefresh) listStoredTables(cttx sqlc.Tx) ([]string, error) {
+func (s *ServiceRefresh) listStoredTables(cttx sqlc.Tx) ([]CatalogTable, error) {
 	type tableRow struct {
+		Database string `db:"database"`
 		Name string `db:"name"`
 	}
 
 	rows := make([]tableRow, 0)
-	if err := cttx.Q().From("tables").Column(sqlc.Col("name")).Select(cttx, &rows); err != nil {
+	if err := cttx.Q().From("tables").Column(sqlc.Col("database")).Column(sqlc.Col("name")).Select(cttx, &rows); err != nil {
 		return nil, fmt.Errorf("could not query stored tables: %w", err)
 	}
 
-	tables := make([]string, len(rows))
+	tables := make([]CatalogTable, len(rows))
 	for i, row := range rows {
-		tables[i] = row.Name
+		tables[i] = CatalogTable{Database: row.Database, Name: row.Name}
 	}
 
 	return tables, nil
 }
 
-func (s *ServiceRefresh) deleteStaleTable(cttx sqlc.Tx, name string) error {
+func (s *ServiceRefresh) deleteStaleTable(cttx sqlc.Tx, database string, name string) error {
 	cleanupSteps := map[string]string{
 		"partitions": "table",
 		"snapshots":  "table",
@@ -260,12 +276,19 @@ func (s *ServiceRefresh) deleteStaleTable(cttx sqlc.Tx, name string) error {
 	}
 
 	for table, column := range cleanupSteps {
-		if _, err := cttx.Q().Delete(table).Where(sqlc.Eq{column: name}).Exec(cttx); err != nil {
+		where := sqlc.Eq{column: name}
+		if table == "tables" {
+			where["database"] = database
+		} else {
+			where["database"] = database
+		}
+
+		if _, err := cttx.Q().Delete(table).Where(where).Exec(cttx); err != nil {
 			return fmt.Errorf("could not delete from %s: %w", table, err)
 		}
 	}
 
-	s.logger.Info(cttx, "deleted stale table %s from metadata store", name)
+	s.logger.Info(cttx, "deleted stale table %s.%s from metadata store", database, name)
 
 	return nil
 }

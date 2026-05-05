@@ -5,12 +5,14 @@ import { useMessageApi } from '../context/MessageContext';
 import { RetentionActionCard } from './RetentionActionCard';
 
 interface ExpireSnapshotsTableCardProps {
+  database: string;
   tableName: string;
   snapshotCount?: number;
   snapshotCountLoading?: boolean;
 }
 
 export function ExpireSnapshotsTableCard({
+  database,
   tableName,
   snapshotCount,
   snapshotCountLoading,
@@ -20,10 +22,10 @@ export function ExpireSnapshotsTableCard({
 
   const mutation = useMutation({
     mutationFn: (values: { retention_days: number }) =>
-      expireSnapshots(tableName, values.retention_days),
+      expireSnapshots(database, tableName, values.retention_days),
     onSuccess: (data) => {
       messageApi.success(`Expire snapshots task enqueued (Task ID: ${data.task_id})`);
-      queryClient.invalidateQueries({ queryKey: ['tasks', tableName] });
+      queryClient.invalidateQueries({ queryKey: ['tasks', database, tableName] });
     },
     onError: (error: Error) => {
       messageApi.error(`Failed to enqueue expire snapshots task: ${error.message}`);

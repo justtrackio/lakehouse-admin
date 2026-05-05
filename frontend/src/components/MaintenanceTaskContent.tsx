@@ -20,6 +20,7 @@ interface BatchActionConfig {
 }
 
 interface MaintenanceTaskContentProps {
+  database: string;
   config: BatchActionConfig;
   selectedRowKeys: Key[];
   onSelectedRowKeysChange: (keys: Key[]) => void;
@@ -27,59 +28,8 @@ interface MaintenanceTaskContentProps {
   formContent: (selectedTableNames: string[]) => ReactNode;
 }
 
-const maintenanceTableColumns: ColumnsType<ListTableItem> = [
-  {
-    title: 'Table Name',
-    dataIndex: 'name',
-    key: 'name',
-    render: (value: string, record: ListTableItem) => (
-      <Space direction="vertical" size={0}>
-        <Link to="/tables/$tableName/tasks" params={{ tableName: value }}>
-          {value}
-        </Link>
-        {record.partitions.length === 0 && (
-          <Text type="secondary">Unpartitioned table</Text>
-        )}
-      </Space>
-    ),
-  },
-  {
-    title: 'Snapshots',
-    dataIndex: 'snapshot_count',
-    key: 'snapshot_count',
-    align: 'right',
-    render: (value: number) => formatNumber(value),
-  },
-  {
-    title: 'Partitions',
-    dataIndex: 'partition_count',
-    key: 'partition_count',
-    align: 'right',
-    render: (value: number) => formatNumber(value),
-  },
-  {
-    title: 'Files',
-    dataIndex: 'file_count',
-    key: 'file_count',
-    align: 'right',
-    render: (value: number) => formatNumber(value),
-  },
-  {
-    title: 'Size',
-    dataIndex: 'total_data_file_size_in_bytes',
-    key: 'total_data_file_size_in_bytes',
-    align: 'right',
-    render: (value: number) => formatBytes(value),
-  },
-  {
-    title: 'Optimization',
-    dataIndex: 'needs_optimize',
-    key: 'needs_optimize',
-    render: (value: boolean) => value ? <Tag color="warning">Needs Optimization</Tag> : <Tag color="success">Healthy</Tag>,
-  },
-];
-
 export function MaintenanceTaskContent({
+  database,
   config,
   selectedRowKeys,
   onSelectedRowKeysChange,
@@ -92,9 +42,61 @@ export function MaintenanceTaskContent({
     isError,
     error,
   } = useQuery({
-    queryKey: ['tables'],
-    queryFn: fetchTables,
+    queryKey: ['tables', database],
+    queryFn: () => fetchTables(database),
   });
+
+  const columns: ColumnsType<ListTableItem> = [
+    {
+      title: 'Table Name',
+      dataIndex: 'name',
+      key: 'name',
+      render: (value: string, record: ListTableItem) => (
+        <Space direction="vertical" size={0}>
+          <Link to="/tables/$tableName/tasks" params={{ tableName: value }} search={{ database }}>
+            {value}
+          </Link>
+          {record.partitions.length === 0 && (
+            <Text type="secondary">Unpartitioned table</Text>
+          )}
+        </Space>
+      ),
+    },
+    {
+      title: 'Snapshots',
+      dataIndex: 'snapshot_count',
+      key: 'snapshot_count',
+      align: 'right',
+      render: (value: number) => formatNumber(value),
+    },
+    {
+      title: 'Partitions',
+      dataIndex: 'partition_count',
+      key: 'partition_count',
+      align: 'right',
+      render: (value: number) => formatNumber(value),
+    },
+    {
+      title: 'Files',
+      dataIndex: 'file_count',
+      key: 'file_count',
+      align: 'right',
+      render: (value: number) => formatNumber(value),
+    },
+    {
+      title: 'Size',
+      dataIndex: 'total_data_file_size_in_bytes',
+      key: 'total_data_file_size_in_bytes',
+      align: 'right',
+      render: (value: number) => formatBytes(value),
+    },
+    {
+      title: 'Optimization',
+      dataIndex: 'needs_optimize',
+      key: 'needs_optimize',
+      render: (value: boolean) => value ? <Tag color="warning">Needs Optimization</Tag> : <Tag color="success">Healthy</Tag>,
+    },
+  ];
 
   if (isError) {
     return (
@@ -108,10 +110,10 @@ export function MaintenanceTaskContent({
   }
 
   return (
-    <BatchTaskLayout
-      tables={tables}
-      columns={maintenanceTableColumns}
-      isLoading={isLoading}
+      <BatchTaskLayout
+        tables={tables}
+        columns={columns}
+        isLoading={isLoading}
       selectedRowKeys={selectedRowKeys}
       onSelectedRowKeysChange={onSelectedRowKeysChange}
       isSubmitting={isSubmitting}
