@@ -112,8 +112,10 @@ func (h *HandlerIceberg) ListPartitions(ctx context.Context, input *TableSelectI
 }
 
 func (h *HandlerIceberg) ListSnapshotMissingFiles(ctx context.Context, input *SnapshotMissingFilesInput) (httpserver.Response, error) {
-	missingFiles, err := h.files.ListMissingFiles(ctx, input.Database, input.Table, input.SnapshotID)
-	if err != nil {
+	var err error
+	var missingFiles []string
+
+	if missingFiles, err = h.files.ListMissingFiles(ctx, input.Database, input.Table, input.SnapshotID); err != nil {
 		return nil, fmt.Errorf("could not list missing files for snapshot %d: %w", input.SnapshotID, err)
 	}
 
@@ -156,8 +158,10 @@ func (h *HandlerIceberg) ListTables(ctx context.Context, input *DatabaseInput) (
 }
 
 func (h *HandlerIceberg) ListDatabases(ctx context.Context) (httpserver.Response, error) {
-	databases, err := h.service.ListDatabases(ctx)
-	if err != nil {
+	var err error
+	var databases []CatalogDatabase
+
+	if databases, err = h.service.ListDatabases(ctx); err != nil {
 		return nil, fmt.Errorf("could not list databases: %w", err)
 	}
 

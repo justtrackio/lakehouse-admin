@@ -207,8 +207,10 @@ func (m *SparkApplicationManifest) AppendDriverTolerations(tolerations []SparkAp
 }
 
 func (m *SparkApplicationManifest) SetEnvValues(values map[string]string) error {
-	driverContainer, err := m.DriverContainer()
-	if err != nil {
+	var err error
+	var driverContainer *SparkApplicationContainerSpec
+
+	if driverContainer, err = m.DriverContainer(); err != nil {
 		return err
 	}
 
@@ -251,8 +253,10 @@ func (m *SparkApplicationManifest) ToCreateUnstructured() (*unstructured.Unstruc
 }
 
 func UnstructuredToSparkApplicationManifest(resource *unstructured.Unstructured) (*SparkApplicationManifest, error) {
-	payload, err := json.Marshal(resource.Object)
-	if err != nil {
+	var err error
+	var payload []byte
+
+	if payload, err = json.Marshal(resource.Object); err != nil {
 		return nil, fmt.Errorf("could not marshal spark application resource: %w", err)
 	}
 

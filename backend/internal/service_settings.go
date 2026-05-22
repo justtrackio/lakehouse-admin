@@ -78,8 +78,11 @@ func (s *ServiceSettings) SetSetting(ctx context.Context, key string, value stri
 
 // GetIntSetting retrieves an integer setting with a default fallback.
 func (s *ServiceSettings) GetIntSetting(ctx context.Context, key string, defaultValue int) (int, error) {
-	value, err := s.GetSetting(ctx, key)
-	if err != nil {
+	var err error
+	var value string
+	var intValue int
+
+	if value, err = s.GetSetting(ctx, key); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return defaultValue, nil
 		}
@@ -87,8 +90,7 @@ func (s *ServiceSettings) GetIntSetting(ctx context.Context, key string, default
 		return 0, err
 	}
 
-	intValue, err := strconv.Atoi(value)
-	if err != nil {
+	if intValue, err = strconv.Atoi(value); err != nil {
 		return 0, fmt.Errorf("could not parse setting %s as int: %w", key, err)
 	}
 
@@ -97,8 +99,11 @@ func (s *ServiceSettings) GetIntSetting(ctx context.Context, key string, default
 
 // GetInt64Setting retrieves an int64 setting with a default fallback.
 func (s *ServiceSettings) GetInt64Setting(ctx context.Context, key string, defaultValue int64) (int64, error) {
-	value, err := s.GetSetting(ctx, key)
-	if err != nil {
+	var err error
+	var value string
+	var intValue int64
+
+	if value, err = s.GetSetting(ctx, key); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return defaultValue, nil
 		}
@@ -106,8 +111,7 @@ func (s *ServiceSettings) GetInt64Setting(ctx context.Context, key string, defau
 		return 0, err
 	}
 
-	intValue, err := strconv.ParseInt(value, 10, 64)
-	if err != nil {
+	if intValue, err = strconv.ParseInt(value, 10, 64); err != nil {
 		return 0, fmt.Errorf("could not parse setting %s as int64: %w", key, err)
 	}
 

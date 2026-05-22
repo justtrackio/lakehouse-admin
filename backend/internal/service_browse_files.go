@@ -44,27 +44,29 @@ type ServiceBrowseFiles struct {
 }
 
 func (s *ServiceBrowseFiles) ListFiles(ctx context.Context, database string, tableName string, filters map[string]string) ([]DataFileItem, error) {
-	table, err := s.metadata.GetTable(ctx, database, tableName)
-	if err != nil {
+	var err error
+	var table *TableDescription
+	var selections []browseFileSelection
+	var rows []map[string]any
+	var item DataFileItem
+
+	if table, err = s.metadata.GetTable(ctx, database, tableName); err != nil {
 		return nil, fmt.Errorf("could not load table metadata for files browse: %w", err)
 	}
 
-	selections, err := s.resolveBrowseFileSelections(table.Partitions.Get(), filters)
-	if err != nil {
+	if selections, err = s.resolveBrowseFileSelections(table.Partitions.Get(), filters); err != nil {
 		return nil, err
 	}
 
 	partitionFieldNames := s.browseSelectionFieldNames(selections)
 
-	rows, err := s.trino.QueryRows(ctx, s.buildBrowseFilesQuery(table.Database, tableName, selections))
-	if err != nil {
+	if rows, err = s.trino.QueryRows(ctx, s.buildBrowseFilesQuery(table.Database, tableName, selections)); err != nil {
 		return nil, fmt.Errorf("could not query data files from trino: %w", err)
 	}
 
 	items := make([]DataFileItem, 0, len(rows))
 	for _, row := range rows {
-		item, err := s.mapBrowseFileRow(row, partitionFieldNames)
-		if err != nil {
+		if item, err = s.mapBrowseFileRow(row, partitionFieldNames); err != nil {
 			return nil, fmt.Errorf("could not map data file row: %w", err)
 		}
 
@@ -80,6 +82,9 @@ type browseFileSelection struct {
 }
 
 func (s *ServiceBrowseFiles) resolveBrowseFileSelections(fields []TablePartition, filters map[string]string) ([]browseFileSelection, error) {
+	var err error
+	var selection browseFileSelection
+
 	if len(fields) == 0 {
 		return nil, newBrowseInputError("table does not define any partitions")
 	}
@@ -111,8 +116,7 @@ func (s *ServiceBrowseFiles) resolveBrowseFileSelections(fields []TablePartition
 			continue
 		}
 
-		selection, err := s.buildBrowseFileSelection(filters, field)
-		if err != nil {
+		if selection, err = s.buildBrowseFileSelection(filters, field); err != nil {
 			return nil, err
 		}
 
@@ -124,6 +128,9 @@ func (s *ServiceBrowseFiles) resolveBrowseFileSelections(fields []TablePartition
 }
 
 func (s *ServiceBrowseFiles) buildBrowseFileSelection(filters map[string]string, field TablePartition) (browseFileSelection, error) {
+	var err error
+	var value string
+
 	if !field.IsHidden {
 		value, ok := filters[field.Name]
 		if !ok {
@@ -133,8 +140,7 @@ func (s *ServiceBrowseFiles) buildBrowseFileSelection(filters map[string]string,
 		return browseFileSelection{RawFieldName: field.RawFieldName, Value: value}, nil
 	}
 
-	value, err := s.buildHiddenPartitionValue(filters, field)
-	if err != nil {
+	if value, err = s.buildHiddenPartitionValue(filters, field); err != nil {
 		return browseFileSelection{}, err
 	}
 
@@ -278,6 +284,9 @@ func (s *ServiceBrowseFiles) browseRowValueToString(value any, partitionFieldNam
 }
 
 func (s *ServiceBrowseFiles) formatBrowsePartitionTuple(values []any, partitionFieldNames []string) (string, error) {
+	var err error
+	var formattedValue string
+
 	parts := make([]string, 0, len(values))
 	for i, value := range values {
 		fieldName := fmt.Sprintf("field_%d", i)
@@ -285,8 +294,7 @@ func (s *ServiceBrowseFiles) formatBrowsePartitionTuple(values []any, partitionF
 			fieldName = partitionFieldNames[i]
 		}
 
-		formattedValue, err := s.formatBrowsePartitionValue(value)
-		if err != nil {
+		if formattedValue, err = s.formatBrowsePartitionValue(value); err != nil {
 			return "", err
 		}
 
@@ -297,6 +305,9 @@ func (s *ServiceBrowseFiles) formatBrowsePartitionTuple(values []any, partitionF
 }
 
 func (s *ServiceBrowseFiles) formatBrowsePartitionMap(values map[string]any, partitionFieldNames []string) (string, error) {
+	var err error
+	var formattedValue string
+
 	orderedKeys := make([]string, 0, len(values))
 	seen := make(map[string]struct{}, len(values))
 
@@ -320,8 +331,7 @@ func (s *ServiceBrowseFiles) formatBrowsePartitionMap(values map[string]any, par
 
 	parts := make([]string, 0, len(orderedKeys))
 	for _, key := range orderedKeys {
-		formattedValue, err := s.formatBrowsePartitionValue(values[key])
-		if err != nil {
+		if formattedValue, err = s.formatBrowsePartitionValue(values[key]); err != nil {
 			return "", err
 		}
 

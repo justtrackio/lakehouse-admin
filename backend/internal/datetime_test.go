@@ -45,22 +45,28 @@ func TestDateTime_UnmarshalJSON_Null(t *testing.T) {
 }
 
 func TestDateTime_MarshalJSON(t *testing.T) {
+	var err error
+	var b []byte
+
 	d := internal.DateTime{Time: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
-	b, err := json.Marshal(d)
-	if err != nil {
+	if b, err = json.Marshal(d); err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
+
 	if string(b) != `"2026-01-01T00:00:00Z"` {
 		t.Fatalf("got %s", string(b))
 	}
 }
 
 func TestDateTime_Value(t *testing.T) {
+	var err error
+	var v driver.Value
+
 	d := internal.DateTime{}
-	v, err := d.Value()
-	if err != nil {
+	if v, err = d.Value(); err != nil {
 		t.Fatalf("value: %v", err)
 	}
+
 	if v != nil {
 		t.Fatalf("expected nil")
 	}

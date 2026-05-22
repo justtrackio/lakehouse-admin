@@ -99,8 +99,10 @@ type HandlerTasks struct {
 }
 
 func (h *HandlerTasks) ExpireSnapshots(ctx context.Context, input *ExpireSnapshotsInput) (httpserver.Response, error) {
-	taskId, err := h.serviceTasks.EnqueueExpireSnapshots(ctx, input.Database, input.Table, input.RetentionDays)
-	if err != nil {
+	var err error
+	var taskId int64
+
+	if taskId, err = h.serviceTasks.EnqueueExpireSnapshots(ctx, input.Database, input.Table, input.RetentionDays); err != nil {
 		return nil, err
 	}
 
@@ -111,8 +113,10 @@ func (h *HandlerTasks) ExpireSnapshots(ctx context.Context, input *ExpireSnapsho
 }
 
 func (h *HandlerTasks) RemoveOrphanFiles(ctx context.Context, input *RemoveOrphanFilesInput) (httpserver.Response, error) {
-	taskId, err := h.serviceTasks.EnqueueRemoveOrphanFiles(ctx, input.Database, input.Table, input.RetentionDays)
-	if err != nil {
+	var err error
+	var taskId int64
+
+	if taskId, err = h.serviceTasks.EnqueueRemoveOrphanFiles(ctx, input.Database, input.Table, input.RetentionDays); err != nil {
 		return nil, err
 	}
 
@@ -123,8 +127,10 @@ func (h *HandlerTasks) RemoveOrphanFiles(ctx context.Context, input *RemoveOrpha
 }
 
 func (h *HandlerTasks) Optimize(ctx context.Context, input *OptimizeInput) (httpserver.Response, error) {
-	taskIds, err := h.serviceTasks.EnqueueOptimize(ctx, input.Database, input.Table, input.TargetFileSizeMb, input.From.Time, input.To.Time, input.ChunkBy)
-	if err != nil {
+	var err error
+	var taskIds []int64
+
+	if taskIds, err = h.serviceTasks.EnqueueOptimize(ctx, input.Database, input.Table, input.TargetFileSizeMb, input.From.Time, input.To.Time, input.ChunkBy); err != nil {
 		return nil, err
 	}
 
@@ -135,8 +141,10 @@ func (h *HandlerTasks) Optimize(ctx context.Context, input *OptimizeInput) (http
 }
 
 func (h *HandlerTasks) ListTasks(ctx context.Context, input *ListTasksInput) (httpserver.Response, error) {
-	result, err := h.serviceTasks.ListTasks(ctx, input.Database, input.Table, input.Kind, input.Status, input.Limit, input.Offset)
-	if err != nil {
+	var err error
+	var result *PaginatedTasks
+
+	if result, err = h.serviceTasks.ListTasks(ctx, input.Database, input.Table, input.Kind, input.Status, input.Limit, input.Offset); err != nil {
 		return nil, err
 	}
 
@@ -144,8 +152,10 @@ func (h *HandlerTasks) ListTasks(ctx context.Context, input *ListTasksInput) (ht
 }
 
 func (h *HandlerTasks) RetryTask(ctx context.Context, input *RetryTaskInput) (httpserver.Response, error) {
-	taskId, err := h.serviceTasks.RetryTask(ctx, input.Id)
-	if err != nil {
+	var err error
+	var taskId int64
+
+	if taskId, err = h.serviceTasks.RetryTask(ctx, input.Id); err != nil {
 		return nil, err
 	}
 
@@ -156,8 +166,10 @@ func (h *HandlerTasks) RetryTask(ctx context.Context, input *RetryTaskInput) (ht
 }
 
 func (h *HandlerTasks) RetryAllTasks(ctx context.Context, input *DatabaseInput) (httpserver.Response, error) {
-	retriedCount, err := h.serviceTasks.RetryAllTasks(ctx, input.Database)
-	if err != nil {
+	var err error
+	var retriedCount int64
+
+	if retriedCount, err = h.serviceTasks.RetryAllTasks(ctx, input.Database); err != nil {
 		return nil, err
 	}
 
@@ -182,8 +194,11 @@ func (h *HandlerTasks) ProcedureResultCallback(ctx context.Context, input *TaskP
 }
 
 func (h *HandlerTasks) TaskCounts(ctx context.Context, input *DatabaseInput) (httpserver.Response, error) {
-	running, queued, err := h.serviceTasks.TaskCounts(ctx, input.Database)
-	if err != nil {
+	var err error
+	var running int64
+	var queued int64
+
+	if running, queued, err = h.serviceTasks.TaskCounts(ctx, input.Database); err != nil {
 		return nil, err
 	}
 
@@ -194,8 +209,10 @@ func (h *HandlerTasks) TaskCounts(ctx context.Context, input *DatabaseInput) (ht
 }
 
 func (h *HandlerTasks) FlushTasks(ctx context.Context, input *DatabaseInput) (httpserver.Response, error) {
-	deleted, err := h.serviceTasks.FlushTasks(ctx, input.Database)
-	if err != nil {
+	var err error
+	var deleted int64
+
+	if deleted, err = h.serviceTasks.FlushTasks(ctx, input.Database); err != nil {
 		return nil, err
 	}
 
@@ -205,8 +222,10 @@ func (h *HandlerTasks) FlushTasks(ctx context.Context, input *DatabaseInput) (ht
 }
 
 func (h *HandlerTasks) ListAllTasks(ctx context.Context, input *ListAllTasksInput) (httpserver.Response, error) {
-	result, err := h.serviceTasks.ListTasks(ctx, "", "", input.Kind, input.Status, input.Limit, input.Offset)
-	if err != nil {
+	var err error
+	var result *PaginatedTasks
+
+	if result, err = h.serviceTasks.ListTasks(ctx, "", "", input.Kind, input.Status, input.Limit, input.Offset); err != nil {
 		return nil, err
 	}
 
@@ -214,8 +233,11 @@ func (h *HandlerTasks) ListAllTasks(ctx context.Context, input *ListAllTasksInpu
 }
 
 func (h *HandlerTasks) AllTaskCounts(ctx context.Context) (httpserver.Response, error) {
-	running, queued, err := h.serviceTasks.TaskCounts(ctx, "")
-	if err != nil {
+	var err error
+	var running int64
+	var queued int64
+
+	if running, queued, err = h.serviceTasks.TaskCounts(ctx, ""); err != nil {
 		return nil, err
 	}
 
@@ -226,8 +248,10 @@ func (h *HandlerTasks) AllTaskCounts(ctx context.Context) (httpserver.Response, 
 }
 
 func (h *HandlerTasks) FlushAllTasks(ctx context.Context) (httpserver.Response, error) {
-	deleted, err := h.serviceTasks.FlushTasks(ctx, "")
-	if err != nil {
+	var err error
+	var deleted int64
+
+	if deleted, err = h.serviceTasks.FlushTasks(ctx, ""); err != nil {
 		return nil, err
 	}
 
@@ -237,8 +261,10 @@ func (h *HandlerTasks) FlushAllTasks(ctx context.Context) (httpserver.Response, 
 }
 
 func (h *HandlerTasks) RetryAllTasksGlobal(ctx context.Context) (httpserver.Response, error) {
-	retriedCount, err := h.serviceTasks.RetryAllTasks(ctx, "")
-	if err != nil {
+	var err error
+	var retriedCount int64
+
+	if retriedCount, err = h.serviceTasks.RetryAllTasks(ctx, ""); err != nil {
 		return nil, err
 	}
 

@@ -12,8 +12,10 @@ import (
 var standardCronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 
 func parseStandardCronSchedule(spec string) (cron.Schedule, error) {
-	schedule, err := standardCronParser.Parse(spec)
-	if err != nil {
+	var err error
+	var schedule cron.Schedule
+
+	if schedule, err = standardCronParser.Parse(spec); err != nil {
 		return nil, fmt.Errorf("invalid 5-field cron expression %q: %w", spec, err)
 	}
 
@@ -21,8 +23,10 @@ func parseStandardCronSchedule(spec string) (cron.Schedule, error) {
 }
 
 func runCronLoop(ctx context.Context, logger log.Logger, jobName string, spec string, run func(context.Context)) error {
-	schedule, err := parseStandardCronSchedule(spec)
-	if err != nil {
+	var err error
+	var schedule cron.Schedule
+
+	if schedule, err = parseStandardCronSchedule(spec); err != nil {
 		return fmt.Errorf("could not parse %s cron expression: %w", jobName, err)
 	}
 

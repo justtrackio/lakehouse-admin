@@ -62,6 +62,8 @@ func (s *ServiceRefresh) ListTables(ctx context.Context, database string) ([]Cat
 func (s *ServiceRefresh) RefreshAllTables(cttx sqlc.Tx) ([]CatalogTable, error) {
 	var err error
 	var databases []CatalogDatabase
+	var icebergTables []CatalogTable
+	var storedTables []CatalogTable
 
 	if databases, err = s.iceberg.ListDatabases(cttx); err != nil {
 		return nil, fmt.Errorf("could not list databases: %w", err)
@@ -69,13 +71,11 @@ func (s *ServiceRefresh) RefreshAllTables(cttx sqlc.Tx) ([]CatalogTable, error) 
 
 	var allTables []CatalogTable
 	for _, database := range databases {
-		icebergTables, err := s.iceberg.ListTables(cttx, database.Name)
-		if err != nil {
+		if icebergTables, err = s.iceberg.ListTables(cttx, database.Name); err != nil {
 			return nil, fmt.Errorf("could not list tables for database %s: %w", database.Name, err)
 		}
 
-		storedTables, err := s.listStoredTables(cttx, database.Name)
-		if err != nil {
+		if storedTables, err = s.listStoredTables(cttx, database.Name); err != nil {
 			return nil, fmt.Errorf("could not list stored tables for database %s: %w", database.Name, err)
 		}
 

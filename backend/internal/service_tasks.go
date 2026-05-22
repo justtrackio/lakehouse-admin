@@ -89,6 +89,10 @@ func NewServiceTasks(ctx context.Context, config cfg.Config, logger log.Logger) 
 
 // EnqueueExpireSnapshots enqueues a task to expire old snapshots for a table
 func (s *ServiceTasks) EnqueueExpireSnapshots(ctx context.Context, database string, table string, retentionDays int) (int64, error) {
+	var err error
+	var engine TaskEngine
+	var taskId int64
+
 	// Apply minimum constraints
 	if retentionDays < minRetentionDays {
 		retentionDays = minRetentionDays
@@ -98,13 +102,11 @@ func (s *ServiceTasks) EnqueueExpireSnapshots(ctx context.Context, database stri
 		"retention_days": retentionDays,
 	}
 
-	engine, err := s.engineResolver.Resolve(TaskKindExpireSnapshots)
-	if err != nil {
+	if engine, err = s.engineResolver.Resolve(TaskKindExpireSnapshots); err != nil {
 		return 0, fmt.Errorf("could not resolve engine for expire snapshots task: %w", err)
 	}
 
-	taskId, err := s.serviceTaskQueue.EnqueueTask(ctx, database, table, string(TaskKindExpireSnapshots), string(engine), taskInput)
-	if err != nil {
+	if taskId, err = s.serviceTaskQueue.EnqueueTask(ctx, database, table, string(TaskKindExpireSnapshots), string(engine), taskInput); err != nil {
 		return 0, fmt.Errorf("could not enqueue expire snapshots task: %w", err)
 	}
 
@@ -113,6 +115,10 @@ func (s *ServiceTasks) EnqueueExpireSnapshots(ctx context.Context, database stri
 
 // EnqueueRemoveOrphanFiles enqueues a task to remove orphan files for a table
 func (s *ServiceTasks) EnqueueRemoveOrphanFiles(ctx context.Context, database string, table string, retentionDays int) (int64, error) {
+	var err error
+	var engine TaskEngine
+	var taskId int64
+
 	// Apply minimum constraint
 	if retentionDays < minRetentionDays {
 		retentionDays = minRetentionDays
@@ -122,13 +128,11 @@ func (s *ServiceTasks) EnqueueRemoveOrphanFiles(ctx context.Context, database st
 		"retention_days": retentionDays,
 	}
 
-	engine, err := s.engineResolver.Resolve(TaskKindRemoveOrphanFiles)
-	if err != nil {
+	if engine, err = s.engineResolver.Resolve(TaskKindRemoveOrphanFiles); err != nil {
 		return 0, fmt.Errorf("could not resolve engine for remove orphan files task: %w", err)
 	}
 
-	taskId, err := s.serviceTaskQueue.EnqueueTask(ctx, database, table, string(TaskKindRemoveOrphanFiles), string(engine), taskInput)
-	if err != nil {
+	if taskId, err = s.serviceTaskQueue.EnqueueTask(ctx, database, table, string(TaskKindRemoveOrphanFiles), string(engine), taskInput); err != nil {
 		return 0, fmt.Errorf("could not enqueue remove orphan files task: %w", err)
 	}
 
@@ -148,6 +152,9 @@ func (s *ServiceTasks) EnqueueRemoveOrphanFilesBatch(ctx context.Context, databa
 }
 
 func (s *ServiceTasks) EnqueueOptimizeBatch(ctx context.Context, database string, tables []BatchOptimizeTable, targetFileSizeMb int, from time.Time, to time.Time) (*BatchEnqueueResult, error) {
+	var err error
+	var taskIDs []int64
+
 	if from.IsZero() || to.IsZero() {
 		return nil, fmt.Errorf("from and to dates are required for optimize")
 	}
@@ -167,8 +174,7 @@ func (s *ServiceTasks) EnqueueOptimizeBatch(ctx context.Context, database string
 	}
 
 	for _, tableConfig := range normalizedTables {
-		taskIDs, err := s.EnqueueOptimize(ctx, database, tableConfig.Table, targetFileSizeMb, from, to, tableConfig.ChunkBy)
-		if err != nil {
+		if taskIDs, err = s.EnqueueOptimize(ctx, database, tableConfig.Table, targetFileSizeMb, from, to, tableConfig.ChunkBy); err != nil {
 			s.logger.Warn(ctx, "failed to enqueue optimize maintenance task for table %s: %s", tableConfig.Table, err)
 			result.FailedTables = append(result.FailedTables, BatchEnqueueFailure{
 				Table: tableConfig.Table,
@@ -191,13 +197,14 @@ func (s *ServiceTasks) EnqueueOptimize(ctx context.Context, database string, tab
 	var err error
 	var taskId int64
 	var taskIds []int64
+	var engine TaskEngine
+	var partitionDate time.Time
 	chunkBy, err = normalizeOptimizeChunkBy(chunkBy)
 	if err != nil {
 		return nil, err
 	}
 
-	engine, err := s.engineResolver.Resolve(TaskKindOptimize)
-	if err != nil {
+	if engine, err = s.engineResolver.Resolve(TaskKindOptimize); err != nil {
 		return nil, fmt.Errorf("could not resolve engine for optimize task: %w", err)
 	}
 
@@ -259,8 +266,7 @@ func (s *ServiceTasks) EnqueueOptimize(ctx context.Context, database string, tab
 	// Enqueue one task per chunk that contains at least one qualifying partition.
 	for _, p := range partitions {
 		dateStr := fmt.Sprintf("%s-%s-%s", p.Year, p.Month, p.Day)
-		partitionDate, err := time.Parse("2006-1-2", dateStr)
-		if err != nil {
+		if partitionDate, err = time.Parse("2006-1-2", dateStr); err != nil {
 			return nil, fmt.Errorf("could not parse partition date %s: %w", dateStr, err)
 		}
 
@@ -296,6 +302,9 @@ func (s *ServiceTasks) EnqueueOptimize(ctx context.Context, database string, tab
 }
 
 func (s *ServiceTasks) enqueueBatch(ctx context.Context, tables []string, enqueue func(context.Context, string) (int64, error)) (*BatchEnqueueResult, error) {
+	var err error
+	var taskID int64
+
 	normalizedTables := normalizeBatchTables(tables)
 	if len(normalizedTables) == 0 {
 		return nil, fmt.Errorf("at least one table must be provided")
@@ -307,8 +316,7 @@ func (s *ServiceTasks) enqueueBatch(ctx context.Context, tables []string, enqueu
 	}
 
 	for _, table := range normalizedTables {
-		taskID, err := enqueue(ctx, table)
-		if err != nil {
+		if taskID, err = enqueue(ctx, table); err != nil {
 			s.logger.Warn(ctx, "failed to enqueue maintenance task for table %s: %s", table, err)
 			result.FailedTables = append(result.FailedTables, BatchEnqueueFailure{
 				Table: table,
@@ -326,8 +334,10 @@ func (s *ServiceTasks) enqueueBatch(ctx context.Context, tables []string, enqueu
 }
 
 func (s *ServiceTasks) RetryTask(ctx context.Context, taskID int64) (int64, error) {
-	retryTaskID, err := s.serviceTaskQueue.RetryTask(ctx, taskID)
-	if err != nil {
+	var err error
+	var retryTaskID int64
+
+	if retryTaskID, err = s.serviceTaskQueue.RetryTask(ctx, taskID); err != nil {
 		return 0, fmt.Errorf("could not retry task %d: %w", taskID, err)
 	}
 
@@ -335,8 +345,10 @@ func (s *ServiceTasks) RetryTask(ctx context.Context, taskID int64) (int64, erro
 }
 
 func (s *ServiceTasks) RetryAllTasks(ctx context.Context, database string) (int64, error) {
-	retriedCount, err := s.serviceTaskQueue.RetryAllTasks(ctx, database)
-	if err != nil {
+	var err error
+	var retriedCount int64
+
+	if retriedCount, err = s.serviceTaskQueue.RetryAllTasks(ctx, database); err != nil {
 		return 0, fmt.Errorf("could not retry failed tasks: %w", err)
 	}
 
@@ -344,8 +356,10 @@ func (s *ServiceTasks) RetryAllTasks(ctx context.Context, database string) (int6
 }
 
 func (s *ServiceTasks) UpdateProcedureResult(ctx context.Context, taskID int64, callback *TaskProcedureCallback) error {
-	task, err := s.serviceTaskQueue.GetTask(ctx, taskID)
-	if err != nil {
+	var err error
+	var task *Task
+
+	if task, err = s.serviceTaskQueue.GetTask(ctx, taskID); err != nil {
 		return fmt.Errorf("could not load task %d for procedure callback: %w", taskID, err)
 	}
 
@@ -376,8 +390,10 @@ func (s *ServiceTasks) UpdateProcedureResult(ctx context.Context, taskID int64, 
 
 // ListTasks is a pass-through to ServiceTaskQueue.ListTasks
 func (s *ServiceTasks) ListTasks(ctx context.Context, database string, table string, kinds []string, statuses []string, limit int, offset int) (*PaginatedTasks, error) {
-	result, err := s.serviceTaskQueue.ListTasks(ctx, database, table, kinds, statuses, limit, offset)
-	if err != nil {
+	var err error
+	var result *PaginatedTasks
+
+	if result, err = s.serviceTaskQueue.ListTasks(ctx, database, table, kinds, statuses, limit, offset); err != nil {
 		return nil, fmt.Errorf("could not list tasks: %w", err)
 	}
 
@@ -396,8 +412,10 @@ func (s *ServiceTasks) TaskCounts(ctx context.Context, database string) (running
 
 // FlushTasks is a pass-through to ServiceTaskQueue.FlushTasks
 func (s *ServiceTasks) FlushTasks(ctx context.Context, database string) (int64, error) {
-	deleted, err := s.serviceTaskQueue.FlushTasks(ctx, database)
-	if err != nil {
+	var err error
+	var deleted int64
+
+	if deleted, err = s.serviceTaskQueue.FlushTasks(ctx, database); err != nil {
 		return 0, fmt.Errorf("could not flush tasks: %w", err)
 	}
 

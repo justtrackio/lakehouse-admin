@@ -35,8 +35,10 @@ type BatchOptimizeInput struct {
 }
 
 func NewHandlerMaintenance(ctx context.Context, config cfg.Config, logger log.Logger) (*HandlerMaintenance, error) {
-	serviceTasks, err := NewServiceTasks(ctx, config, logger)
-	if err != nil {
+	var err error
+	var serviceTasks *ServiceTasks
+
+	if serviceTasks, err = NewServiceTasks(ctx, config, logger); err != nil {
 		return nil, fmt.Errorf("could not create maintenance service: %w", err)
 	}
 
@@ -50,8 +52,10 @@ type HandlerMaintenance struct {
 }
 
 func (h *HandlerMaintenance) ExpireSnapshots(ctx context.Context, input *BatchExpireSnapshotsInput) (httpserver.Response, error) {
-	result, err := h.serviceTasks.EnqueueExpireSnapshotsBatch(ctx, input.Database, input.Tables, input.RetentionDays)
-	if err != nil {
+	var err error
+	var result *BatchEnqueueResult
+
+	if result, err = h.serviceTasks.EnqueueExpireSnapshotsBatch(ctx, input.Database, input.Tables, input.RetentionDays); err != nil {
 		return nil, err
 	}
 
@@ -59,8 +63,10 @@ func (h *HandlerMaintenance) ExpireSnapshots(ctx context.Context, input *BatchEx
 }
 
 func (h *HandlerMaintenance) RemoveOrphanFiles(ctx context.Context, input *BatchRemoveOrphanFilesInput) (httpserver.Response, error) {
-	result, err := h.serviceTasks.EnqueueRemoveOrphanFilesBatch(ctx, input.Database, input.Tables, input.RetentionDays)
-	if err != nil {
+	var err error
+	var result *BatchEnqueueResult
+
+	if result, err = h.serviceTasks.EnqueueRemoveOrphanFilesBatch(ctx, input.Database, input.Tables, input.RetentionDays); err != nil {
 		return nil, err
 	}
 
@@ -68,13 +74,15 @@ func (h *HandlerMaintenance) RemoveOrphanFiles(ctx context.Context, input *Batch
 }
 
 func (h *HandlerMaintenance) Optimize(ctx context.Context, input *BatchOptimizeInput) (httpserver.Response, error) {
+	var err error
+	var result *BatchEnqueueResult
+
 	tables := make([]BatchOptimizeTable, 0, len(input.Tables))
 	for _, table := range input.Tables {
 		tables = append(tables, BatchOptimizeTable(table))
 	}
 
-	result, err := h.serviceTasks.EnqueueOptimizeBatch(ctx, input.Database, tables, input.TargetFileSizeMb, input.From.Time, input.To.Time)
-	if err != nil {
+	if result, err = h.serviceTasks.EnqueueOptimizeBatch(ctx, input.Database, tables, input.TargetFileSizeMb, input.From.Time, input.To.Time); err != nil {
 		return nil, err
 	}
 

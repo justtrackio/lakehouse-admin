@@ -87,8 +87,10 @@ func (s *ServiceTaskQueue) RetryTask(ctx context.Context, id int64) (int64, erro
 	var retryTaskID int64
 
 	err := s.sqlClient.WithTx(ctx, func(cttx sqlc.Tx) error {
-		task, err := s.getTaskForRetry(cttx, id)
-		if err != nil {
+		var err error
+		var task *Task
+
+		if task, err = s.getTaskForRetry(cttx, id); err != nil {
 			return err
 		}
 
@@ -164,6 +166,11 @@ func (s *ServiceTaskQueue) getTaskForRetry(ctx sqlc.Tx, id int64) (*Task, error)
 }
 
 func (s *ServiceTaskQueue) retryTaskInTx(ctx sqlc.Tx, task *Task) (int64, error) {
+	var err error
+	var res sqlc.Result
+	var affected int64
+	var retryTaskID int64
+
 	if task.Status != taskStatusError {
 		return 0, fmt.Errorf("task %d cannot be retried because it is in status %s", task.Id, task.Status)
 	}
@@ -173,13 +180,11 @@ func (s *ServiceTaskQueue) retryTaskInTx(ctx sqlc.Tx, task *Task) (int64, error)
 	}
 
 	update := ctx.Q().Update("tasks").Set("retried", true).Where(sqlc.Eq{"id": task.Id, "status": taskStatusError, "retried": false})
-	res, err := update.Exec(ctx)
-	if err != nil {
+	if res, err = update.Exec(ctx); err != nil {
 		return 0, fmt.Errorf("could not mark task %d as retried: %w", task.Id, err)
 	}
 
-	affected, err := res.RowsAffected()
-	if err != nil {
+	if affected, err = res.RowsAffected(); err != nil {
 		return 0, fmt.Errorf("could not get rows affected when retrying task %d: %w", task.Id, err)
 	}
 
@@ -193,8 +198,7 @@ func (s *ServiceTaskQueue) retryTaskInTx(ctx sqlc.Tx, task *Task) (int64, error)
 		return 0, fmt.Errorf("could not enqueue retry for task %d: %w", task.Id, err)
 	}
 
-	retryTaskID, err := res.LastInsertId()
-	if err != nil {
+	if retryTaskID, err = res.LastInsertId(); err != nil {
 		return 0, fmt.Errorf("could not get retry task id for task %d: %w", task.Id, err)
 	}
 
@@ -220,8 +224,10 @@ func newQueuedTask(database string, table string, kind string, engine string, in
 }
 
 func (s *ServiceTaskQueue) ClaimTask(ctx context.Context) (*Task, error) {
-	taskConcurrency, err := s.serviceSettings.GetIntSetting(ctx, "task_concurrency", s.defaultTaskConcurrency)
-	if err != nil {
+	var err error
+	var taskConcurrency int
+
+	if taskConcurrency, err = s.serviceSettings.GetIntSetting(ctx, "task_concurrency", s.defaultTaskConcurrency); err != nil {
 		return nil, fmt.Errorf("could not load task concurrency setting: %w", err)
 	}
 
@@ -313,6 +319,9 @@ func isTaskClaimRetryable(err error) bool {
 }
 
 func (s *ServiceTaskQueue) CompleteTask(ctx context.Context, id int64, result map[string]any, err error) error {
+	var res sqlc.Result
+	var affected int64
+
 	status := taskStatusSuccess
 	var errMsg *string
 
@@ -341,13 +350,11 @@ func (s *ServiceTaskQueue) CompleteTask(ctx context.Context, id int64, result ma
 		Set("result", db.NewJSON(mergedResult, db.NonNullable{})).
 		Where(sqlc.Eq{"id": id, "status": taskStatusRunning})
 
-	res, err := upd.Exec(ctx)
-	if err != nil {
+	if res, err = upd.Exec(ctx); err != nil {
 		return fmt.Errorf("could not complete task: %w", err)
 	}
 
-	affected, err := res.RowsAffected()
-	if err != nil {
+	if affected, err = res.RowsAffected(); err != nil {
 		return fmt.Errorf("could not get rows affected when completing task: %w", err)
 	}
 

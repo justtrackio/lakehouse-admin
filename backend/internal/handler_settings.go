@@ -20,16 +20,17 @@ type SetTaskConcurrencyRequest struct {
 func NewHandlerSettings(ctx context.Context, config cfg.Config, logger log.Logger) (*HandlerSettings, error) {
 	var err error
 	var serviceSettings *ServiceSettings
+	var defaultWorkerCount int
 
 	if serviceSettings, err = NewServiceSettings(ctx, config, logger); err != nil {
 		return nil, fmt.Errorf("could not create settings service: %w", err)
 	}
 
 	// Get the default from config as fallback
-	defaultWorkerCount, err := config.GetInt("tasks.worker_count")
-	if err != nil {
+	if defaultWorkerCount, err = config.GetInt("tasks.worker_count"); err != nil {
 		defaultWorkerCount = 1
 	}
+
 	if defaultWorkerCount < 1 {
 		defaultWorkerCount = 1
 	}

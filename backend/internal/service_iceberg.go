@@ -44,8 +44,10 @@ type ServiceIceberg struct {
 }
 
 func (s *ServiceIceberg) ListSnapshots(ctx context.Context, database string, logicalName string) ([]IcebergSnapshot, error) {
-	snapshots, err := s.client.ListSnapshots(ctx, database, logicalName)
-	if err != nil {
+	var err error
+	var snapshots []table.Snapshot
+
+	if snapshots, err = s.client.ListSnapshots(ctx, database, logicalName); err != nil {
 		return nil, fmt.Errorf("could not list snapshots from iceberg: %w", err)
 	}
 
@@ -104,8 +106,10 @@ func (s *ServiceIceberg) ListTables(ctx context.Context, database string) ([]Cat
 }
 
 func (s *ServiceIceberg) DescribeTable(ctx context.Context, database string, logicalName string) (*TableDescription, error) {
-	desc, err := s.client.DescribeTable(ctx, database, logicalName)
-	if err != nil {
+	var err error
+	var desc *TableDescription
+
+	if desc, err = s.client.DescribeTable(ctx, database, logicalName); err != nil {
 		return nil, fmt.Errorf("could not describe table: %w", err)
 	}
 

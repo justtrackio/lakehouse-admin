@@ -92,20 +92,22 @@ type s3ListGroup struct {
 }
 
 func (s *ServiceFileIntegrity) buildS3ListGroup(filePaths []string) (*s3ListGroup, error) {
-	firstLocation, err := parseS3ObjectLocation(filePaths[0])
-	if err != nil {
+	var err error
+	var firstLocation s3ObjectLocation
+	var prefix string
+	var location s3ObjectLocation
+
+	if firstLocation, err = parseS3ObjectLocation(filePaths[0]); err != nil {
 		return nil, err
 	}
 
-	prefix, err := dataPrefixFromKey(firstLocation.key)
-	if err != nil {
+	if prefix, err = dataPrefixFromKey(firstLocation.key); err != nil {
 		return nil, err
 	}
 
 	expectedByKey := make(map[string]string, len(filePaths))
 	for _, filePath := range filePaths {
-		location, err := parseS3ObjectLocation(filePath)
-		if err != nil {
+		if location, err = parseS3ObjectLocation(filePath); err != nil {
 			return nil, err
 		}
 
@@ -128,6 +130,9 @@ func (s *ServiceFileIntegrity) buildS3ListGroup(filePaths []string) (*s3ListGrou
 }
 
 func (s *ServiceFileIntegrity) listKeysByPrefix(ctx context.Context, bucket, prefix string) (funk.Set[string], error) {
+	var err error
+	var page *awsS3.ListObjectsV2Output
+
 	paginator := awsS3.NewListObjectsV2Paginator(s.s3Client, &awsS3.ListObjectsV2Input{
 		Bucket: aws.String(bucket),
 		Prefix: aws.String(prefix),
@@ -135,8 +140,7 @@ func (s *ServiceFileIntegrity) listKeysByPrefix(ctx context.Context, bucket, pre
 
 	keys := funk.Set[string]{}
 	for paginator.HasMorePages() {
-		page, err := paginator.NextPage(ctx)
-		if err != nil {
+		if page, err = paginator.NextPage(ctx); err != nil {
 			return nil, fmt.Errorf("could not list s3 objects for s3://%s/%s: %w", bucket, prefix, err)
 		}
 
@@ -153,8 +157,10 @@ func (s *ServiceFileIntegrity) listKeysByPrefix(ctx context.Context, bucket, pre
 }
 
 func parseS3ObjectLocation(filePath string) (s3ObjectLocation, error) {
-	parsedURL, err := url.Parse(filePath)
-	if err != nil {
+	var err error
+	var parsedURL *url.URL
+
+	if parsedURL, err = url.Parse(filePath); err != nil {
 		return s3ObjectLocation{}, fmt.Errorf("could not parse s3 object location %q: %w", filePath, err)
 	}
 

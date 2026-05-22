@@ -100,9 +100,11 @@ func (m *ModuleTasks) Run(ctx context.Context) error {
 }
 
 func (m *ModuleTasks) tryProcessTasks(ctx context.Context, cfn coffin.Coffin) {
+	var err error
+	var task *Task
+
 	for {
-		task, err := m.serviceTaskQueue.ClaimTask(ctx)
-		if err != nil {
+		if task, err = m.serviceTaskQueue.ClaimTask(ctx); err != nil {
 			m.logger.Error(ctx, "failed to claim task: %s", err)
 
 			return
@@ -125,8 +127,10 @@ func (m *ModuleTasks) tryProcessTasks(ctx context.Context, cfn coffin.Coffin) {
 }
 
 func (m *ModuleTasks) processTask(ctx context.Context, task *Task) error {
-	executor, err := m.serviceMaintenanceExecutor.ForEngine(TaskEngine(task.Engine))
-	if err != nil {
+	var err error
+	var executor MaintenanceExecutor
+
+	if executor, err = m.serviceMaintenanceExecutor.ForEngine(TaskEngine(task.Engine)); err != nil {
 		if completeErr := m.serviceTaskQueue.CompleteTask(ctx, task.Id, nil, err); completeErr != nil {
 			return fmt.Errorf("could not complete task %d after engine lookup failure: %w", task.Id, completeErr)
 		}
