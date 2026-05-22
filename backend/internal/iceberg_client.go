@@ -29,6 +29,7 @@ const (
 type IcebergSettings struct {
 	Catalog            string        `cfg:"catalog" default:"lakehouse"`
 	DefaultDatabase    string        `cfg:"default_database" default:"main"`
+	Databases          []string      `cfg:"databases"`
 	NeedsOptimizeDelay time.Duration `cfg:"needs_optimize_delay" default:"24h"`
 }
 

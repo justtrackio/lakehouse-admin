@@ -170,13 +170,8 @@ func (s *ServiceIceberg) ListPartitions(ctx context.Context, database string, lo
 }
 
 func (s *ServiceIceberg) ListDatabases(ctx context.Context) ([]CatalogDatabase, error) {
-	databases, err := s.client.ListDatabases(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("could not list databases from iceberg: %w", err)
-	}
-
-	result := make([]CatalogDatabase, 0, len(databases))
-	for _, database := range databases {
+	result := make([]CatalogDatabase, 0)
+	for _, database := range s.settings.Databases {
 		result = append(result, CatalogDatabase{
 			Name:      database,
 			IsDefault: database == s.settings.DefaultDatabase,

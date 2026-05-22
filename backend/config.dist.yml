@@ -27,6 +27,8 @@ httpserver:
 iceberg:
   catalog: lakehouse
   default_database: main
+  databases:
+    - main
   needs_optimize_delay: 96h # 4 days
 
 kube:
