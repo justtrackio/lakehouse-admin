@@ -17,6 +17,7 @@ interface BatchActionConfig {
   description: string;
   selectAllLabel: string;
   selectionLabel: string;
+  disabledField: 'optimize_disabled' | 'expire_snapshots_disabled' | 'remove_orphan_files_disabled';
 }
 
 interface MaintenanceTaskContentProps {
@@ -145,8 +146,8 @@ function BatchTaskLayout({
   formContent,
 }: BatchTaskLayoutProps) {
   const allTableNames = useMemo(
-    () => tables.map((table) => table.name),
-    [tables],
+    () => tables.filter((table) => !table[config.disabledField]).map((table) => table.name),
+    [config.disabledField, tables],
   );
 
   const selectedTableNames = useMemo(
@@ -157,8 +158,8 @@ function BatchTaskLayout({
   const rowSelection: TableRowSelection<ListTableItem> = {
     selectedRowKeys,
     onChange: onSelectedRowKeysChange,
-    getCheckboxProps: () => ({
-      disabled: isSubmitting,
+    getCheckboxProps: (record) => ({
+      disabled: isSubmitting || record[config.disabledField],
     }),
   };
 

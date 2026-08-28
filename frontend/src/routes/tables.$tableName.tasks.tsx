@@ -30,9 +30,11 @@ function TasksPage() {
         tableName={tableName}
         snapshotCount={tableDetails?.snapshot_count}
         snapshotCountLoading={isLoading}
+        maintenanceDisabled={tableDetails?.expire_snapshots_disabled}
+        maintenanceSettings={tableDetails}
       />
-      <RemoveOrphanFilesTableCard database={database} tableName={tableName} />
-      <OptimizeCard database={database} tableName={tableName} />
+      <RemoveOrphanFilesTableCard database={database} tableName={tableName} maintenanceDisabled={tableDetails?.remove_orphan_files_disabled} maintenanceSettings={tableDetails} />
+      <OptimizeCard database={database} tableName={tableName} maintenanceDisabled={tableDetails?.optimize_disabled} maintenanceSettings={tableDetails} />
     </Space>
   );
 }

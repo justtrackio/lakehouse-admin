@@ -29,6 +29,7 @@ type ServiceTasks struct {
 	engineResolver   *TaskEngineResolver
 	sqlClient        sqlc.Client
 	settings         *IcebergSettings
+	tableMaintenance *ServiceTableMaintenance
 }
 
 type TaskProcedureCallback struct {
@@ -61,6 +62,7 @@ func NewServiceTasks(ctx context.Context, config cfg.Config, logger log.Logger) 
 	var settings *IcebergSettings
 
 	var sqlClient sqlc.Client
+	var tableMaintenance *ServiceTableMaintenance
 
 	if serviceTaskQueue, err = NewServiceTaskQueue(ctx, config, logger); err != nil {
 		return nil, fmt.Errorf("could not create task queue service: %w", err)
@@ -77,6 +79,9 @@ func NewServiceTasks(ctx context.Context, config cfg.Config, logger log.Logger) 
 	if settings, err = ReadIcebergSettings(config); err != nil {
 		return nil, fmt.Errorf("could not read iceberg settings: %w", err)
 	}
+	if tableMaintenance, err = NewServiceTableMaintenance(ctx, config, logger); err != nil {
+		return nil, fmt.Errorf("could not create table maintenance service: %w", err)
+	}
 
 	return &ServiceTasks{
 		logger:           logger.WithChannel("tasks"),
@@ -84,6 +89,7 @@ func NewServiceTasks(ctx context.Context, config cfg.Config, logger log.Logger) 
 		engineResolver:   engineResolver,
 		sqlClient:        sqlClient,
 		settings:         settings,
+		tableMaintenance: tableMaintenance,
 	}, nil
 }
 
@@ -92,6 +98,10 @@ func (s *ServiceTasks) EnqueueExpireSnapshots(ctx context.Context, database stri
 	var err error
 	var engine TaskEngine
 	var taskId int64
+
+	if err := s.ensureTaskEnabled(ctx, database, table, TaskKindExpireSnapshots); err != nil {
+		return 0, err
+	}
 
 	// Apply minimum constraints
 	if retentionDays < minRetentionDays {
@@ -118,6 +128,10 @@ func (s *ServiceTasks) EnqueueRemoveOrphanFiles(ctx context.Context, database st
 	var err error
 	var engine TaskEngine
 	var taskId int64
+
+	if err := s.ensureTaskEnabled(ctx, database, table, TaskKindRemoveOrphanFiles); err != nil {
+		return 0, err
+	}
 
 	// Apply minimum constraint
 	if retentionDays < minRetentionDays {
@@ -199,8 +213,12 @@ func (s *ServiceTasks) EnqueueOptimize(ctx context.Context, database string, tab
 	var taskIds []int64
 	var engine TaskEngine
 	var partitionDate time.Time
-	chunkBy, err = normalizeOptimizeChunkBy(chunkBy)
-	if err != nil {
+
+	if err := s.ensureTaskEnabled(ctx, database, table, TaskKindOptimize); err != nil {
+		return nil, err
+	}
+
+	if chunkBy, err = normalizeOptimizeChunkBy(chunkBy); err != nil {
 		return nil, err
 	}
 
@@ -337,7 +355,7 @@ func (s *ServiceTasks) RetryTask(ctx context.Context, taskID int64) (int64, erro
 	var err error
 	var retryTaskID int64
 
-	if retryTaskID, err = s.serviceTaskQueue.RetryTask(ctx, taskID); err != nil {
+	if retryTaskID, err = s.serviceTaskQueue.RetryTask(ctx, taskID, s.tableMaintenance); err != nil {
 		return 0, fmt.Errorf("could not retry task %d: %w", taskID, err)
 	}
 
@@ -348,11 +366,26 @@ func (s *ServiceTasks) RetryAllTasks(ctx context.Context, database string) (int6
 	var err error
 	var retriedCount int64
 
-	if retriedCount, err = s.serviceTaskQueue.RetryAllTasks(ctx, database); err != nil {
+	if retriedCount, err = s.serviceTaskQueue.RetryAllTasks(ctx, database, s.tableMaintenance); err != nil {
 		return 0, fmt.Errorf("could not retry failed tasks: %w", err)
 	}
 
 	return retriedCount, nil
+}
+
+func (s *ServiceTasks) ensureTaskEnabled(ctx context.Context, database string, table string, kind TaskKind) error {
+	var err error
+	var disabled bool
+
+	if disabled, err = s.tableMaintenance.IsDisabled(ctx, database, table, string(kind)); err != nil {
+		return fmt.Errorf("could not check whether %s is disabled for table %s.%s: %w", kind, database, table, err)
+	}
+
+	if disabled {
+		return fmt.Errorf("%s is disabled for table %s.%s", kind, database, table)
+	}
+
+	return nil
 }
 
 func (s *ServiceTasks) UpdateProcedureResult(ctx context.Context, taskID int64, callback *TaskProcedureCallback) error {

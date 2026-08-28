@@ -15,7 +15,7 @@ export interface RetentionMaintenanceFormValues {
 }
 
 interface RetentionActionCardProps {
-  title: string;
+  title: ReactNode;
   description?: ReactNode;
   beforeForm?: ReactNode;
   afterForm?: ReactNode;

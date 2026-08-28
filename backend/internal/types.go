@@ -11,10 +11,11 @@ const (
 	statusError     = "error"
 	statusSubmitted = "submitted"
 
-	taskStatusQueued  = "queued"
-	taskStatusRunning = "running"
-	taskStatusSuccess = "success"
-	taskStatusError   = statusError
+	taskStatusQueued    = "queued"
+	taskStatusRunning   = "running"
+	taskStatusSuccess   = "success"
+	taskStatusError     = statusError
+	taskStatusCancelled = "cancelled"
 )
 
 type Snapshot struct {
@@ -53,12 +54,15 @@ type sPartition struct {
 }
 
 type TableDescription struct {
-	Database          string                                    `json:"database" db:"database"`
-	Name              string                                    `json:"name" db:"name"`
-	Columns           db.JSON[TableColumns, db.NonNullable]     `json:"columns" db:"columns"`
-	Partitions        db.JSON[[]TablePartition, db.NonNullable] `json:"partitions" db:"partitions"`
-	CurrentSnapshotID *int64                                    `json:"current_snapshot_id,string,omitempty" db:"current_snapshot_id"`
-	UpdatedAt         time.Time                                 `json:"updated_at" db:"updated_at"`
+	Database                  string                                    `json:"database" db:"database"`
+	Name                      string                                    `json:"name" db:"name"`
+	Columns                   db.JSON[TableColumns, db.NonNullable]     `json:"columns" db:"columns"`
+	Partitions                db.JSON[[]TablePartition, db.NonNullable] `json:"partitions" db:"partitions"`
+	CurrentSnapshotID         *int64                                    `json:"current_snapshot_id,string,omitempty" db:"current_snapshot_id"`
+	OptimizeDisabled          bool                                      `json:"optimize_disabled" db:"optimize_disabled"`
+	ExpireSnapshotsDisabled   bool                                      `json:"expire_snapshots_disabled" db:"expire_snapshots_disabled"`
+	RemoveOrphanFilesDisabled bool                                      `json:"remove_orphan_files_disabled" db:"remove_orphan_files_disabled"`
+	UpdatedAt                 time.Time                                 `json:"updated_at" db:"updated_at"`
 }
 
 type TableColumns []TableColumn
@@ -81,17 +85,20 @@ type TablePartitionHidden struct {
 }
 
 type TableSummary struct {
-	Database                 string           `json:"database" db:"database"`
-	Name                     string           `json:"name" db:"name"`
-	Partitions               []TablePartition `json:"partitions" db:"partitions"`
-	CurrentSnapshotID        *int64           `json:"current_snapshot_id,string,omitempty" db:"current_snapshot_id"`
-	SnapshotCount            int64            `json:"snapshot_count" db:"snapshot_count"`
-	PartitionCount           int64            `json:"partition_count" db:"partition_count"`
-	FileCount                int64            `json:"file_count" db:"file_count"`
-	RecordCount              int64            `json:"record_count" db:"record_count"`
-	TotalDataFileSizeInBytes int64            `json:"total_data_file_size_in_bytes" db:"total_data_file_size_in_bytes"`
-	NeedsOptimize            bool             `json:"needs_optimize" db:"needs_optimize"`
-	UpdatedAt                time.Time        `json:"updated_at" db:"updated_at"`
+	Database                  string           `json:"database" db:"database"`
+	Name                      string           `json:"name" db:"name"`
+	Partitions                []TablePartition `json:"partitions" db:"partitions"`
+	CurrentSnapshotID         *int64           `json:"current_snapshot_id,string,omitempty" db:"current_snapshot_id"`
+	SnapshotCount             int64            `json:"snapshot_count" db:"snapshot_count"`
+	PartitionCount            int64            `json:"partition_count" db:"partition_count"`
+	FileCount                 int64            `json:"file_count" db:"file_count"`
+	RecordCount               int64            `json:"record_count" db:"record_count"`
+	TotalDataFileSizeInBytes  int64            `json:"total_data_file_size_in_bytes" db:"total_data_file_size_in_bytes"`
+	NeedsOptimize             bool             `json:"needs_optimize" db:"needs_optimize"`
+	OptimizeDisabled          bool             `json:"optimize_disabled" db:"optimize_disabled"`
+	ExpireSnapshotsDisabled   bool             `json:"expire_snapshots_disabled" db:"expire_snapshots_disabled"`
+	RemoveOrphanFilesDisabled bool             `json:"remove_orphan_files_disabled" db:"remove_orphan_files_disabled"`
+	UpdatedAt                 time.Time        `json:"updated_at" db:"updated_at"`
 }
 
 type Task struct {

@@ -12,6 +12,7 @@ const config = {
   description: 'Queue orphan file cleanup for multiple tables at once.',
   selectAllLabel: 'Select All',
   selectionLabel: 'selected',
+  disabledField: 'remove_orphan_files_disabled' as const,
 };
 
 export function RemoveOrphanFilesBatchContent() {

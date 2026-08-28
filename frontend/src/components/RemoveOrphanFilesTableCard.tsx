@@ -1,15 +1,18 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Alert } from 'antd';
-import { removeOrphanFiles } from '../api/schema';
+import { Alert, Space, Typography } from 'antd';
+import { removeOrphanFiles, type TableMaintenanceSettings } from '../api/schema';
 import { useMessageApi } from '../context/MessageContext';
+import { MaintenanceTaskToggle } from './MaintenanceTaskToggle';
 import { RetentionActionCard } from './RetentionActionCard';
 
 interface RemoveOrphanFilesTableCardProps {
   database: string;
   tableName: string;
+  maintenanceDisabled?: boolean;
+  maintenanceSettings?: TableMaintenanceSettings;
 }
 
-export function RemoveOrphanFilesTableCard({ database, tableName }: RemoveOrphanFilesTableCardProps) {
+export function RemoveOrphanFilesTableCard({ database, tableName, maintenanceDisabled = false, maintenanceSettings }: RemoveOrphanFilesTableCardProps) {
   const queryClient = useQueryClient();
   const messageApi = useMessageApi();
 
@@ -33,11 +36,16 @@ export function RemoveOrphanFilesTableCard({ database, tableName }: RemoveOrphan
     />
   ) : undefined;
 
+  const beforeForm = maintenanceDisabled ? (
+    <Alert type="warning" showIcon message="Task disabled" description="Remove orphan files is disabled for this table." />
+  ) : undefined;
+
   return (
     <RetentionActionCard
-      title="Remove Orphan Files"
+      title={<Space><Typography.Text>Remove Orphan Files</Typography.Text>{maintenanceSettings && <MaintenanceTaskToggle database={database} tableName={tableName} label="Remove orphan files" disabledField="remove_orphan_files_disabled" settings={maintenanceSettings} />}</Space>}
       description="Removes files that are no longer referenced by any snapshot. This helps reclaim storage space. This operation can be time-consuming for large tables."
-      disabled={mutation.isPending}
+      beforeForm={beforeForm}
+      disabled={maintenanceDisabled || mutation.isPending}
       isSubmitting={mutation.isPending}
       retentionDaysExtra="Files older than this that are not referenced by any snapshot will be removed."
       sliderWidth={500}

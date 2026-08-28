@@ -1,7 +1,8 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Alert, Spin } from 'antd';
-import { expireSnapshots } from '../api/schema';
+import { Alert, Spin, Space, Typography } from 'antd';
+import { expireSnapshots, type TableMaintenanceSettings } from '../api/schema';
 import { useMessageApi } from '../context/MessageContext';
+import { MaintenanceTaskToggle } from './MaintenanceTaskToggle';
 import { RetentionActionCard } from './RetentionActionCard';
 
 interface ExpireSnapshotsTableCardProps {
@@ -9,6 +10,8 @@ interface ExpireSnapshotsTableCardProps {
   tableName: string;
   snapshotCount?: number;
   snapshotCountLoading?: boolean;
+  maintenanceDisabled?: boolean;
+  maintenanceSettings?: TableMaintenanceSettings;
 }
 
 export function ExpireSnapshotsTableCard({
@@ -16,6 +19,8 @@ export function ExpireSnapshotsTableCard({
   tableName,
   snapshotCount,
   snapshotCountLoading,
+  maintenanceDisabled = false,
+  maintenanceSettings,
 }: ExpireSnapshotsTableCardProps) {
   const queryClient = useQueryClient();
   const messageApi = useMessageApi();
@@ -35,9 +40,11 @@ export function ExpireSnapshotsTableCard({
   const isReady = !snapshotCountLoading;
   const hasSnapshots = isReady && (snapshotCount ?? 0) > 0;
 
-  const isDisabled = !isReady || !hasSnapshots || mutation.isPending;
+  const isDisabled = maintenanceDisabled || !isReady || !hasSnapshots || mutation.isPending;
 
-  const beforeForm = !isReady ? (
+  const beforeForm = maintenanceDisabled ? (
+    <Alert type="warning" showIcon message="Task disabled" description="Expire snapshots is disabled for this table." />
+  ) : !isReady ? (
     <div style={{ textAlign: 'center', padding: '16px 0' }}>
       <Spin size="default" />
       <div style={{ marginTop: 8 }}>Loading snapshot count...</div>
@@ -62,7 +69,7 @@ export function ExpireSnapshotsTableCard({
 
   return (
     <RetentionActionCard
-      title="Expire Snapshots"
+      title={<Space><Typography.Text>Expire Snapshots</Typography.Text>{maintenanceSettings && <MaintenanceTaskToggle database={database} tableName={tableName} label="Expire snapshots" disabledField="expire_snapshots_disabled" settings={maintenanceSettings} />}</Space>}
       description="Removes snapshots older than the specified retention period. This action frees up storage space and cleans up metadata, but it is irreversible."
       beforeForm={beforeForm}
       afterForm={afterForm}

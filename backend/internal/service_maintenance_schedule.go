@@ -68,6 +68,10 @@ func (s *ServiceMaintenanceSchedule) RunCycle(ctx context.Context, now time.Time
 
 	from, to := scheduledOptimizeRange(now.UTC(), s.settings.Optimize.LookbackDays)
 	for _, table := range tables {
+		if table.OptimizeDisabled {
+			continue
+		}
+
 		if taskIDs, err = s.tasks.EnqueueOptimize(ctx, table.Database, table.Name, s.settings.Optimize.TargetFileSizeMb, from, to, s.settings.Optimize.ChunkBy); err != nil {
 			result.OptimizeFailureCount++
 			s.logger.Warn(ctx, "failed to enqueue scheduled optimize for table %s.%s: %s", table.Database, table.Name, err)
@@ -79,6 +83,10 @@ func (s *ServiceMaintenanceSchedule) RunCycle(ctx context.Context, now time.Time
 	}
 
 	for _, table := range tables {
+		if table.ExpireSnapshotsDisabled {
+			continue
+		}
+
 		if _, err = s.tasks.EnqueueExpireSnapshots(ctx, table.Database, table.Name, s.settings.ExpireSnapshots.RetentionDays); err != nil {
 			result.ExpireSnapshotsFailureCount++
 			s.logger.Warn(ctx, "failed to enqueue scheduled expire_snapshots for table %s.%s: %s", table.Database, table.Name, err)
@@ -90,6 +98,10 @@ func (s *ServiceMaintenanceSchedule) RunCycle(ctx context.Context, now time.Time
 	}
 
 	for _, table := range tables {
+		if table.RemoveOrphanFilesDisabled {
+			continue
+		}
+
 		if _, err = s.tasks.EnqueueRemoveOrphanFiles(ctx, table.Database, table.Name, s.settings.RemoveOrphanFiles.RetentionDays); err != nil {
 			result.RemoveOrphanFilesFailureCount++
 			s.logger.Warn(ctx, "failed to enqueue scheduled remove_orphan_files for table %s.%s: %s", table.Database, table.Name, err)

@@ -32,6 +32,7 @@ const config = {
   description: 'Queue optimize tasks for multiple tables at once. All selected tables share one date range, while each table can use its own chunking strategy.',
   selectAllLabel: 'Select All',
   selectionLabel: 'selected',
+  disabledField: 'optimize_disabled' as const,
 };
 
 const optimizeChunkOptions: Array<{ label: string; value: OptimizeChunkBy }> = [

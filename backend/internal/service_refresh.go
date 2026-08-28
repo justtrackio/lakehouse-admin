@@ -108,7 +108,12 @@ func (s *ServiceRefresh) RefreshTable(cttx sqlc.Tx, database string, table strin
 		return nil, fmt.Errorf("could not describe table: %w", err)
 	}
 
-	insert := cttx.Q().Into("tables").Records(desc).Replace()
+	insert := cttx.Q().Into("tables").Records(desc).OnDuplicateKeyUpdate(
+		sqlc.AssignExpr("columns", "VALUES(columns)"),
+		sqlc.AssignExpr("partitions", "VALUES(partitions)"),
+		sqlc.AssignExpr("current_snapshot_id", "VALUES(current_snapshot_id)"),
+		sqlc.AssignExpr("updated_at", "VALUES(updated_at)"),
+	)
 	if _, err = insert.Exec(cttx); err != nil {
 		return nil, fmt.Errorf("could not save table description: %w", err)
 	}

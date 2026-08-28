@@ -83,15 +83,24 @@ func (s *ServiceTaskQueue) GetTask(ctx context.Context, id int64) (*Task, error)
 	return &task, nil
 }
 
-func (s *ServiceTaskQueue) RetryTask(ctx context.Context, id int64) (int64, error) {
+func (s *ServiceTaskQueue) RetryTask(ctx context.Context, id int64, tableMaintenance *ServiceTableMaintenance) (int64, error) {
 	var retryTaskID int64
 
 	err := s.sqlClient.WithTx(ctx, func(cttx sqlc.Tx) error {
 		var err error
 		var task *Task
+		var disabled bool
 
 		if task, err = s.getTaskForRetry(cttx, id); err != nil {
 			return err
+		}
+
+		if disabled, err = tableMaintenance.IsDisabledInTx(cttx, task.Database, task.Table, task.Kind); err != nil {
+			return fmt.Errorf("could not check whether retry task %d is disabled: %w", task.Id, err)
+		}
+
+		if disabled {
+			return fmt.Errorf("%s is disabled for table %s.%s", task.Kind, task.Database, task.Table)
 		}
 
 		retryTaskID, err = s.retryTaskInTx(cttx, task)
@@ -108,11 +117,13 @@ func (s *ServiceTaskQueue) RetryTask(ctx context.Context, id int64) (int64, erro
 	return retryTaskID, nil
 }
 
-func (s *ServiceTaskQueue) RetryAllTasks(ctx context.Context, database string) (int64, error) {
+func (s *ServiceTaskQueue) RetryAllTasks(ctx context.Context, database string, tableMaintenance *ServiceTableMaintenance) (int64, error) {
 	var retriedCount int64
 
 	err := s.sqlClient.WithTx(ctx, func(cttx sqlc.Tx) error {
+		var err error
 		var tasks []Task
+		var disabled bool
 
 		query := cttx.Q().
 			From("tasks").
@@ -128,6 +139,14 @@ func (s *ServiceTaskQueue) RetryAllTasks(ctx context.Context, database string) (
 		}
 
 		for i := range tasks {
+			if disabled, err = tableMaintenance.IsDisabledInTx(cttx, tasks[i].Database, tasks[i].Table, tasks[i].Kind); err != nil {
+				return fmt.Errorf("could not check whether retry task %d is disabled: %w", tasks[i].Id, err)
+			}
+
+			if disabled {
+				continue
+			}
+
 			if _, err := s.retryTaskInTx(cttx, &tasks[i]); err != nil {
 				if errors.Is(err, errTaskAlreadyRetried) {
 					continue

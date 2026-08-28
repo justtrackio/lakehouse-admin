@@ -147,18 +147,19 @@ export function MaintenanceTasksTable({ database, tableName, pageSize, global }:
         if (status === 'error') color = 'error';
         if (status === 'running') color = 'processing';
         if (status === 'queued') color = 'default';
+        if (status === 'cancelled') color = 'warning';
         
         return (
            <Space size={8} wrap>
               <Tag color={color}>{status.toUpperCase()}</Tag>
-              {status === 'error' && record.error_message && (
+              {(status === 'error' || status === 'cancelled') && record.error_message && (
                 <Button 
                  type="link" 
                  danger 
                  size="small" 
                  onClick={() => showDetails('Error Details', record.error_message!)}
                 >
-                  View Error
+                  {status === 'cancelled' ? 'View Reason' : 'View Error'}
                 </Button>
               )}
               {status === 'error' && record.can_retry && (
@@ -188,6 +189,7 @@ export function MaintenanceTasksTable({ database, tableName, pageSize, global }:
         { text: 'Running', value: 'running' },
         { text: 'Success', value: 'success' },
         { text: 'Error', value: 'error' },
+        { text: 'Cancelled', value: 'cancelled' },
       ],
       filteredValue: selectedStatuses,
     },

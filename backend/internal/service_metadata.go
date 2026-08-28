@@ -35,11 +35,14 @@ type ServiceMetadata struct {
 
 func (s *ServiceMetadata) GetTableSummary(ctx context.Context, desc TableDescription) (*TableSummary, error) {
 	summary := &TableSummary{
-		Database:          desc.Database,
-		Name:              desc.Name,
-		Partitions:        desc.Partitions.Get(),
-		CurrentSnapshotID: desc.CurrentSnapshotID,
-		UpdatedAt:         desc.UpdatedAt,
+		Database:                  desc.Database,
+		Name:                      desc.Name,
+		Partitions:                desc.Partitions.Get(),
+		CurrentSnapshotID:         desc.CurrentSnapshotID,
+		OptimizeDisabled:          desc.OptimizeDisabled,
+		ExpireSnapshotsDisabled:   desc.ExpireSnapshotsDisabled,
+		RemoveOrphanFilesDisabled: desc.RemoveOrphanFilesDisabled,
+		UpdatedAt:                 desc.UpdatedAt,
 	}
 
 	sel := s.sqlClient.Q().From("partitions").As("p").

@@ -12,6 +12,7 @@ const config = {
   description: 'Expire old snapshots in batch across multiple tables.',
   selectAllLabel: 'Select All',
   selectionLabel: 'selected',
+  disabledField: 'expire_snapshots_disabled' as const,
 };
 
 export function ExpireSnapshotsBatchContent() {

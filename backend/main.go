@@ -66,6 +66,7 @@ func main() {
 			}))
 
 			router.Group("/api/metadata").HandleWith(httpserver.With(internal.NewHandlerMetadata, func(r *httpserver.Router, handler *internal.HandlerMetadata) {
+				r.PUT("/:database/:table/maintenance-settings", httpserver.Bind(handler.UpdateTableMaintenanceSettings))
 				r.GET("/:database/:table/partitions", httpserver.Bind(handler.ListPartitions))
 				r.GET("/:database/:table/snapshots", httpserver.Bind(handler.ListSnapshots))
 			}))

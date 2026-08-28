@@ -21,6 +21,9 @@ export interface ListTableItem {
   record_count: number;
   total_data_file_size_in_bytes: number;
   needs_optimize: boolean;
+  optimize_disabled: boolean;
+  expire_snapshots_disabled: boolean;
+  remove_orphan_files_disabled: boolean;
 }
 
 export interface ListTablesResponse {
@@ -57,10 +60,34 @@ export interface TableDetails {
   record_count: number;
   total_data_file_size_in_bytes: number;
   updated_at: string;
+  optimize_disabled: boolean;
+  expire_snapshots_disabled: boolean;
+  remove_orphan_files_disabled: boolean;
 }
 
 export async function fetchTableDetails(database: string, tableName: string): Promise<TableDetails> {
   return apiClient.get<TableDetails>(`/api/browse/${encodeURIComponent(database)}/${encodeURIComponent(tableName)}`);
+}
+
+export interface TableMaintenanceSettings {
+  optimize_disabled: boolean;
+  expire_snapshots_disabled: boolean;
+  remove_orphan_files_disabled: boolean;
+}
+
+export interface UpdateTableMaintenanceSettingsResponse extends TableMaintenanceSettings {
+  cancelled_task_count: number;
+}
+
+export async function updateTableMaintenanceSettings(
+  database: string,
+  tableName: string,
+  settings: TableMaintenanceSettings,
+): Promise<UpdateTableMaintenanceSettingsResponse> {
+  return apiClient.put<UpdateTableMaintenanceSettingsResponse>(
+    `/api/metadata/${encodeURIComponent(database)}/${encodeURIComponent(tableName)}/maintenance-settings`,
+    settings,
+  );
 }
 
 export interface TableSchemaColumn {

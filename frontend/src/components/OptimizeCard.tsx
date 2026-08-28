@@ -1,8 +1,9 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Alert, Button, Card, DatePicker, Form, Slider, Space, Typography, Popconfirm } from 'antd';
 import type { Dayjs } from 'dayjs';
-import { optimizeTable } from '../api/schema';
+import { optimizeTable, type TableMaintenanceSettings } from '../api/schema';
 import { useMessageApi } from '../context/MessageContext';
+import { MaintenanceTaskToggle } from './MaintenanceTaskToggle';
 
 const { Paragraph } = Typography;
 const { RangePicker } = DatePicker;
@@ -10,9 +11,11 @@ const { RangePicker } = DatePicker;
 interface OptimizeCardProps {
   database: string;
   tableName: string;
+  maintenanceDisabled?: boolean;
+  maintenanceSettings?: TableMaintenanceSettings;
 }
 
-export function OptimizeCard({ database, tableName }: OptimizeCardProps) {
+export function OptimizeCard({ database, tableName, maintenanceDisabled = false, maintenanceSettings }: OptimizeCardProps) {
   const queryClient = useQueryClient();
   const [form] = Form.useForm();
   const messageApi = useMessageApi();
@@ -51,8 +54,11 @@ export function OptimizeCard({ database, tableName }: OptimizeCardProps) {
   };
 
   return (
-    <Card title="Optimize Table">
+    <Card title={<Space><Typography.Text>Optimize Table</Typography.Text>{maintenanceSettings && <MaintenanceTaskToggle database={database} tableName={tableName} label="Optimize" disabledField="optimize_disabled" settings={maintenanceSettings} />}</Space>}>
       <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+        {maintenanceDisabled && (
+          <Alert type="warning" showIcon message="Task disabled" description="Optimize is disabled for this table." />
+        )}
         <Paragraph>
           Compacts small files and improves read performance by organizing data for efficiency.
           This operation rewrites data files and can be resource-intensive.
@@ -66,7 +72,7 @@ export function OptimizeCard({ database, tableName }: OptimizeCardProps) {
             target_file_size_mb: 512,
             date_range: null,
           }}
-          disabled={mutation.isPending}
+          disabled={maintenanceDisabled || mutation.isPending}
         >
           <Space direction="horizontal" size="large" style={{ width: '100%' }} align="start">
             <div style={{ width: 400 }}>
@@ -102,9 +108,9 @@ export function OptimizeCard({ database, tableName }: OptimizeCardProps) {
               onConfirm={form.submit}
               okText="Yes, optimize"
               cancelText="Cancel"
-              disabled={mutation.isPending}
+              disabled={maintenanceDisabled || mutation.isPending}
             >
-              <Button type="primary" loading={mutation.isPending}>
+              <Button type="primary" loading={mutation.isPending} disabled={maintenanceDisabled}>
                 Optimize Table
               </Button>
             </Popconfirm>

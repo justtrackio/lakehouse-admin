@@ -369,13 +369,14 @@ function PartitionsPage() {
             onConfirm={() => optimizeMutation.mutate(record.name)}
             okText="Yes, optimize"
             cancelText="Cancel"
-            disabled={optimizeMutation.isPending}
+            disabled={table?.optimize_disabled || optimizeMutation.isPending}
           >
             <Badge count={record.needs_optimize_count} showZero={false} overflowCount={10000} >
               <Button 
                 type="primary" 
                 size="small" 
                 loading={optimizeMutation.isPending}
+                disabled={table?.optimize_disabled}
               >
                 Optimize
               </Button>
