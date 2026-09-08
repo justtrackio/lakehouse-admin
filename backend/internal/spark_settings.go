@@ -9,9 +9,10 @@ import (
 )
 
 type SparkSettings struct {
-	Callback SparkCallbackSettings `cfg:"callback"`
-	Optimize SparkOptimizeSettings `cfg:"optimize"`
-	PodSpec  SparkPodSpecSettings  `cfg:"pod_spec"`
+	Callback        SparkCallbackSettings `cfg:"callback"`
+	Optimize        SparkOptimizeSettings `cfg:"optimize"`
+	DriverPodSpec   SparkPodSpecSettings  `cfg:"driver_pod_spec"`
+	ExecutorPodSpec SparkPodSpecSettings  `cfg:"executor_pod_spec"`
 }
 
 type SparkCallbackSettings struct {
@@ -51,19 +52,24 @@ func ReadSparkSettings(config cfg.Config) (*SparkSettings, error) {
 		return nil, fmt.Errorf("ptimize.max_concurrent_file_group_rewrites must be at least 1")
 	}
 
-	settings.PodSpec.Annotations = funk.MapKeys(settings.PodSpec.Annotations, func(key string) string {
-		return strings.ReplaceAll(key, "\\.", ".")
-	})
-
-	settings.PodSpec.NodeSelector = funk.MapKeys(settings.PodSpec.NodeSelector, func(key string) string {
-		return strings.ReplaceAll(key, "\\.", ".")
-	})
-
-	for i := range settings.PodSpec.Tolerations {
-		settings.PodSpec.Tolerations[i].Key = strings.ReplaceAll(settings.PodSpec.Tolerations[i].Key, "\\.", ".")
-	}
+	normalizeSparkPodSpecSettings(&settings.DriverPodSpec)
+	normalizeSparkPodSpecSettings(&settings.ExecutorPodSpec)
 
 	return settings, nil
+}
+
+func normalizeSparkPodSpecSettings(settings *SparkPodSpecSettings) {
+	settings.Annotations = funk.MapKeys(settings.Annotations, func(key string) string {
+		return strings.ReplaceAll(key, "\\.", ".")
+	})
+
+	settings.NodeSelector = funk.MapKeys(settings.NodeSelector, func(key string) string {
+		return strings.ReplaceAll(key, "\\.", ".")
+	})
+
+	for i := range settings.Tolerations {
+		settings.Tolerations[i].Key = strings.ReplaceAll(settings.Tolerations[i].Key, "\\.", ".")
+	}
 }
 
 func BuildTaskProcedureCallbackURL(host string, taskID int64) string {

@@ -194,8 +194,16 @@ func (m *SparkApplicationManifest) MergeDriverPodAnnotations(annotations map[str
 	m.Spec.DriverSpec.PodTemplateSpec.Metadata.Annotations = funk.MergeMaps(m.Spec.DriverSpec.PodTemplateSpec.Metadata.Annotations, annotations)
 }
 
+func (m *SparkApplicationManifest) MergeExecutorPodAnnotations(annotations map[string]string) {
+	m.Spec.ExecutorSpec.PodTemplateSpec.Metadata.Annotations = funk.MergeMaps(m.Spec.ExecutorSpec.PodTemplateSpec.Metadata.Annotations, annotations)
+}
+
 func (m *SparkApplicationManifest) MergeDriverNodeSelector(nodeSelector map[string]string) {
 	m.Spec.DriverSpec.PodTemplateSpec.Spec.NodeSelector = funk.MergeMaps(m.Spec.DriverSpec.PodTemplateSpec.Spec.NodeSelector, nodeSelector)
+}
+
+func (m *SparkApplicationManifest) MergeExecutorNodeSelector(nodeSelector map[string]string) {
+	m.Spec.ExecutorSpec.PodTemplateSpec.Spec.NodeSelector = funk.MergeMaps(m.Spec.ExecutorSpec.PodTemplateSpec.Spec.NodeSelector, nodeSelector)
 }
 
 func (m *SparkApplicationManifest) AppendDriverTolerations(tolerations []SparkApplicationToleration) {
@@ -204,6 +212,14 @@ func (m *SparkApplicationManifest) AppendDriverTolerations(tolerations []SparkAp
 	}
 
 	m.Spec.DriverSpec.PodTemplateSpec.Spec.Tolerations = append(m.Spec.DriverSpec.PodTemplateSpec.Spec.Tolerations, tolerations...)
+}
+
+func (m *SparkApplicationManifest) AppendExecutorTolerations(tolerations []SparkApplicationToleration) {
+	if len(tolerations) == 0 {
+		return
+	}
+
+	m.Spec.ExecutorSpec.PodTemplateSpec.Spec.Tolerations = append(m.Spec.ExecutorSpec.PodTemplateSpec.Spec.Tolerations, tolerations...)
 }
 
 func (m *SparkApplicationManifest) SetEnvValues(values map[string]string) error {
