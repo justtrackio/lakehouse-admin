@@ -393,9 +393,12 @@ func (s *SparkMaintenanceExecutor) prepareSparkApplication(manifest *SparkApplic
 	manifest.SetAnnotation(sparkApplicationTaskIDAnnotation, strconv.FormatInt(taskID, 10))
 	manifest.SetAnnotation(sparkApplicationTaskKindAnnotation, string(taskKind))
 	manifest.SetAnnotation(sparkApplicationTaskTableAnnotation, table)
-	manifest.MergeDriverPodAnnotations(s.settings.PodSpec.Annotations)
-	manifest.MergeDriverNodeSelector(s.settings.PodSpec.NodeSelector)
-	manifest.AppendDriverTolerations(s.settings.PodSpec.Tolerations)
+	manifest.MergeDriverPodAnnotations(s.settings.DriverPodSpec.Annotations)
+	manifest.MergeDriverNodeSelector(s.settings.DriverPodSpec.NodeSelector)
+	manifest.AppendDriverTolerations(s.settings.DriverPodSpec.Tolerations)
+	manifest.MergeExecutorPodAnnotations(s.settings.ExecutorPodSpec.Annotations)
+	manifest.MergeExecutorNodeSelector(s.settings.ExecutorPodSpec.NodeSelector)
+	manifest.AppendExecutorTolerations(s.settings.ExecutorPodSpec.Tolerations)
 
 	if err := manifest.SetPyFileName(sparkMaintenancePyFile); err != nil {
 		return fmt.Errorf("could not set spark application pyFiles: %w", err)

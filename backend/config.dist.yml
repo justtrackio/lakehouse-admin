@@ -62,7 +62,11 @@ tasks:
     remove_orphan_files: trino
     optimize: spark
   spark:
-    pod_spec:
+    driver_pod_spec:
+      annotations: {}
+      node_selector: {}
+      tolerations: []
+    executor_pod_spec:
       annotations: {}
       node_selector: {}
       tolerations: []
