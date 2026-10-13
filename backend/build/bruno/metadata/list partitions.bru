@@ -5,13 +5,9 @@ meta {
 }
 
 get {
-  url: http://localhost:8081/api/metadata/partitions?table=revenueEvent
+  url: http://localhost:8081/api/metadata/main/revenueEvent/partitions
   body: none
   auth: inherit
-}
-
-params:query {
-  table: revenueEvent
 }
 
 settings {

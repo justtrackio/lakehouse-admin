@@ -183,7 +183,7 @@ func (h *HandlerBrowse) ListFiles(ctx context.Context, input *ListFilesInput) (h
 
 	if items, err = h.files.ListFiles(ctx, input.Database, input.Table, input.Partitions); err != nil {
 		if isBrowseInputError(err) {
-			return httpserver.GetErrorHandler()(http.StatusBadRequest, err), nil
+			return nil, httpserver.NewErrorWithStatus(http.StatusBadRequest, err)
 		}
 
 		return nil, fmt.Errorf("could not list files: %w", err)
