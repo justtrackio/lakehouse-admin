@@ -8,12 +8,12 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.88.3
 	github.com/gin-contrib/cors v1.6.0
 	github.com/google/uuid v1.6.0
-	github.com/gosoline-project/httpserver v0.6.5-0.20261021102849-b86cdb16238f
-	github.com/gosoline-project/sqlc v0.4.2-0.20261021102907-3f46fec6e6d1
-	github.com/gosoline-project/sqlh v0.8.2-0.20261021104309-052781e8e8b8
-	github.com/gosoline-project/sqlr v0.9.2-0.20261021103503-2e52c2637837
+	github.com/gosoline-project/httpserver v0.6.5-0.20261022101036-a7690f24137e
+	github.com/gosoline-project/sqlc v0.4.2-0.20261022101232-4e97a8c5efc7
+	github.com/gosoline-project/sqlh v0.8.2-0.20261022102734-962184e2f219
+	github.com/gosoline-project/sqlr v0.9.2-0.20261022101442-f23fc53d1d89
 	github.com/jmoiron/sqlx v1.3.4
-	github.com/justtrackio/gosoline v0.68.4-0.20261021101322-e1a14ac09eab
+	github.com/justtrackio/gosoline v0.68.4-0.20261022095443-a18815d97543
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/spf13/cast v1.10.0
 	github.com/stretchr/testify v1.11.1
