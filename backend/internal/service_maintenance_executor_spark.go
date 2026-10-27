@@ -187,7 +187,7 @@ func (s *SparkMaintenanceExecutor) processExpireSnapshots(ctx context.Context, t
 	var err error
 	var result map[string]any
 
-	retentionDays, _ := input["retention_days"].(float64)
+	retentionDays, _ := input[fieldRetentionDays].(float64)
 
 	if result, err = s.executeExpireSnapshots(ctx, task.Id, task.Database, task.Table, int(retentionDays)); err != nil {
 		return fmt.Errorf("could not execute expire snapshots task: %w", err)
@@ -206,7 +206,7 @@ func (s *SparkMaintenanceExecutor) processRemoveOrphanFiles(ctx context.Context,
 	var err error
 	var result map[string]any
 
-	retentionDays, _ := input["retention_days"].(float64)
+	retentionDays, _ := input[fieldRetentionDays].(float64)
 
 	if result, err = s.executeRemoveOrphanFiles(ctx, task.Id, task.Database, task.Table, int(retentionDays)); err != nil {
 		return fmt.Errorf("could not execute remove orphan files task: %w", err)
@@ -326,14 +326,14 @@ func (s *SparkMaintenanceExecutor) executeExpireSnapshots(ctx context.Context, t
 	}
 
 	return map[string]any{
-		"database":               database,
-		"table":                  table,
-		"retention_days":         retentionDays,
+		fieldDatabase:            database,
+		fieldTable:               table,
+		fieldRetentionDays:       retentionDays,
 		"older_than":             olderThan,
 		"clean_expired_metadata": true,
-		"tracking_id":            applicationName,
-		"application_name":       applicationName,
-		"status":                 statusSubmitted,
+		fieldTrackingID:          applicationName,
+		fieldApplicationName:     applicationName,
+		fieldStatus:              statusSubmitted,
 	}, nil
 }
 
@@ -371,13 +371,13 @@ func (s *SparkMaintenanceExecutor) executeRemoveOrphanFiles(ctx context.Context,
 	}
 
 	return map[string]any{
-		"database":         database,
-		"table":            table,
-		"retention_days":   retentionDays,
-		"older_than":       olderThan,
-		"tracking_id":      applicationName,
-		"application_name": applicationName,
-		"status":           statusSubmitted,
+		fieldDatabase:        database,
+		fieldTable:           table,
+		fieldRetentionDays:   retentionDays,
+		"older_than":         olderThan,
+		fieldTrackingID:      applicationName,
+		fieldApplicationName: applicationName,
+		fieldStatus:          statusSubmitted,
 	}, nil
 }
 
@@ -419,10 +419,10 @@ func (s *SparkMaintenanceExecutor) HandleTaskUpdate(ctx context.Context, taskID 
 	var taskErr error
 
 	result := map[string]any{
-		"tracking_id":      applicationName,
-		"application_name": applicationName,
-		"spark_state":      state,
-		"status":           statusOK,
+		fieldTrackingID:      applicationName,
+		fieldApplicationName: applicationName,
+		"spark_state":        state,
+		fieldStatus:          statusOK,
 	}
 
 	for key, value := range extraResult {
@@ -433,7 +433,7 @@ func (s *SparkMaintenanceExecutor) HandleTaskUpdate(ctx context.Context, taskID 
 		if message == "" {
 			message = fmt.Sprintf("spark application %s finished with state %s", applicationName, state)
 		}
-		result["status"] = statusError
+		result[fieldStatus] = statusError
 		taskErr = fmt.Errorf("%s", message)
 	}
 

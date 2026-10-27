@@ -48,7 +48,7 @@ type ServiceRefresh struct {
 
 func (s *ServiceRefresh) LastUpdatedAt(ctx context.Context, database string, name string) (time.Time, error) {
 	table := &TableDescription{}
-	if err := s.sqlClient.Q().From("tables").Where(sqlc.Eq{"database": database, "name": name}).Get(ctx, table); err != nil {
+	if err := s.sqlClient.Q().From("tables").Where(sqlc.Eq{fieldDatabase: database, fieldTableName: name}).Get(ctx, table); err != nil {
 		return time.Time{}, fmt.Errorf("could not get table description for table %s.%s: %w", database, name, err)
 	}
 
@@ -127,7 +127,7 @@ func (s *ServiceRefresh) RefreshPartitions(cttx sqlc.Tx, database string, table 
 	var err error
 	var result []IcebergPartition
 
-	if _, err = cttx.Q().Delete("partitions").Where(sqlc.Eq{"database": database, "table": table}).Exec(cttx); err != nil {
+	if _, err = cttx.Q().Delete("partitions").Where(sqlc.Eq{fieldDatabase: database, fieldTable: table}).Exec(cttx); err != nil {
 		return nil, fmt.Errorf("could not delete existing partitions: %w", err)
 	}
 
@@ -169,7 +169,7 @@ func (s *ServiceRefresh) RefreshSnapshots(cttx sqlc.Tx, database string, table s
 	var err error
 	var result []IcebergSnapshot
 
-	if _, err = cttx.Q().Delete("snapshots").Where(sqlc.Eq{"database": database, "table": table}).Exec(cttx); err != nil {
+	if _, err = cttx.Q().Delete("snapshots").Where(sqlc.Eq{fieldDatabase: database, fieldTable: table}).Exec(cttx); err != nil {
 		return nil, fmt.Errorf("could not delete existing snapshots: %w", err)
 	}
 
@@ -282,9 +282,9 @@ func (s *ServiceRefresh) listStoredTables(cttx sqlc.Tx, database string) ([]Cata
 	}
 
 	rows := make([]tableRow, 0)
-	q := cttx.Q().From("tables").Column(sqlc.Col("database")).Column(sqlc.Col("name"))
+	q := cttx.Q().From("tables").Column(sqlc.Col(fieldDatabase)).Column(sqlc.Col("name"))
 	if database != "" {
-		q = q.Where(sqlc.Eq{"database": database})
+		q = q.Where(sqlc.Eq{fieldDatabase: database})
 	}
 
 	if err := q.Select(cttx, &rows); err != nil {
@@ -301,14 +301,14 @@ func (s *ServiceRefresh) listStoredTables(cttx sqlc.Tx, database string) ([]Cata
 
 func (s *ServiceRefresh) deleteStaleTable(cttx sqlc.Tx, database string, name string) error {
 	cleanupSteps := map[string]string{
-		"partitions": "table",
-		"snapshots":  "table",
-		"tasks":      "table",
-		"tables":     "name",
+		"partitions": fieldTable,
+		"snapshots":  fieldTable,
+		"tasks":      fieldTable,
+		"tables":     fieldTableName,
 	}
 
 	for table, column := range cleanupSteps {
-		where := sqlc.Eq{column: name, "database": database}
+		where := sqlc.Eq{column: name, fieldDatabase: database}
 
 		if _, err := cttx.Q().Delete(table).Where(where).Exec(cttx); err != nil {
 			return fmt.Errorf("could not delete from %s: %w", table, err)

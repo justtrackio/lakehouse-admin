@@ -41,7 +41,7 @@ func (h *HandlerRefresh) RefreshTables(ctx context.Context) (httpserver.Response
 			return nil, fmt.Errorf("could not refresh all tables: %w", err)
 		}
 
-		return httpserver.NewJsonResponse(map[string]string{"status": statusOK}), nil
+		return httpserver.NewJsonResponse(map[string]string{fieldStatus: statusOK}), nil
 	})
 }
 
@@ -51,7 +51,7 @@ func (h *HandlerRefresh) RefreshTable(ctx context.Context, input *TableSelectInp
 			return nil, fmt.Errorf("could not refresh table: %w", err)
 		}
 
-		return httpserver.NewJsonResponse(map[string]string{"status": statusOK}), nil
+		return httpserver.NewJsonResponse(map[string]string{fieldStatus: statusOK}), nil
 	})
 }
 
@@ -85,7 +85,7 @@ func (h *HandlerRefresh) RefreshFull(ctx context.Context) (httpserver.Response, 
 			return nil, fmt.Errorf("could not complete full refresh: %w", err)
 		}
 
-		return httpserver.NewJsonResponse(map[string]string{"status": statusOK}), nil
+		return httpserver.NewJsonResponse(map[string]string{fieldStatus: statusOK}), nil
 	})
 }
 
@@ -95,7 +95,7 @@ func (h *HandlerRefresh) RefreshDatabase(ctx context.Context, input *DatabaseInp
 			return nil, fmt.Errorf("could not complete database refresh for %s: %w", input.Database, err)
 		}
 
-		return httpserver.NewJsonResponse(map[string]string{"status": statusOK}), nil
+		return httpserver.NewJsonResponse(map[string]string{fieldStatus: statusOK}), nil
 	})
 }
 

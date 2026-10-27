@@ -127,11 +127,11 @@ func (s *ServiceTaskQueue) RetryAllTasks(ctx context.Context, database string, t
 
 		query := cttx.Q().
 			From("tasks").
-			Where(sqlc.Eq{"status": taskStatusError, "retried": false}).
+			Where(sqlc.Eq{fieldStatus: taskStatusError, "retried": false}).
 			OrderBy(sqlc.Col("started_at").Asc())
 
 		if database != "" {
-			query = query.Where(sqlc.Eq{"database": database})
+			query = query.Where(sqlc.Eq{fieldDatabase: database})
 		}
 
 		if err := query.Select(cttx, &tasks); err != nil {
@@ -198,7 +198,7 @@ func (s *ServiceTaskQueue) retryTaskInTx(ctx sqlc.Tx, task *Task) (int64, error)
 		return 0, fmt.Errorf("task %d has already been retried: %w", task.Id, errTaskAlreadyRetried)
 	}
 
-	update := ctx.Q().Update("tasks").Set("retried", true).Where(sqlc.Eq{"id": task.Id, "status": taskStatusError, "retried": false})
+	update := ctx.Q().Update("tasks").Set("retried", true).Where(sqlc.Eq{"id": task.Id, fieldStatus: taskStatusError, "retried": false})
 	if res, err = update.Exec(ctx); err != nil {
 		return 0, fmt.Errorf("could not mark task %d as retried: %w", task.Id, err)
 	}
@@ -281,7 +281,7 @@ func (s *ServiceTaskQueue) claimTaskWithConcurrency(ctx sqlc.Tx, taskConcurrency
 		Count int `db:"count"`
 	}
 
-	stmt := ctx.Q().From("tasks").Column(sqlc.Col("*").Count().As("count")).Where(sqlc.Eq{"status": taskStatusRunning})
+	stmt := ctx.Q().From("tasks").Column(sqlc.Col("*").Count().As("count")).Where(sqlc.Eq{fieldStatus: taskStatusRunning})
 	if err := stmt.Get(ctx, &runningCount); err != nil {
 		return fmt.Errorf("could not count running tasks: %w", err)
 	}
@@ -293,7 +293,7 @@ func (s *ServiceTaskQueue) claimTaskWithConcurrency(ctx sqlc.Tx, taskConcurrency
 	}
 
 	var task Task
-	stmt = ctx.Q().From("tasks").Where(sqlc.Eq{"status": taskStatusQueued}).OrderBy(sqlc.Col("started_at").Asc()).Limit(1)
+	stmt = ctx.Q().From("tasks").Where(sqlc.Eq{fieldStatus: taskStatusQueued}).OrderBy(sqlc.Col("started_at").Asc()).Limit(1)
 	if err := stmt.Get(ctx, &task); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			*claimedTask = nil
@@ -305,7 +305,7 @@ func (s *ServiceTaskQueue) claimTaskWithConcurrency(ctx sqlc.Tx, taskConcurrency
 	}
 
 	now := time.Now()
-	upd := ctx.Q().Update("tasks").Set("status", taskStatusRunning).Set("picked_up_at", &now).Where(sqlc.Eq{"id": task.Id, "status": taskStatusQueued})
+	upd := ctx.Q().Update("tasks").Set(fieldStatus, taskStatusRunning).Set("picked_up_at", &now).Where(sqlc.Eq{"id": task.Id, fieldStatus: taskStatusQueued})
 	if res, err = upd.Exec(ctx); err != nil {
 		return fmt.Errorf("could not update task status to running: %w", err)
 	}
@@ -364,10 +364,10 @@ func (s *ServiceTaskQueue) CompleteTask(ctx context.Context, id int64, result ma
 	now := time.Now()
 	upd := s.sqlClient.Q().Update("tasks").
 		Set("finished_at", &now).
-		Set("status", status).
+		Set(fieldStatus, status).
 		Set("error_message", errMsg).
 		Set("result", db.NewJSON(mergedResult, db.NonNullable{})).
-		Where(sqlc.Eq{"id": id, "status": taskStatusRunning})
+		Where(sqlc.Eq{"id": id, fieldStatus: taskStatusRunning})
 
 	if res, err = upd.Exec(ctx); err != nil {
 		return fmt.Errorf("could not complete task: %w", err)
@@ -443,13 +443,13 @@ func (s *ServiceTaskQueue) TaskCounts(ctx context.Context, database string) (run
 	// Get counts grouped by status for running and queued tasks only
 	query := s.sqlClient.Q().
 		From("tasks").
-		Column(sqlc.Col("status")).
+		Column(sqlc.Col(fieldStatus)).
 		Column(sqlc.Col("*").Count().As("count")).
-		Where(sqlc.Col("status").In(taskStatusQueued, taskStatusRunning)).
-		GroupBy(sqlc.Col("status"))
+		Where(sqlc.Col(fieldStatus).In(taskStatusQueued, taskStatusRunning)).
+		GroupBy(sqlc.Col(fieldStatus))
 
 	if database != "" {
-		query = query.Where(sqlc.Eq{"database": database})
+		query = query.Where(sqlc.Eq{fieldDatabase: database})
 	}
 
 	if err = query.Select(ctx, &results); err != nil {
@@ -495,16 +495,16 @@ func (s *ServiceTaskQueue) ListTasks(ctx context.Context, database string, table
 	// 1. Get total count
 	cnt := s.sqlClient.Q().From("tasks").Column(sqlc.Col("*").Count().As("total"))
 	if database != "" {
-		cnt = cnt.Where(sqlc.Eq{"database": database})
+		cnt = cnt.Where(sqlc.Eq{fieldDatabase: database})
 	}
 	if table != "" {
-		cnt = cnt.Where(sqlc.Eq{"table": table})
+		cnt = cnt.Where(sqlc.Eq{fieldTable: table})
 	}
 	if len(kindsAny) > 0 {
 		cnt = cnt.Where(sqlc.Col("kind").In(kindsAny...))
 	}
 	if len(statusesAny) > 0 {
-		cnt = cnt.Where(sqlc.Col("status").In(statusesAny...))
+		cnt = cnt.Where(sqlc.Col(fieldStatus).In(statusesAny...))
 	}
 
 	if err = cnt.Get(ctx, &count); err != nil {
@@ -514,17 +514,17 @@ func (s *ServiceTaskQueue) ListTasks(ctx context.Context, database string, table
 	// 2. Get paginated items
 	sel := s.sqlClient.Q().From("tasks").OrderBy(sqlc.Col("started_at").Desc())
 	if database != "" {
-		sel = sel.Where(sqlc.Eq{"database": database})
+		sel = sel.Where(sqlc.Eq{fieldDatabase: database})
 	}
 
 	if table != "" {
-		sel = sel.Where(sqlc.Eq{"table": table})
+		sel = sel.Where(sqlc.Eq{fieldTable: table})
 	}
 	if len(kindsAny) > 0 {
 		sel = sel.Where(sqlc.Col("kind").In(kindsAny...))
 	}
 	if len(statusesAny) > 0 {
-		sel = sel.Where(sqlc.Col("status").In(statusesAny...))
+		sel = sel.Where(sqlc.Col(fieldStatus).In(statusesAny...))
 	}
 
 	sel = sel.Limit(limit).Offset(offset)
@@ -567,7 +567,7 @@ func (s *ServiceTaskQueue) FlushTasks(ctx context.Context, database string) (int
 
 	del := s.sqlClient.Q().Delete("tasks")
 	if database != "" {
-		del = del.Where(sqlc.Eq{"database": database})
+		del = del.Where(sqlc.Eq{fieldDatabase: database})
 	}
 	if res, err = del.Exec(ctx); err != nil {
 		return 0, fmt.Errorf("could not flush tasks: %w", err)

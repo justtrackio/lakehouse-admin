@@ -27,6 +27,12 @@ const (
 	ClientModeKubeConfig = "kube-config"
 )
 
+const (
+	sparkApplicationAPIGroup   = "spark.apache.org"
+	sparkApplicationAPIVersion = "v1"
+	sparkApplicationResource   = "sparkapplications"
+)
+
 type KubeSettings struct {
 	ClientMode string `cfg:"client_mode" default:"in-cluster"`
 	Context    string `cfg:"context"`
@@ -129,7 +135,7 @@ func (s *K8sService) CreateSparkApplication(ctx context.Context, manifest *Spark
 		return nil, fmt.Errorf("could not convert spark application to unstructured: %w", err)
 	}
 
-	gvr := schema.GroupVersionResource{Group: "spark.apache.org", Version: "v1", Resource: "sparkapplications"}
+	gvr := schema.GroupVersionResource{Group: sparkApplicationAPIGroup, Version: sparkApplicationAPIVersion, Resource: sparkApplicationResource}
 	if created, err = s.dynamicClient.Resource(gvr).Namespace(manifest.Metadata.Namespace).Create(ctx, resource, metav1.CreateOptions{}); err != nil {
 		return nil, fmt.Errorf("could not create spark application %s/%s: %w", manifest.Metadata.Namespace, manifest.Metadata.Name, err)
 	}
@@ -150,7 +156,7 @@ func (s *K8sService) DeleteSparkApplication(ctx context.Context, namespace strin
 		namespace = s.namespace
 	}
 
-	gvr := schema.GroupVersionResource{Group: "spark.apache.org", Version: "v1", Resource: "sparkapplications"}
+	gvr := schema.GroupVersionResource{Group: sparkApplicationAPIGroup, Version: sparkApplicationAPIVersion, Resource: sparkApplicationResource}
 	err := s.dynamicClient.Resource(gvr).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{})
 	if err == nil || k8serrors.IsNotFound(err) {
 		return nil
@@ -160,7 +166,7 @@ func (s *K8sService) DeleteSparkApplication(ctx context.Context, namespace strin
 }
 
 func (s *K8sService) WatchSparkApplications(ctx context.Context) (cache.SharedIndexInformer, error) {
-	gvr := schema.GroupVersionResource{Group: "spark.apache.org", Version: "v1", Resource: "sparkapplications"}
+	gvr := schema.GroupVersionResource{Group: sparkApplicationAPIGroup, Version: sparkApplicationAPIVersion, Resource: sparkApplicationResource}
 	factory := dynamicinformer.NewFilteredDynamicSharedInformerFactory(s.dynamicClient, time.Minute, s.namespace, nil)
 	informer := factory.ForResource(gvr).Informer()
 

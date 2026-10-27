@@ -150,7 +150,7 @@ func (h *HandlerBrowse) ListPartitions(ctx context.Context, input *ListPartition
 	}
 
 	groupBy := partitionJSONPathExpr(partitions[depth].Name, true)
-	where := sqlc.Eq{"p.database": input.Database, "p.table": input.Table}
+	where := sqlc.Eq{partitionDatabaseColumn: input.Database, partitionTableColumn: input.Table}
 
 	for key, value := range input.Partitions {
 		where[partitionJSONPathExpr(key, false)] = value
