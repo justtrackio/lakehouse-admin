@@ -492,18 +492,18 @@ func (c *IcebergClient) expandTimeTransform(transform, sourceCol, rawFieldName s
 	switch transform {
 	case transformDay:
 		return []TablePartition{
-			{Name: "year", RawFieldName: rawFieldName, IsHidden: true, Hidden: TablePartitionHidden{Column: sourceCol, Type: transformDay}},
+			{Name: transformYear, RawFieldName: rawFieldName, IsHidden: true, Hidden: TablePartitionHidden{Column: sourceCol, Type: transformDay}},
 			{Name: "month", RawFieldName: rawFieldName, IsHidden: true, Hidden: TablePartitionHidden{Column: sourceCol, Type: transformDay}},
 			{Name: "day", RawFieldName: rawFieldName, IsHidden: true, Hidden: TablePartitionHidden{Column: sourceCol, Type: transformDay}},
 		}
 	case transformMonth:
 		return []TablePartition{
-			{Name: "year", RawFieldName: rawFieldName, IsHidden: true, Hidden: TablePartitionHidden{Column: sourceCol, Type: transformMonth}},
+			{Name: transformYear, RawFieldName: rawFieldName, IsHidden: true, Hidden: TablePartitionHidden{Column: sourceCol, Type: transformMonth}},
 			{Name: "month", RawFieldName: rawFieldName, IsHidden: true, Hidden: TablePartitionHidden{Column: sourceCol, Type: transformMonth}},
 		}
 	case transformYear:
 		return []TablePartition{
-			{Name: "year", RawFieldName: rawFieldName, IsHidden: true, Hidden: TablePartitionHidden{Column: sourceCol, Type: transformYear}},
+			{Name: transformYear, RawFieldName: rawFieldName, IsHidden: true, Hidden: TablePartitionHidden{Column: sourceCol, Type: transformYear}},
 		}
 	default:
 		return nil

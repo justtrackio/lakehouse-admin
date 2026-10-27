@@ -51,7 +51,7 @@ func (s *ServiceMetadata) GetTableSummary(ctx context.Context, desc TableDescrip
 		Column(sqlc.Coalesce(sqlc.Col("p.record_count").Sum(), 0).As("record_count")).
 		Column(sqlc.Coalesce(sqlc.Col("p.total_data_file_size_in_bytes").Sum(), 0).As("total_data_file_size_in_bytes")).
 		Column(sqlc.Coalesce(sqlc.Col("p.needs_optimize").Max(), false).As("needs_optimize")).
-		Where(sqlc.Eq{"p.database": desc.Database, "p.table": desc.Name})
+		Where(sqlc.Eq{partitionDatabaseColumn: desc.Database, partitionTableColumn: desc.Name})
 
 	if err := sel.Get(ctx, summary); err != nil {
 		return nil, fmt.Errorf("could not get partition summary: %w", err)
@@ -72,7 +72,7 @@ func (s *ServiceMetadata) GetTable(ctx context.Context, database string, name st
 	database = s.resolveDatabase(database)
 
 	table := &TableDescription{}
-	if err := s.sqlClient.Q().From("tables").Where(sqlc.Eq{"database": database, "name": name}).Get(ctx, table); err != nil {
+	if err := s.sqlClient.Q().From("tables").Where(sqlc.Eq{fieldDatabase: database, fieldTableName: name}).Get(ctx, table); err != nil {
 		return nil, fmt.Errorf("could not list tables from db: %w", err)
 	}
 
@@ -84,7 +84,7 @@ func (s *ServiceMetadata) ListTables(ctx context.Context, database string) ([]Ta
 
 	tables := make([]TableDescription, 0)
 
-	if err := s.sqlClient.Q().From("tables").Where(sqlc.Eq{"database": database}).OrderBy(sqlc.Col("name").Asc()).Select(ctx, &tables); err != nil {
+	if err := s.sqlClient.Q().From("tables").Where(sqlc.Eq{fieldDatabase: database}).OrderBy(sqlc.Col("name").Asc()).Select(ctx, &tables); err != nil {
 		return nil, fmt.Errorf("could not list tables from db: %w", err)
 	}
 
@@ -94,7 +94,7 @@ func (s *ServiceMetadata) ListTables(ctx context.Context, database string) ([]Ta
 func (s *ServiceMetadata) ListAllTables(ctx context.Context) ([]TableDescription, error) {
 	tables := make([]TableDescription, 0)
 
-	if err := s.sqlClient.Q().From("tables").OrderBy(sqlc.Col("database").Asc()).OrderBy(sqlc.Col("name").Asc()).Select(ctx, &tables); err != nil {
+	if err := s.sqlClient.Q().From("tables").OrderBy(sqlc.Col(fieldDatabase).Asc()).OrderBy(sqlc.Col("name").Asc()).Select(ctx, &tables); err != nil {
 		return nil, fmt.Errorf("could not list tables from db: %w", err)
 	}
 

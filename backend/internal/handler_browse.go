@@ -150,7 +150,7 @@ func (h *HandlerBrowse) ListPartitions(ctx context.Context, input *ListPartition
 	}
 
 	groupBy := partitionJSONPathExpr(partitions[depth].Name, true)
-	where := sqlc.Eq{"p.database": input.Database, "p.table": input.Table}
+	where := sqlc.Eq{partitionDatabaseColumn: input.Database, partitionTableColumn: input.Table}
 
 	for key, value := range input.Partitions {
 		where[partitionJSONPathExpr(key, false)] = value
@@ -183,7 +183,7 @@ func (h *HandlerBrowse) ListFiles(ctx context.Context, input *ListFilesInput) (h
 
 	if items, err = h.files.ListFiles(ctx, input.Database, input.Table, input.Partitions); err != nil {
 		if isBrowseInputError(err) {
-			return httpserver.GetErrorHandler()(http.StatusBadRequest, err), nil
+			return nil, httpserver.NewErrorWithStatus(http.StatusBadRequest, err)
 		}
 
 		return nil, fmt.Errorf("could not list files: %w", err)
