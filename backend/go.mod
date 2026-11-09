@@ -13,7 +13,7 @@ require (
 	github.com/gosoline-project/sqlh v0.8.2-0.20261022102734-962184e2f219
 	github.com/gosoline-project/sqlr v0.9.2-0.20261022101442-f23fc53d1d89
 	github.com/jmoiron/sqlx v1.3.4
-	github.com/justtrackio/gosoline v0.68.4-0.20261026102448-e669b1bf2ab6
+	github.com/justtrackio/gosoline v0.69.0
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/spf13/cast v1.10.0
 	github.com/stretchr/testify v1.11.1
