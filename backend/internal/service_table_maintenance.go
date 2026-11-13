@@ -34,7 +34,7 @@ func NewServiceTableMaintenance(ctx context.Context, config cfg.Config, logger l
 
 func (s *ServiceTableMaintenance) Get(ctx context.Context, database string, table string) (*TableMaintenanceSettings, error) {
 	settings := &TableMaintenanceSettings{}
-	if err := s.sqlClient.Q().From("tables").Where(sqlc.Eq{"database": database, "name": table}).Get(ctx, settings); err != nil {
+	if err := s.sqlClient.Q().From("tables").Where(sqlc.Eq{fieldDatabase: database, fieldTableName: table}).Get(ctx, settings); err != nil {
 		return nil, fmt.Errorf("could not get maintenance settings for table %s.%s: %w", database, table, err)
 	}
 
@@ -54,7 +54,7 @@ func (s *ServiceTableMaintenance) IsDisabled(ctx context.Context, database strin
 
 func (s *ServiceTableMaintenance) IsDisabledInTx(ctx sqlc.Tx, database string, table string, kind string) (bool, error) {
 	settings := &TableMaintenanceSettings{}
-	if err := ctx.Q().From("tables").Where(sqlc.Eq{"database": database, "name": table}).Get(ctx, settings); err != nil {
+	if err := ctx.Q().From("tables").Where(sqlc.Eq{fieldDatabase: database, fieldTableName: table}).Get(ctx, settings); err != nil {
 		return false, fmt.Errorf("could not get maintenance settings for table %s.%s: %w", database, table, err)
 	}
 
@@ -74,7 +74,7 @@ func (s *ServiceTableMaintenance) Update(ctx context.Context, database string, t
 			Set("optimize_disabled", settings.OptimizeDisabled).
 			Set("expire_snapshots_disabled", settings.ExpireSnapshotsDisabled).
 			Set("remove_orphan_files_disabled", settings.RemoveOrphanFilesDisabled).
-			Where(sqlc.Eq{"database": database, "name": table})
+			Where(sqlc.Eq{fieldDatabase: database, fieldTableName: table})
 		if res, err = update.Exec(cttx); err != nil {
 			return fmt.Errorf("could not update maintenance settings for table %s.%s: %w", database, table, err)
 		}
@@ -90,10 +90,10 @@ func (s *ServiceTableMaintenance) Update(ctx context.Context, database string, t
 		for _, kind := range disabledTaskKinds(settings) {
 			now := time.Now()
 			result, err := cttx.Q().Update("tasks").
-				Set("status", taskStatusCancelled).
+				Set(fieldStatus, taskStatusCancelled).
 				Set("finished_at", &now).
 				Set("error_message", "cancelled because this maintenance task is disabled for the table").
-				Where(sqlc.Eq{"database": database, "table": table, "kind": string(kind), "status": taskStatusQueued}).
+				Where(sqlc.Eq{fieldDatabase: database, fieldTable: table, "kind": string(kind), fieldStatus: taskStatusQueued}).
 				Exec(cttx)
 			if err != nil {
 				return fmt.Errorf("could not cancel queued %s tasks for table %s.%s: %w", kind, database, table, err)

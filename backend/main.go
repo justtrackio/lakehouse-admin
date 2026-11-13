@@ -6,7 +6,6 @@ import (
 
 	"github.com/gin-contrib/cors"
 	"github.com/gosoline-project/httpserver"
-	"github.com/gosoline-project/sqlh"
 	"github.com/justtrackio/gosoline/pkg/application"
 	"github.com/justtrackio/gosoline/pkg/cfg"
 	"github.com/justtrackio/gosoline/pkg/kernel"
@@ -71,13 +70,13 @@ func main() {
 				r.GET("/:database/:table/snapshots", httpserver.Bind(handler.ListSnapshots))
 			}))
 
-			router.Group("/api/refresh").HandleWith(sqlh.WithTx(internal.NewHandlerRefresh, func(r *httpserver.Router, handler *internal.HandlerRefresh) {
-				r.GET("/tables", sqlh.BindTxN(handler.RefreshTables))
-				r.GET("/full", sqlh.BindTxN(handler.RefreshFull))
-				r.GET("/:database", sqlh.BindTx(handler.RefreshDatabase))
-				r.GET("/:database/:table", sqlh.BindTx(handler.RefreshTable))
-				r.GET("/:database/:table/partitions", sqlh.BindTx(handler.RefreshPartitions))
-				r.GET("/:database/:table/snapshots", sqlh.BindTx(handler.RefreshSnapshots))
+			router.Group("/api/refresh").HandleWith(httpserver.With(internal.NewHandlerRefresh, func(r *httpserver.Router, handler *internal.HandlerRefresh) {
+				r.GET("/tables", httpserver.BindN(handler.RefreshTables))
+				r.GET("/full", httpserver.BindN(handler.RefreshFull))
+				r.GET("/:database", httpserver.Bind(handler.RefreshDatabase))
+				r.GET("/:database/:table", httpserver.Bind(handler.RefreshTable))
+				r.GET("/:database/:table/partitions", httpserver.Bind(handler.RefreshPartitions))
+				r.GET("/:database/:table/snapshots", httpserver.Bind(handler.RefreshSnapshots))
 			}))
 
 			router.Group("/api/browse").HandleWith(httpserver.With(internal.NewHandlerBrowse, func(r *httpserver.Router, handler *internal.HandlerBrowse) {

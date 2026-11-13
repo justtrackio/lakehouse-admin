@@ -109,7 +109,7 @@ func (s *ServiceTasks) EnqueueExpireSnapshots(ctx context.Context, database stri
 	}
 
 	taskInput := map[string]any{
-		"retention_days": retentionDays,
+		fieldRetentionDays: retentionDays,
 	}
 
 	if engine, err = s.engineResolver.Resolve(TaskKindExpireSnapshots); err != nil {
@@ -139,7 +139,7 @@ func (s *ServiceTasks) EnqueueRemoveOrphanFiles(ctx context.Context, database st
 	}
 
 	taskInput := map[string]any{
-		"retention_days": retentionDays,
+		fieldRetentionDays: retentionDays,
 	}
 
 	if engine, err = s.engineResolver.Resolve(TaskKindRemoveOrphanFiles); err != nil {
@@ -268,7 +268,7 @@ func (s *ServiceTasks) EnqueueOptimize(ctx context.Context, database string, tab
 		Column(sqlc.Col("p.partition->>'$.year'").As("year")).
 		Column(sqlc.Col("p.partition->>'$.month'").As("month")).
 		Column(sqlc.Col("p.partition->>'$.day'").As("day")).
-		Where(sqlc.Eq{"p.database": database, "p.table": table, "p.needs_optimize": true}).
+		Where(sqlc.Eq{partitionDatabaseColumn: database, partitionTableColumn: table, "p.needs_optimize": true}).
 		Where(datePath.Gte(effectiveRange.from.Format(time.DateOnly))).
 		Where(datePath.Lte(effectiveRange.to.Format(time.DateOnly))).
 		OrderBy(datePath.Asc())

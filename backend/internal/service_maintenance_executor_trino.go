@@ -108,7 +108,7 @@ func (s *TrinoMaintenanceExecutor) processExpireSnapshots(ctx context.Context, t
 	var err error
 	var res *ExpireSnapshotsResult
 
-	retentionDays, _ := input["retention_days"].(float64)
+	retentionDays, _ := input[fieldRetentionDays].(float64)
 
 	if res, err = s.executeExpireSnapshots(ctx, task.Database, task.Table, int(retentionDays)); err != nil {
 		return s.taskQueue.CompleteTask(ctx, task.Id, nil, err)
@@ -130,7 +130,7 @@ func (s *TrinoMaintenanceExecutor) processRemoveOrphanFiles(ctx context.Context,
 	var err error
 	var res *RemoveOrphanFilesResult
 
-	retentionDays, _ := input["retention_days"].(float64)
+	retentionDays, _ := input[fieldRetentionDays].(float64)
 
 	if res, err = s.executeRemoveOrphanFiles(ctx, task.Database, task.Table, int(retentionDays)); err != nil {
 		return s.taskQueue.CompleteTask(ctx, task.Id, nil, err)

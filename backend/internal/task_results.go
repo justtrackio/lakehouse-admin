@@ -2,32 +2,32 @@ package internal
 
 func expireSnapshotsResultMap(res *ExpireSnapshotsResult) map[string]any {
 	return map[string]any{
-		"database":               res.Database,
-		"table":                  res.Table,
-		"retention_days":         res.RetentionDays,
+		fieldDatabase:            res.Database,
+		fieldTable:               res.Table,
+		fieldRetentionDays:       res.RetentionDays,
 		"clean_expired_metadata": res.CleanExpiredMetadata,
-		"status":                 res.Status,
+		fieldStatus:              res.Status,
 	}
 }
 
 func removeOrphanFilesResultMap(res *RemoveOrphanFilesResult) map[string]any {
 	return map[string]any{
-		"database":       res.Database,
-		"table":          res.Table,
-		"retention_days": res.RetentionDays,
-		"metrics":        res.Metrics,
-		"status":         res.Status,
+		fieldDatabase:      res.Database,
+		fieldTable:         res.Table,
+		fieldRetentionDays: res.RetentionDays,
+		"metrics":          res.Metrics,
+		fieldStatus:        res.Status,
 	}
 }
 
 func optimizeResultMap(res *OptimizeResult) map[string]any {
 	return map[string]any{
-		"database":            res.Database,
-		"table":               res.Table,
+		fieldDatabase:         res.Database,
+		fieldTable:            res.Table,
 		"target_file_size_mb": res.TargetFileSizeMb,
 		"where":               res.Where,
-		"tracking_id":         res.ApplicationName,
-		"application_name":    res.ApplicationName,
-		"status":              res.Status,
+		fieldTrackingID:       res.ApplicationName,
+		fieldApplicationName:  res.ApplicationName,
+		fieldStatus:           res.Status,
 	}
 }

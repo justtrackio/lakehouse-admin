@@ -18,6 +18,18 @@ const (
 	taskStatusCancelled = "cancelled"
 )
 
+const (
+	fieldApplicationName    = "application_name"
+	fieldDatabase           = "database"
+	fieldRetentionDays      = "retention_days"
+	fieldStatus             = "status"
+	fieldTable              = "table"
+	fieldTableName          = "name"
+	fieldTrackingID         = "tracking_id"
+	partitionDatabaseColumn = "p.database"
+	partitionTableColumn    = "p.table"
+)
+
 type Snapshot struct {
 	Database     string                                  `json:"database" db:"database"`
 	Table        string                                  `json:"table" db:"table"`

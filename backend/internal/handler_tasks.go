@@ -190,7 +190,7 @@ func (h *HandlerTasks) ProcedureResultCallback(ctx context.Context, input *TaskP
 		return nil, err
 	}
 
-	return httpserver.NewJsonResponse(map[string]string{"status": statusOK}), nil
+	return httpserver.NewJsonResponse(map[string]string{fieldStatus: statusOK}), nil
 }
 
 func (h *HandlerTasks) TaskCounts(ctx context.Context, input *DatabaseInput) (httpserver.Response, error) {

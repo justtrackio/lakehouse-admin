@@ -12,7 +12,7 @@ COPY frontend/ ./
 RUN bun run build
 
 # Stage 2: Build the backend with embedded frontend
-FROM golang:1.25 AS backend-builder
+FROM golang:1.27 AS backend-builder
 WORKDIR /app
 
 # Copy backend module files first
