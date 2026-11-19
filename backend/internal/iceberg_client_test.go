@@ -1,11 +1,12 @@
 package internal
 
 import (
+	"bytes"
+	"encoding/binary"
 	"iter"
 	"testing"
 
 	iceberg "github.com/apache/iceberg-go"
-	icebergio "github.com/apache/iceberg-go/io"
 	"github.com/apache/iceberg-go/table"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -154,31 +155,72 @@ func (m *testTableMetadata) PartitionStatistics() iter.Seq[table.PartitionStatis
 	return func(func(table.PartitionStatisticsFile) bool) {}
 }
 
-// nullDatePartitionFile mimics iceberg-go v0.4.0 decoding a null date partition
-// value, which panics on an unchecked int32 assertion.
-type nullDatePartitionFile struct{ iceberg.DataFile }
+// panickingPartitionEntry stands in for a decoder that panics on Partition().
+type panickingPartitionEntry struct{ iceberg.ManifestEntry }
 
-func (nullDatePartitionFile) Partition() map[int]any {
-	var value any
+func (panickingPartitionEntry) DataFile() iceberg.DataFile { return panickingPartitionFile{} }
 
-	return map[int]any{1000: iceberg.Date(value.(int32))}
+type panickingPartitionFile struct{ iceberg.DataFile }
+
+func (panickingPartitionFile) SpecID() int32 { return 0 }
+
+func (panickingPartitionFile) Partition() map[int]any {
+	panic("interface conversion: interface {} is nil, not int32")
 }
 
-type nullDatePartitionEntry struct{ iceberg.ManifestEntry }
-
-func (nullDatePartitionEntry) DataFile() iceberg.DataFile { return nullDatePartitionFile{} }
-
-type nullDatePartitionManifest struct{ iceberg.ManifestFile }
-
-func (nullDatePartitionManifest) FetchEntries(icebergio.IO, bool) ([]iceberg.ManifestEntry, error) {
-	return []iceberg.ManifestEntry{nullDatePartitionEntry{}}, nil
-}
-
-func TestReadManifestDataFilesTurnsPartitionDecodePanicIntoError(t *testing.T) {
-	files, err := readManifestDataFiles(nil, nullDatePartitionManifest{})
+func TestDecodeDataFilesTurnsDecoderPanicIntoError(t *testing.T) {
+	files, err := decodeDataFiles([]iceberg.ManifestEntry{panickingPartitionEntry{}}, nil)
 
 	require.Nil(t, files)
 	require.ErrorContains(t, err, "could not decode manifest entries")
+}
+
+func TestDecodeDataFilesKeepsFilesNextToANullDatePartition(t *testing.T) {
+	schema := iceberg.NewSchema(1, iceberg.NestedField{ID: 1, Name: "createdAt", Type: iceberg.PrimitiveTypes.TimestampTz})
+	spec := iceberg.NewPartitionSpec(
+		iceberg.PartitionField{SourceID: 1, FieldID: 1000, Name: "createdAt_day", Transform: iceberg.DayTransform{}},
+	)
+	snapshotID := int64(1)
+	entry := func(path string, day any) iceberg.ManifestEntry {
+		builder, err := iceberg.NewDataFileBuilder(spec, iceberg.EntryContentData, path, iceberg.ParquetFile, map[int]any{1000: day}, nil, nil, 1, 10)
+		require.NoError(t, err)
+
+		return iceberg.NewManifestEntry(iceberg.EntryStatusADDED, &snapshotID, nil, nil, builder.Build())
+	}
+
+	var buf bytes.Buffer
+	manifest, err := iceberg.WriteManifest("m.avro", &buf, 2, spec, schema, snapshotID, []iceberg.ManifestEntry{
+		entry("s3://b/null-day.parquet", nil),
+		entry("s3://b/day.parquet", int32(20537)),
+	})
+	require.NoError(t, err)
+
+	// Spark and Flink write the partition date with its Avro logical type,
+	// which iceberg-go's writer leaves out.
+	data := withAvroSchemaReplaced(t, buf.Bytes(), `{"name":"createdAt_day","type":["null","int"]`, `{"name":"createdAt_day","type":["null",{"type":"int","logicalType":"date"}]`)
+
+	read := func() []iceberg.ManifestEntry {
+		entries, err := iceberg.ReadManifest(manifest, bytes.NewReader(data), true)
+		require.NoError(t, err)
+
+		return entries
+	}
+
+	// The upstream bug this works around (apache/iceberg-go#1179). Drop the
+	// workaround once this no longer panics.
+	require.Panics(t, func() { read()[0].DataFile().Partition() })
+
+	files, err := decodeDataFiles(read(), map[int]iceberg.PartitionSpec{spec.ID(): spec})
+	require.NoError(t, err)
+	require.Equal(t, map[int]any{1000: nil}, files[0].Partition())
+	require.Equal(t, map[int]any{1000: iceberg.Date(20537)}, files[1].Partition())
+
+	items := filterBrowseFiles([]IcebergDataFile{
+		{FilePath: files[0].FilePath(), Partition: partitionFields(&spec, files[0].Partition())},
+		{FilePath: files[1].FilePath(), Partition: partitionFields(&spec, files[1].Partition())},
+	}, []browseFileSelection{{RawFieldName: "createdAt_day", Value: "2026-03-25"}})
+	require.Len(t, items, 1)
+	require.Equal(t, "s3://b/day.parquet", items[0].FilePath)
 }
 
 func TestPartitionFieldsKeepsNullDatePartition(t *testing.T) {
@@ -187,4 +229,22 @@ func TestPartitionFieldsKeepsNullDatePartition(t *testing.T) {
 	)
 
 	require.Equal(t, []IcebergPartitionField{{Name: "createdAt_day", Value: "null", Null: true}}, partitionFields(&spec, map[int]any{1000: nil}))
+}
+
+// withAvroSchemaReplaced edits the writer schema in an Avro container file header.
+func withAvroSchemaReplaced(t *testing.T, file []byte, old string, replacement string) []byte {
+	key := []byte("avro.schema")
+	start := bytes.Index(file, key) + len(key)
+	require.Greater(t, start, len(key))
+
+	length, n := binary.Varint(file[start:])
+	schema := file[start+n : start+n+int(length)]
+	require.Contains(t, string(schema), old)
+
+	edited := bytes.Replace(schema, []byte(old), []byte(replacement), 1)
+	out := append([]byte{}, file[:start]...)
+	out = binary.AppendVarint(out, int64(len(edited)))
+	out = append(out, edited...)
+
+	return append(out, file[start+n+int(length):]...)
 }

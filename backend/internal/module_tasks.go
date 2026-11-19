@@ -77,6 +77,12 @@ func (m *ModuleTasks) Run(ctx context.Context) error {
 		return err
 	}
 
+	for _, executor := range m.serviceMaintenanceExecutor.All() {
+		if err := executor.Reconcile(ctx); err != nil {
+			return fmt.Errorf("could not reconcile running %s tasks: %w", executor.Engine(), err)
+		}
+	}
+
 	ticker := time.NewTicker(m.settings.PollInterval)
 	defer ticker.Stop()
 

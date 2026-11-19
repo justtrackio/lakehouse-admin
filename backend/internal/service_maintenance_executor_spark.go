@@ -172,6 +172,52 @@ func (s *SparkMaintenanceExecutor) Run(ctx context.Context) error {
 	return nil
 }
 
+// Reconcile settles running tasks without a spark application: their pod
+// stopped after claiming them but before submitting one (or during a
+// refresh-only retry). Others are left to the informer.
+func (s *SparkMaintenanceExecutor) Reconcile(ctx context.Context) error {
+	var err error
+	var tasks []Task
+	var submitted map[int64]bool
+
+	if tasks, err = s.taskQueue.ListRunningTasks(ctx, TaskEngineSpark); err != nil || len(tasks) == 0 {
+		return err
+	}
+
+	if submitted, err = s.k8s.ListSparkApplicationTaskIDs(ctx); err != nil {
+		return fmt.Errorf("could not list spark applications to reconcile running tasks: %w", err)
+	}
+
+	for i := range tasks {
+		if submitted[tasks[i].Id] {
+			continue
+		}
+
+		if err := s.reconcileUnsubmittedTask(ctx, &tasks[i]); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (s *SparkMaintenanceExecutor) reconcileUnsubmittedTask(ctx context.Context, task *Task) error {
+	refreshOnly, _ := task.Input.Get()[taskInputRefreshOnly].(bool)
+
+	// A rollback without a recorded application may still have reached spark
+	// (a lost tracking write), so repeating it could undo later commits.
+	if TaskKind(task.Kind) == TaskKindRollbackToSnapshot && !refreshOnly {
+		err := fmt.Errorf("the task was interrupted, and it is unknown whether its rollback ran; check the table's current snapshot before retrying")
+		s.logger.Warn(ctx, "failing interrupted rollback task %d", task.Id)
+
+		return s.taskQueue.CompleteTask(ctx, task.Id, map[string]any{"status": statusError}, err)
+	}
+
+	s.logger.Info(ctx, "requeueing interrupted %s task %d", task.Kind, task.Id)
+
+	return s.taskQueue.RequeueTask(ctx, task.Id)
+}
+
 func (s *SparkMaintenanceExecutor) ProcessTask(ctx context.Context, task *Task) error {
 	input := task.Input.Get()
 
@@ -191,6 +237,20 @@ func (s *SparkMaintenanceExecutor) ProcessTask(ctx context.Context, task *Task) 
 	default:
 		return s.taskQueue.CompleteTask(ctx, task.Id, nil, fmt.Errorf("unknown task kind: %s", task.Kind))
 	}
+}
+
+// recordSubmission stores the tracking result of a submitted spark application.
+// A failed write must not fail the task: the application already runs, and the
+// informer completes the still running task from its task-id annotation, while
+// a failed task could be retried and run the procedure twice.
+func (s *SparkMaintenanceExecutor) recordSubmission(ctx context.Context, taskID int64, result map[string]any) {
+	if err := s.taskQueue.UpdateTaskResult(ctx, taskID, result); err != nil {
+		s.logger.Warn(ctx, "could not record the spark application of task %d, the informer completes it anyway: %s", taskID, err)
+
+		return
+	}
+
+	s.logger.Info(ctx, "task %d submitted and waiting for asynchronous completion", taskID)
 }
 
 // processRefreshOnly completes a retry of a task whose spark application already
@@ -219,12 +279,7 @@ func (s *SparkMaintenanceExecutor) processOptimize(ctx context.Context, task *Ta
 		return fmt.Errorf("could not execute optimize task: %w", err)
 	}
 
-	result := optimizeResultMap(res)
-	if err = s.taskQueue.UpdateTaskResult(ctx, task.Id, result); err != nil {
-		return fmt.Errorf("could not update task %d tracking result: %w", task.Id, err)
-	}
-
-	s.logger.Info(ctx, "task %d submitted and waiting for asynchronous completion", task.Id)
+	s.recordSubmission(ctx, task.Id, optimizeResultMap(res))
 
 	return nil
 }
@@ -239,11 +294,7 @@ func (s *SparkMaintenanceExecutor) processExpireSnapshots(ctx context.Context, t
 		return fmt.Errorf("could not execute expire snapshots task: %w", err)
 	}
 
-	if err = s.taskQueue.UpdateTaskResult(ctx, task.Id, result); err != nil {
-		return fmt.Errorf("could not update task %d tracking result: %w", task.Id, err)
-	}
-
-	s.logger.Info(ctx, "task %d submitted and waiting for asynchronous completion", task.Id)
+	s.recordSubmission(ctx, task.Id, result)
 
 	return nil
 }
@@ -258,11 +309,7 @@ func (s *SparkMaintenanceExecutor) processRemoveOrphanFiles(ctx context.Context,
 		return fmt.Errorf("could not execute remove orphan files task: %w", err)
 	}
 
-	if err = s.taskQueue.UpdateTaskResult(ctx, task.Id, result); err != nil {
-		return fmt.Errorf("could not update task %d tracking result: %w", task.Id, err)
-	}
-
-	s.logger.Info(ctx, "task %d submitted and waiting for asynchronous completion", task.Id)
+	s.recordSubmission(ctx, task.Id, result)
 
 	return nil
 }
@@ -280,11 +327,7 @@ func (s *SparkMaintenanceExecutor) processRollbackToSnapshot(ctx context.Context
 		return fmt.Errorf("could not execute rollback to snapshot task: %w", err)
 	}
 
-	if err = s.taskQueue.UpdateTaskResult(ctx, task.Id, result); err != nil {
-		return fmt.Errorf("could not update task %d tracking result: %w", task.Id, err)
-	}
-
-	s.logger.Info(ctx, "task %d submitted and waiting for asynchronous completion", task.Id)
+	s.recordSubmission(ctx, task.Id, result)
 
 	return nil
 }

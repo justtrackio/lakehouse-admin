@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -24,6 +24,7 @@ import {
   TableDetails,
   Task,
 } from '../api/schema';
+import type { ApiError } from '../api/client';
 import { normalizeDatabaseSearch } from '../utils/database';
 import { formatTimestamp, formatBytes, formatNumber } from '../utils/format';
 import MetricWithDelta from '../components/MetricWithDelta';
@@ -41,17 +42,39 @@ export const Route = createFileRoute('/tables/$tableName/snapshots')({
 
 const rollbackPollIntervalMs = 3000;
 
+class PollCancelledError extends Error {}
+
+function isTransient(error: unknown): boolean {
+  const status = (error as Partial<ApiError>)?.status;
+
+  return status === undefined || status === 0 || status === 408 || status === 429 || status >= 500;
+}
+
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener('abort', () => {
+      clearTimeout(timer);
+      reject(new PollCancelledError());
+    }, { once: true });
+  });
+}
+
 // waitForTask polls the table's rollback tasks until the given one finishes.
-// A failed status request is retried on the next poll.
-async function waitForTask(database: string, tableName: string, taskId: number): Promise<Task> {
+// Network and server errors are retried on the next poll; other errors end it.
+async function waitForTask(database: string, tableName: string, taskId: number, signal: AbortSignal): Promise<Task> {
   for (;;) {
-    await new Promise((resolve) => setTimeout(resolve, rollbackPollIntervalMs));
+    await sleep(rollbackPollIntervalMs, signal);
 
     let tasks: PaginatedTasks;
     try {
       tasks = await fetchTasks(database, tableName, 50, 0, ['rollback_to_snapshot']);
-    } catch {
-      continue;
+    } catch (error) {
+      if (isTransient(error)) {
+        continue;
+      }
+
+      throw new Error(`could not check task ${taskId}: ${(error as ApiError).message}`);
     }
 
     const task = tasks.items.find((item) => item.id === taskId);
@@ -116,18 +139,26 @@ function SnapshotsPage() {
     },
   });
 
+  const rollbackPoll = useRef<AbortController | null>(null);
+  useEffect(() => () => rollbackPoll.current?.abort(), []);
+
   const rollbackMutation = useMutation({
     mutationFn: async (snapshotId: string) => {
       const queued = await rollbackToSnapshot(database, tableName, snapshotId);
       messageApi.info(`Queued rollback to snapshot ${queued.snapshot_id} as task ${queued.task_id}`);
       queryClient.invalidateQueries({ queryKey: ['tasks', database, tableName] });
 
-      return waitForTask(database, tableName, queued.task_id);
+      rollbackPoll.current = new AbortController();
+      return waitForTask(database, tableName, queued.task_id, rollbackPoll.current.signal);
     },
     onSuccess: (task) => {
       messageApi.success(`Rollback task ${task.id} finished`);
     },
     onError: (error: Error) => {
+      if (error instanceof PollCancelledError) {
+        return;
+      }
+
       messageApi.error(`Failed to rollback snapshot: ${error.message}`);
     },
     onSettled: () => {

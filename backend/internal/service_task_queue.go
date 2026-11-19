@@ -461,6 +461,31 @@ func (s *ServiceTaskQueue) FailOrphanedRunningTasks(ctx context.Context, engines
 	return affected, nil
 }
 
+func (s *ServiceTaskQueue) ListRunningTasks(ctx context.Context, engine TaskEngine) ([]Task, error) {
+	tasks := make([]Task, 0)
+
+	sel := s.sqlClient.Q().From("tasks").Where(sqlc.Eq{"status": taskStatusRunning, "engine": string(engine)})
+	if err := sel.Select(ctx, &tasks); err != nil {
+		return nil, fmt.Errorf("could not list running %s tasks: %w", engine, err)
+	}
+
+	return tasks, nil
+}
+
+// RequeueTask puts a running task back into the queue.
+func (s *ServiceTaskQueue) RequeueTask(ctx context.Context, id int64) error {
+	upd := s.sqlClient.Q().Update("tasks").
+		Set("status", taskStatusQueued).
+		Set("picked_up_at", nil).
+		Where(sqlc.Eq{"id": id, "status": taskStatusRunning})
+
+	if _, err := upd.Exec(ctx); err != nil {
+		return fmt.Errorf("could not requeue task %d: %w", id, err)
+	}
+
+	return nil
+}
+
 func (s *ServiceTaskQueue) UpdateTaskResult(ctx context.Context, id int64, result map[string]any) error {
 	var task Task
 	if err := s.sqlClient.Q().From("tasks").Where(sqlc.Eq{"id": id}).Limit(1).Get(ctx, &task); err != nil {

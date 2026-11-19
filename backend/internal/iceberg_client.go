@@ -3,6 +3,8 @@ package internal
 import (
 	"context"
 	"fmt"
+	"maps"
+	"reflect"
 	"slices"
 	"sort"
 	"strings"
@@ -229,6 +231,11 @@ func (c *IcebergClient) liveDataFiles(ctx context.Context, tbl *table.Table) ([]
 		return nil, fmt.Errorf("could not read manifest list: %w", err)
 	}
 
+	specs := make(map[int]iceberg.PartitionSpec)
+	for _, spec := range tbl.Metadata().PartitionSpecs() {
+		specs[spec.ID()] = spec
+	}
+
 	perManifest := make([][]iceberg.DataFile, len(manifests))
 	group, _ := errgroup.WithContext(ctx)
 	group.SetLimit(manifestReadConcurrency)
@@ -241,7 +248,7 @@ func (c *IcebergClient) liveDataFiles(ctx context.Context, tbl *table.Table) ([]
 		group.Go(func() error {
 			var err error
 
-			if perManifest[i], err = readManifestDataFiles(fs, manifest); err != nil {
+			if perManifest[i], err = readManifestDataFiles(fs, manifest, specs); err != nil {
 				return fmt.Errorf("could not read manifest %s: %w", manifest.FilePath(), err)
 			}
 
@@ -256,12 +263,27 @@ func (c *IcebergClient) liveDataFiles(ctx context.Context, tbl *table.Table) ([]
 	return slices.Concat(perManifest...), nil
 }
 
-// readManifestDataFiles decodes the partition of every entry here, so that a
-// decoder panic (iceberg-go v0.4.0 panics on a null date partition value)
-// becomes an error instead of crashing the process.
-func readManifestDataFiles(fs icebergio.IO, manifest iceberg.ManifestFile) (files []iceberg.DataFile, err error) {
+func readManifestDataFiles(fs icebergio.IO, manifest iceberg.ManifestFile, specs map[int]iceberg.PartitionSpec) ([]iceberg.DataFile, error) {
+	var err error
 	var entries []iceberg.ManifestEntry
 
+	if entries, err = manifest.FetchEntries(fs, true); err != nil {
+		return nil, err
+	}
+
+	// iceberg-go v0.4.0 reads a failed block read as the end of the manifest,
+	// so check the live entry count, which v2 manifest lists always record.
+	live := int(manifest.AddedDataFiles() + manifest.ExistingDataFiles())
+	if manifest.Version() >= 2 && len(entries) != live {
+		return nil, fmt.Errorf("read %d live entries, but the manifest list records %d", len(entries), live)
+	}
+
+	return decodeDataFiles(entries, specs)
+}
+
+// decodeDataFiles decodes each entry's partition. A decoder panic becomes an
+// error instead of crashing the process.
+func decodeDataFiles(entries []iceberg.ManifestEntry, specs map[int]iceberg.PartitionSpec) (files []iceberg.DataFile, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			files = nil
@@ -269,17 +291,69 @@ func readManifestDataFiles(fs icebergio.IO, manifest iceberg.ManifestFile) (file
 		}
 	}()
 
-	if entries, err = manifest.FetchEntries(fs, true); err != nil {
-		return nil, err
-	}
-
 	files = make([]iceberg.DataFile, len(entries))
 	for i, entry := range entries {
-		files[i] = entry.DataFile()
-		files[i].Partition()
+		file := entry.DataFile()
+		spec := specs[int(file.SpecID())]
+		files[i] = decodedDataFile{DataFile: file, partition: decodePartition(file, &spec)}
 	}
 
 	return files, nil
+}
+
+// decodedDataFile carries a partition decoded by decodePartition.
+type decodedDataFile struct {
+	iceberg.DataFile
+	partition map[int]any
+}
+
+func (f decodedDataFile) Partition() map[int]any { return f.partition }
+
+// decodePartition returns the file's partition by field id. iceberg-go v0.4.0
+// panics converting a null date partition value (fixed upstream in
+// apache/iceberg-go#1179, v0.7.0), so null values are taken out of the raw
+// Avro partition before it converts the rest and added back as nil.
+func decodePartition(file iceberg.DataFile, spec *iceberg.PartitionSpec) map[int]any {
+	nullNames := make(map[string]bool)
+
+	raw := rawPartitionData(file)
+	for name, value := range raw {
+		if value == nil {
+			nullNames[name] = true
+			delete(raw, name)
+		}
+	}
+
+	partition := maps.Clone(file.Partition())
+	if partition == nil {
+		partition = make(map[int]any)
+	}
+
+	for pf := range spec.Fields() {
+		if nullNames[pf.Name] {
+			partition[pf.FieldID] = nil
+		}
+	}
+
+	return partition
+}
+
+// rawPartitionData returns the Avro-decoded partition of a file read from a
+// manifest (the exported PartitionData field of iceberg-go's dataFile), or nil.
+func rawPartitionData(file iceberg.DataFile) map[string]any {
+	value := reflect.ValueOf(file)
+	if value.Kind() != reflect.Pointer || value.Elem().Kind() != reflect.Struct {
+		return nil
+	}
+
+	field := value.Elem().FieldByName("PartitionData")
+	if !field.IsValid() || !field.CanInterface() {
+		return nil
+	}
+
+	raw, _ := field.Interface().(map[string]any)
+
+	return raw
 }
 
 // partitionFields formats a file's partition tuple in spec order. Time

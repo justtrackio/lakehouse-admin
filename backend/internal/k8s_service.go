@@ -3,6 +3,7 @@ package internal
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/justtrackio/gosoline/pkg/appctx"
@@ -157,6 +158,27 @@ func (s *K8sService) DeleteSparkApplication(ctx context.Context, namespace strin
 	}
 
 	return fmt.Errorf("could not delete spark application %s/%s: %w", namespace, name, err)
+}
+
+// ListSparkApplicationTaskIDs returns the task ids of the spark applications that exist.
+func (s *K8sService) ListSparkApplicationTaskIDs(ctx context.Context) (map[int64]bool, error) {
+	var err error
+	var list *unstructured.UnstructuredList
+
+	gvr := schema.GroupVersionResource{Group: "spark.apache.org", Version: "v1", Resource: "sparkapplications"}
+	applications := s.dynamicClient.Resource(gvr).Namespace(s.namespace)
+	if list, err = applications.List(ctx, metav1.ListOptions{}); err != nil {
+		return nil, fmt.Errorf("could not list spark applications in %s: %w", s.namespace, err)
+	}
+
+	taskIDs := make(map[int64]bool, len(list.Items))
+	for _, item := range list.Items {
+		if taskID, err := strconv.ParseInt(item.GetAnnotations()[sparkApplicationTaskIDAnnotation], 10, 64); err == nil {
+			taskIDs[taskID] = true
+		}
+	}
+
+	return taskIDs, nil
 }
 
 func (s *K8sService) WatchSparkApplications(ctx context.Context) (cache.SharedIndexInformer, error) {
