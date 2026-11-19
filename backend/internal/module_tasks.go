@@ -73,6 +73,10 @@ func (m *ModuleTasks) Run(ctx context.Context) error {
 
 	m.logger.Info(ctx, "starting task worker with db-backed concurrency control")
 
+	if err := m.failOrphanedRunningTasks(ctx); err != nil {
+		return err
+	}
+
 	ticker := time.NewTicker(m.settings.PollInterval)
 	defer ticker.Stop()
 
@@ -97,6 +101,26 @@ func (m *ModuleTasks) Run(ctx context.Context) error {
 	})
 
 	return cfn.Wait()
+}
+
+func (m *ModuleTasks) failOrphanedRunningTasks(ctx context.Context) error {
+	var err error
+	var failed int64
+
+	engines := make([]TaskEngine, 0)
+	for _, executor := range m.serviceMaintenanceExecutor.All() {
+		engines = append(engines, executor.Engine())
+	}
+
+	if failed, err = m.serviceTaskQueue.FailOrphanedRunningTasks(ctx, engines); err != nil {
+		return fmt.Errorf("could not fail orphaned running tasks: %w", err)
+	}
+
+	if failed > 0 {
+		m.logger.Warn(ctx, "failed %d running tasks of engines other than %v", failed, engines)
+	}
+
+	return nil
 }
 
 func (m *ModuleTasks) tryProcessTasks(ctx context.Context, cfn coffin.Coffin) {

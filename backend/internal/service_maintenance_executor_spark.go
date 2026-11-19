@@ -43,6 +43,13 @@ const (
 const sparkMaintenancePyFile = "maintenance.py"
 
 const (
+	// taskResultSparkSucceeded marks a task whose spark application succeeded
+	// but whose metadata refresh failed; its retry only repeats the refresh.
+	taskResultSparkSucceeded = "spark_succeeded"
+	taskInputRefreshOnly     = "refresh_only"
+)
+
+const (
 	sparkProcedureRewriteDataFiles   = "rewrite_data_files"
 	sparkProcedureExpireSnapshots    = "expire_snapshots"
 	sparkProcedureRemoveOrphanFiles  = "remove_orphan_files"
@@ -168,6 +175,10 @@ func (s *SparkMaintenanceExecutor) Run(ctx context.Context) error {
 func (s *SparkMaintenanceExecutor) ProcessTask(ctx context.Context, task *Task) error {
 	input := task.Input.Get()
 
+	if refreshOnly, _ := input[taskInputRefreshOnly].(bool); refreshOnly {
+		return s.processRefreshOnly(ctx, task)
+	}
+
 	switch TaskKind(task.Kind) {
 	case TaskKindOptimize:
 		return s.processOptimize(ctx, task, input)
@@ -180,6 +191,20 @@ func (s *SparkMaintenanceExecutor) ProcessTask(ctx context.Context, task *Task) 
 	default:
 		return s.taskQueue.CompleteTask(ctx, task.Id, nil, fmt.Errorf("unknown task kind: %s", task.Kind))
 	}
+}
+
+// processRefreshOnly completes a retry of a task whose spark application already
+// succeeded: running the procedure again could undo later commits (rollback).
+func (s *SparkMaintenanceExecutor) processRefreshOnly(ctx context.Context, task *Task) error {
+	result := map[string]any{taskResultSparkSucceeded: true, "status": statusOK}
+
+	err := s.refreshTable(ctx, TaskKind(task.Kind), task.Database, task.Table)
+	if err != nil {
+		result["status"] = statusError
+		err = fmt.Errorf("refreshing the table metadata failed: %w", err)
+	}
+
+	return s.taskQueue.CompleteTask(ctx, task.Id, result, err)
 }
 
 func (s *SparkMaintenanceExecutor) processOptimize(ctx context.Context, task *Task, input map[string]any) error {
@@ -517,6 +542,7 @@ func (s *SparkMaintenanceExecutor) HandleTaskUpdate(ctx context.Context, taskID 
 		taskErr = fmt.Errorf("%s", message)
 	} else if refreshErr != nil {
 		result["status"] = statusError
+		result[taskResultSparkSucceeded] = true
 		taskErr = fmt.Errorf("spark application %s succeeded, but refreshing the table metadata failed: %w", applicationName, refreshErr)
 	}
 
@@ -590,7 +616,10 @@ func (s *SparkMaintenanceExecutor) handleDecodedSparkApplicationEvent(ctx contex
 
 	var refreshErr error
 	if resolvedStatus.IsSuccess() {
-		refreshErr = s.refreshAfterSuccess(ctx, manifest.Metadata.Annotations)
+		annotations := manifest.Metadata.Annotations
+		kind := TaskKind(annotations[sparkApplicationTaskKindAnnotation])
+		database := annotations[sparkApplicationTaskDatabaseAnnotation]
+		refreshErr = s.refreshTable(ctx, kind, database, annotations[sparkApplicationTaskTableAnnotation])
 	}
 
 	if err = s.HandleTaskUpdate(ctx, taskID, appName, state, resolvedStatus.Message, extraResult, refreshErr); err == nil {
@@ -618,27 +647,26 @@ func (s *SparkMaintenanceExecutor) handleDecodedSparkApplicationEvent(ctx contex
 	return fmt.Errorf("could not resolve spark tracking update for %s: %w", appName, err)
 }
 
-// refreshAfterSuccess reloads the stored metadata that a successful task changed.
-func (s *SparkMaintenanceExecutor) refreshAfterSuccess(ctx context.Context, annotations map[string]string) error {
-	database := annotations[sparkApplicationTaskDatabaseAnnotation]
-	table := annotations[sparkApplicationTaskTableAnnotation]
-
+// refreshTable reloads the stored metadata that a successful task of this kind changed.
+func (s *SparkMaintenanceExecutor) refreshTable(ctx context.Context, kind TaskKind, database string, table string) error {
 	if database == "" || table == "" {
 		return nil
 	}
 
-	return s.sqlClient.WithTx(ctx, func(cttx sqlc.Tx) error {
-		switch TaskKind(annotations[sparkApplicationTaskKindAnnotation]) {
-		case TaskKindExpireSnapshots:
+	switch kind {
+	case TaskKindExpireSnapshots:
+		return s.sqlClient.WithTx(ctx, func(cttx sqlc.Tx) error {
 			_, err := s.refresh.RefreshSnapshots(cttx, database, table)
 
 			return err
-		case TaskKindRollbackToSnapshot:
+		})
+	case TaskKindRollbackToSnapshot:
+		return s.sqlClient.WithTx(ctx, func(cttx sqlc.Tx) error {
 			return s.refresh.RefreshTableFull(cttx, database, table)
-		default:
-			return nil
-		}
-	})
+		})
+	default:
+		return nil
+	}
 }
 
 func buildSparkApplicationName(prefix string, table string, taskID int64) string {

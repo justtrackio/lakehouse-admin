@@ -171,22 +171,53 @@ func (c *IcebergClient) listSnapshotDataFilePaths(ctx context.Context, tbl *tabl
 	return result, nil
 }
 
-// ListDataFiles returns the live data files of the table's current snapshot,
-// read from its data manifests. Unlike a scan plan, this keeps files without
-// records and doesn't need to resolve delete files.
+// ListDataFiles returns the live data files of the table's current snapshot.
 func (c *IcebergClient) ListDataFiles(ctx context.Context, database string, logicalName string) ([]IcebergDataFile, error) {
 	var err error
 	var tbl *table.Table
-	var fs icebergio.IO
-	var manifests []iceberg.ManifestFile
+	var files []iceberg.DataFile
 
 	if tbl, err = c.LoadTable(ctx, database, logicalName); err != nil {
 		return nil, fmt.Errorf("could not load table: %w", err)
 	}
 
+	if files, err = c.liveDataFiles(ctx, tbl); err != nil {
+		return nil, err
+	}
+
+	specs := make(map[int]iceberg.PartitionSpec)
+	for _, spec := range tbl.Metadata().PartitionSpecs() {
+		specs[spec.ID()] = spec
+	}
+
+	result := make([]IcebergDataFile, 0, len(files))
+	for _, file := range files {
+		spec := specs[int(file.SpecID())]
+
+		result = append(result, IcebergDataFile{
+			FilePath:        file.FilePath(),
+			FileFormat:      string(file.FileFormat()),
+			SpecID:          int64(file.SpecID()),
+			RecordCount:     file.Count(),
+			FileSizeInBytes: file.FileSizeBytes(),
+			Partition:       partitionFields(&spec, file.Partition()),
+		})
+	}
+
+	return result, nil
+}
+
+// liveDataFiles reads the live entries of the current snapshot's data manifests.
+// Unlike a scan plan, this keeps files without records and doesn't need to
+// resolve delete files, which iceberg-go can't do for equality deletes.
+func (c *IcebergClient) liveDataFiles(ctx context.Context, tbl *table.Table) ([]iceberg.DataFile, error) {
+	var err error
+	var fs icebergio.IO
+	var manifests []iceberg.ManifestFile
+
 	snapshot := tbl.CurrentSnapshot()
 	if snapshot == nil {
-		return []IcebergDataFile{}, nil
+		return []iceberg.DataFile{}, nil
 	}
 
 	ctx = utils.WithAwsConfig(ctx, &c.awsCfg)
@@ -198,12 +229,7 @@ func (c *IcebergClient) ListDataFiles(ctx context.Context, database string, logi
 		return nil, fmt.Errorf("could not read manifest list: %w", err)
 	}
 
-	specs := make(map[int]iceberg.PartitionSpec)
-	for _, spec := range tbl.Metadata().PartitionSpecs() {
-		specs[spec.ID()] = spec
-	}
-
-	perManifest := make([][]IcebergDataFile, len(manifests))
+	perManifest := make([][]iceberg.DataFile, len(manifests))
 	group, _ := errgroup.WithContext(ctx)
 	group.SetLimit(manifestReadConcurrency)
 
@@ -214,28 +240,10 @@ func (c *IcebergClient) ListDataFiles(ctx context.Context, database string, logi
 
 		group.Go(func() error {
 			var err error
-			var entries []iceberg.ManifestEntry
 
-			if entries, err = manifest.FetchEntries(fs, true); err != nil {
+			if perManifest[i], err = readManifestDataFiles(fs, manifest); err != nil {
 				return fmt.Errorf("could not read manifest %s: %w", manifest.FilePath(), err)
 			}
-
-			files := make([]IcebergDataFile, 0, len(entries))
-			for _, entry := range entries {
-				file := entry.DataFile()
-				spec := specs[int(file.SpecID())]
-
-				files = append(files, IcebergDataFile{
-					FilePath:        file.FilePath(),
-					FileFormat:      string(file.FileFormat()),
-					SpecID:          int64(file.SpecID()),
-					RecordCount:     file.Count(),
-					FileSizeInBytes: file.FileSizeBytes(),
-					Partition:       partitionFields(&spec, file.Partition()),
-				})
-			}
-
-			perManifest[i] = files
 
 			return nil
 		})
@@ -246,6 +254,32 @@ func (c *IcebergClient) ListDataFiles(ctx context.Context, database string, logi
 	}
 
 	return slices.Concat(perManifest...), nil
+}
+
+// readManifestDataFiles decodes the partition of every entry here, so that a
+// decoder panic (iceberg-go v0.4.0 panics on a null date partition value)
+// becomes an error instead of crashing the process.
+func readManifestDataFiles(fs icebergio.IO, manifest iceberg.ManifestFile) (files []iceberg.DataFile, err error) {
+	var entries []iceberg.ManifestEntry
+
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			files = nil
+			err = fmt.Errorf("could not decode manifest entries: %v", recovered)
+		}
+	}()
+
+	if entries, err = manifest.FetchEntries(fs, true); err != nil {
+		return nil, err
+	}
+
+	files = make([]iceberg.DataFile, len(entries))
+	for i, entry := range entries {
+		files[i] = entry.DataFile()
+		files[i].Partition()
+	}
+
+	return files, nil
 }
 
 // partitionFields formats a file's partition tuple in spec order. Time
@@ -319,7 +353,7 @@ func partitionDate(transform iceberg.Transform, value any) (time.Time, bool) {
 func (c *IcebergClient) ListPartitions(ctx context.Context, database string, logicalName string) ([]IcebergPartitionStats, error) {
 	var err error
 	var tbl *table.Table
-	var tasks []table.FileScanTask
+	var files []iceberg.DataFile
 
 	if tbl, err = c.LoadTable(ctx, database, logicalName); err != nil {
 		return nil, fmt.Errorf("could not load table: %w", err)
@@ -336,16 +370,11 @@ func (c *IcebergClient) ListPartitions(ctx context.Context, database string, log
 
 	partitionMap := make(map[string]*IcebergPartitionStats)
 
-	scanner := tbl.Scan()
-
-	ctx = utils.WithAwsConfig(ctx, &c.awsCfg)
-	if tasks, err = scanner.PlanFiles(ctx); err != nil {
-		return nil, fmt.Errorf("could not plan files: %w", err)
+	if files, err = c.liveDataFiles(ctx, tbl); err != nil {
+		return nil, err
 	}
 
-	for _, task := range tasks {
-		file := task.File
-
+	for _, file := range files {
 		partitionKey := c.partitionKeyString(file.Partition())
 
 		if _, exists := partitionMap[partitionKey]; !exists {

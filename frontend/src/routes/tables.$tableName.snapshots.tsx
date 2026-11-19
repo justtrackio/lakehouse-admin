@@ -18,6 +18,7 @@ import {
   fetchSnapshots,
   fetchTableDetails,
   fetchTasks,
+  PaginatedTasks,
   rollbackToSnapshot,
   SnapshotItem,
   TableDetails,
@@ -41,11 +42,18 @@ export const Route = createFileRoute('/tables/$tableName/snapshots')({
 const rollbackPollIntervalMs = 3000;
 
 // waitForTask polls the table's rollback tasks until the given one finishes.
+// A failed status request is retried on the next poll.
 async function waitForTask(database: string, tableName: string, taskId: number): Promise<Task> {
   for (;;) {
     await new Promise((resolve) => setTimeout(resolve, rollbackPollIntervalMs));
 
-    const tasks = await fetchTasks(database, tableName, 50, 0, ['rollback_to_snapshot']);
+    let tasks: PaginatedTasks;
+    try {
+      tasks = await fetchTasks(database, tableName, 50, 0, ['rollback_to_snapshot']);
+    } catch {
+      continue;
+    }
+
     const task = tasks.items.find((item) => item.id === taskId);
 
     if (!task) {

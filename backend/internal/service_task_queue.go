@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 	"time"
 
@@ -220,7 +221,7 @@ func (s *ServiceTaskQueue) retryTaskInTx(ctx sqlc.Tx, task *Task) (int64, error)
 		return 0, fmt.Errorf("task %d has already been retried: %w", task.Id, errTaskAlreadyRetried)
 	}
 
-	retry := newQueuedTask(task.Database, task.Table, task.Kind, s.currentEngine(task), task.Input.Get())
+	retry := newQueuedTask(task.Database, task.Table, task.Kind, s.currentEngine(task), retryInput(task))
 	insert := ctx.Q().Into("tasks").Records(retry)
 	res, err = insert.Exec(ctx)
 	if err != nil {
@@ -232,6 +233,21 @@ func (s *ServiceTaskQueue) retryTaskInTx(ctx sqlc.Tx, task *Task) (int64, error)
 	}
 
 	return retryTaskID, nil
+}
+
+// retryInput repeats only the metadata refresh when the spark application
+// already succeeded, because repeating a rollback could undo later commits.
+func retryInput(task *Task) map[string]any {
+	input := maps.Clone(task.Input.Get())
+	if input == nil {
+		input = map[string]any{}
+	}
+
+	if succeeded, _ := task.Result.Get()[taskResultSparkSucceeded].(bool); succeeded {
+		input[taskInputRefreshOnly] = true
+	}
+
+	return input
 }
 
 func newQueuedTask(database string, table string, kind string, engine string, input map[string]any) *Task {
@@ -411,6 +427,38 @@ func (s *ServiceTaskQueue) CompleteTask(ctx context.Context, id int64, result ma
 	}
 
 	return nil
+}
+
+// FailOrphanedRunningTasks fails running tasks of engines this instance has no
+// executor for (trino). No executor will ever complete them, and each one holds
+// a task slot. It relies on a single task worker (Recreate deployments).
+func (s *ServiceTaskQueue) FailOrphanedRunningTasks(ctx context.Context, engines []TaskEngine) (int64, error) {
+	var err error
+	var res sqlc.Result
+	var affected int64
+
+	served := make([]any, len(engines))
+	for i, engine := range engines {
+		served[i] = string(engine)
+	}
+
+	now := time.Now()
+	upd := s.sqlClient.Q().Update("tasks").
+		Set("status", taskStatusError).
+		Set("error_message", "the task's engine was removed before it completed; retry it to run on the current engine").
+		Set("finished_at", &now).
+		Where(sqlc.Eq{"status": taskStatusRunning}).
+		Where(sqlc.Col("engine").NotIn(served...))
+
+	if res, err = upd.Exec(ctx); err != nil {
+		return 0, fmt.Errorf("could not fail running tasks of removed engines: %w", err)
+	}
+
+	if affected, err = res.RowsAffected(); err != nil {
+		return 0, fmt.Errorf("could not get rows affected when failing running tasks of removed engines: %w", err)
+	}
+
+	return affected, nil
 }
 
 func (s *ServiceTaskQueue) UpdateTaskResult(ctx context.Context, id int64, result map[string]any) error {

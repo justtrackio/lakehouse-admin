@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	iceberg "github.com/apache/iceberg-go"
+	icebergio "github.com/apache/iceberg-go/io"
 	"github.com/apache/iceberg-go/table"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -151,4 +152,39 @@ func (m *testTableMetadata) Statistics() iter.Seq[table.StatisticsFile] {
 
 func (m *testTableMetadata) PartitionStatistics() iter.Seq[table.PartitionStatisticsFile] {
 	return func(func(table.PartitionStatisticsFile) bool) {}
+}
+
+// nullDatePartitionFile mimics iceberg-go v0.4.0 decoding a null date partition
+// value, which panics on an unchecked int32 assertion.
+type nullDatePartitionFile struct{ iceberg.DataFile }
+
+func (nullDatePartitionFile) Partition() map[int]any {
+	var value any
+
+	return map[int]any{1000: iceberg.Date(value.(int32))}
+}
+
+type nullDatePartitionEntry struct{ iceberg.ManifestEntry }
+
+func (nullDatePartitionEntry) DataFile() iceberg.DataFile { return nullDatePartitionFile{} }
+
+type nullDatePartitionManifest struct{ iceberg.ManifestFile }
+
+func (nullDatePartitionManifest) FetchEntries(icebergio.IO, bool) ([]iceberg.ManifestEntry, error) {
+	return []iceberg.ManifestEntry{nullDatePartitionEntry{}}, nil
+}
+
+func TestReadManifestDataFilesTurnsPartitionDecodePanicIntoError(t *testing.T) {
+	files, err := readManifestDataFiles(nil, nullDatePartitionManifest{})
+
+	require.Nil(t, files)
+	require.ErrorContains(t, err, "could not decode manifest entries")
+}
+
+func TestPartitionFieldsKeepsNullDatePartition(t *testing.T) {
+	spec := iceberg.NewPartitionSpec(
+		iceberg.PartitionField{SourceID: 1, FieldID: 1000, Name: "createdAt_day", Transform: iceberg.DayTransform{}},
+	)
+
+	require.Equal(t, []IcebergPartitionField{{Name: "createdAt_day", Value: "null", Null: true}}, partitionFields(&spec, map[int]any{1000: nil}))
 }
