@@ -10,17 +10,15 @@ import (
 type TaskKind string
 
 const (
-	TaskKindExpireSnapshots   TaskKind = "expire_snapshots"
-	TaskKindRemoveOrphanFiles TaskKind = "remove_orphan_files"
-	TaskKindOptimize          TaskKind = "optimize"
+	TaskKindExpireSnapshots    TaskKind = "expire_snapshots"
+	TaskKindRemoveOrphanFiles  TaskKind = "remove_orphan_files"
+	TaskKindOptimize           TaskKind = "optimize"
+	TaskKindRollbackToSnapshot TaskKind = "rollback_to_snapshot"
 )
 
 type TaskEngine string
 
-const (
-	TaskEngineTrino TaskEngine = "trino"
-	TaskEngineSpark TaskEngine = "spark"
-)
+const TaskEngineSpark TaskEngine = "spark"
 
 // TaskClaimer abstracts task queue operations used by the task worker.
 type TaskClaimer interface {

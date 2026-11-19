@@ -166,6 +166,83 @@ func (c *IcebergClient) listSnapshotDataFilePaths(ctx context.Context, tbl *tabl
 	return result, nil
 }
 
+// ListDataFiles returns the data files of the table's current snapshot.
+func (c *IcebergClient) ListDataFiles(ctx context.Context, database string, logicalName string) ([]IcebergDataFile, error) {
+	var err error
+	var tbl *table.Table
+	var tasks []table.FileScanTask
+
+	if tbl, err = c.LoadTable(ctx, database, logicalName); err != nil {
+		return nil, fmt.Errorf("could not load table: %w", err)
+	}
+
+	if tbl.CurrentSnapshot() == nil {
+		return []IcebergDataFile{}, nil
+	}
+
+	ctx = utils.WithAwsConfig(ctx, &c.awsCfg)
+	if tasks, err = tbl.Scan().PlanFiles(ctx); err != nil {
+		return nil, fmt.Errorf("could not plan files: %w", err)
+	}
+
+	specs := make(map[int]iceberg.PartitionSpec)
+	for _, spec := range tbl.Metadata().PartitionSpecs() {
+		specs[spec.ID()] = spec
+	}
+
+	result := make([]IcebergDataFile, 0, len(tasks))
+	for _, task := range tasks {
+		file := task.File
+		spec := specs[int(file.SpecID())]
+
+		result = append(result, IcebergDataFile{
+			FilePath:        file.FilePath(),
+			FileFormat:      string(file.FileFormat()),
+			SpecID:          int64(file.SpecID()),
+			RecordCount:     file.Count(),
+			FileSizeInBytes: file.FileSizeBytes(),
+			Partition:       partitionFields(&spec, file.Partition()),
+		})
+	}
+
+	return result, nil
+}
+
+// partitionFields formats a file's partition tuple in spec order. Time transforms
+// render as dates, so that day, month and year values compare against yyyy-mm-dd.
+func partitionFields(spec *iceberg.PartitionSpec, partition map[int]any) []IcebergPartitionField {
+	fields := make([]IcebergPartitionField, 0, spec.NumFields())
+
+	for pf := range spec.Fields() {
+		fields = append(fields, IcebergPartitionField{
+			Name:  pf.Name,
+			Value: partitionValueText(pf.Transform, partition[pf.FieldID]),
+		})
+	}
+
+	return fields
+}
+
+func partitionValueText(transform iceberg.Transform, value any) string {
+	switch v := value.(type) {
+	case nil:
+		return "null"
+	case []byte:
+		return string(v)
+	case iceberg.Date:
+		return v.ToTime().Format(time.DateOnly)
+	case int32:
+		switch transform.(type) {
+		case iceberg.MonthTransform:
+			return time.Date(1970, time.Month(1+v), 1, 0, 0, 0, 0, time.UTC).Format(time.DateOnly)
+		case iceberg.YearTransform:
+			return time.Date(1970+int(v), time.January, 1, 0, 0, 0, 0, time.UTC).Format(time.DateOnly)
+		}
+	}
+
+	return fmt.Sprintf("%v", value)
+}
+
 // ListPartitions returns partition stats with browse-compatible keys
 // that match the TableDescription.Partitions names (year, month, day for time transforms,
 // or column name for identity transforms).

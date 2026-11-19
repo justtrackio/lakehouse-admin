@@ -178,6 +178,7 @@ export interface SnapshotMissingFilesResponse {
 
 export interface SnapshotRollbackResponse {
   snapshot_id: string;
+  task_id: number;
   status: string;
 }
 

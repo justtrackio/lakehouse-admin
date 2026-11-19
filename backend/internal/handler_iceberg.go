@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/gosoline-project/httpserver"
-	"github.com/gosoline-project/sqlc"
 	"github.com/justtrackio/gosoline/pkg/cfg"
 	"github.com/justtrackio/gosoline/pkg/log"
 )
@@ -13,46 +12,32 @@ import (
 func NewHandlerIceberg(ctx context.Context, config cfg.Config, logger log.Logger) (*HandlerIceberg, error) {
 	var err error
 	var service *ServiceIceberg
-	var admin *ServiceIcebergAdmin
+	var tasks *ServiceTasks
 	var files *ServiceFileIntegrity
-	var refresh *ServiceRefresh
-	var sqlClient sqlc.Client
 
 	if service, err = NewServiceIceberg(ctx, config, logger); err != nil {
 		return nil, fmt.Errorf("could not create iceberg service: %w", err)
 	}
 
-	if admin, err = NewServiceIcebergAdmin(ctx, config, logger); err != nil {
-		return nil, fmt.Errorf("could not create iceberg admin service: %w", err)
+	if tasks, err = NewServiceTasks(ctx, config, logger); err != nil {
+		return nil, fmt.Errorf("could not create tasks service: %w", err)
 	}
 
 	if files, err = NewServiceFileIntegrity(ctx, config, logger); err != nil {
 		return nil, fmt.Errorf("could not create file integrity service: %w", err)
 	}
 
-	if refresh, err = NewServiceRefresh(ctx, config, logger); err != nil {
-		return nil, fmt.Errorf("could not create refresh service: %w", err)
-	}
-
-	if sqlClient, err = sqlc.ProvideClient(ctx, config, logger, "default"); err != nil {
-		return nil, fmt.Errorf("could not create sql client: %w", err)
-	}
-
 	return &HandlerIceberg{
-		service:   service,
-		admin:     admin,
-		files:     files,
-		refresh:   refresh,
-		sqlClient: sqlClient,
+		service: service,
+		tasks:   tasks,
+		files:   files,
 	}, nil
 }
 
 type HandlerIceberg struct {
-	service   *ServiceIceberg
-	admin     *ServiceIcebergAdmin
-	files     *ServiceFileIntegrity
-	refresh   *ServiceRefresh
-	sqlClient sqlc.Client
+	service *ServiceIceberg
+	tasks   *ServiceTasks
+	files   *ServiceFileIntegrity
 }
 
 type IcebergListSnapshotsResponse struct {
@@ -82,6 +67,7 @@ type SnapshotMissingFilesResponse struct {
 
 type SnapshotRollbackResponse struct {
 	SnapshotID int64  `json:"snapshot_id,string"`
+	TaskId     int64  `json:"task_id"`
 	Status     string `json:"status"`
 }
 
@@ -126,23 +112,17 @@ func (h *HandlerIceberg) ListSnapshotMissingFiles(ctx context.Context, input *Sn
 }
 
 func (h *HandlerIceberg) RollbackToSnapshot(ctx context.Context, input *SnapshotRollbackInput) (httpserver.Response, error) {
-	if err := h.admin.RollbackToSnapshot(ctx, input.Database, input.Table, input.SnapshotID); err != nil {
+	var err error
+	var taskId int64
+
+	if taskId, err = h.tasks.EnqueueRollbackToSnapshot(ctx, input.Database, input.Table, input.SnapshotID); err != nil {
 		return nil, fmt.Errorf("could not rollback table %s.%s to snapshot %d: %w", input.Database, input.Table, input.SnapshotID, err)
-	}
-
-	if err := h.sqlClient.WithTx(ctx, func(cttx sqlc.Tx) error {
-		if err := h.refresh.RefreshTableFull(cttx, input.Database, input.Table); err != nil {
-			return fmt.Errorf("could not refresh table metadata after rollback: %w", err)
-		}
-
-		return nil
-	}); err != nil {
-		return nil, fmt.Errorf("could not refresh table %s.%s after rollback to snapshot %d: %w", input.Database, input.Table, input.SnapshotID, err)
 	}
 
 	return httpserver.NewJsonResponse(SnapshotRollbackResponse{
 		SnapshotID: input.SnapshotID,
-		Status:     statusOK,
+		TaskId:     taskId,
+		Status:     taskStatusQueued,
 	}), nil
 }
 

@@ -10,7 +10,7 @@ The `lakehouse-admin` project is a management interface for a Data Lakehouse, pr
 *   **Backend (`/backend`)**:
     *   **Language**: go 1.24+
     *   **Framework**: `gosoline` (JustTrack's opinionated framework).
-    *   **Role**: Serves the REST API, handles background jobs, and communicates with Trino/Spark.
+    *   **Role**: Serves the REST API, handles background jobs, reads Iceberg metadata from the Glue catalog, and runs table maintenance as Spark applications.
     *   **Data Access**: Uses `sqlx` and `gosoline`'s db helpers.
 *   **Frontend (`/frontend`)**:
     *   **Framework**: React 19 (Vite) + TypeScript.
@@ -18,7 +18,7 @@ The `lakehouse-admin` project is a management interface for a Data Lakehouse, pr
     *   **State/Data**: `@tanstack/react-query` for server state.
     *   **Routing**: `@tanstack/react-router` (File-based routing).
 *   **Infrastructure**:
-    *   **Database**: MySQL (Metadata), Trino (Query Engine).
+    *   **Database**: MySQL (Metadata), Iceberg on Glue (Tables), Spark (Maintenance).
     *   **Deployment**: Docker containers.
 
 ## 2. Development Environment & Commands

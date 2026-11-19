@@ -7,9 +7,10 @@ import (
 )
 
 type TaskEngineSettings struct {
-	ExpireSnapshots   string `cfg:"expire_snapshots"`
-	RemoveOrphanFiles string `cfg:"remove_orphan_files"`
-	Optimize          string `cfg:"optimize"`
+	ExpireSnapshots    string `cfg:"expire_snapshots"`
+	RemoveOrphanFiles  string `cfg:"remove_orphan_files"`
+	Optimize           string `cfg:"optimize"`
+	RollbackToSnapshot string `cfg:"rollback_to_snapshot"`
 }
 
 type TaskEngineResolver struct {
@@ -18,9 +19,10 @@ type TaskEngineResolver struct {
 
 func NewTaskEngineResolver(config cfg.Config) (*TaskEngineResolver, error) {
 	settings := TaskEngineSettings{
-		ExpireSnapshots:   string(TaskEngineTrino),
-		RemoveOrphanFiles: string(TaskEngineTrino),
-		Optimize:          string(TaskEngineSpark),
+		ExpireSnapshots:    string(TaskEngineSpark),
+		RemoveOrphanFiles:  string(TaskEngineSpark),
+		Optimize:           string(TaskEngineSpark),
+		RollbackToSnapshot: string(TaskEngineSpark),
 	}
 
 	if err := config.UnmarshalKey("tasks.engines", &settings); err != nil {
@@ -28,9 +30,10 @@ func NewTaskEngineResolver(config cfg.Config) (*TaskEngineResolver, error) {
 	}
 
 	engines := map[TaskKind]TaskEngine{
-		TaskKindExpireSnapshots:   TaskEngine(settings.ExpireSnapshots),
-		TaskKindRemoveOrphanFiles: TaskEngine(settings.RemoveOrphanFiles),
-		TaskKindOptimize:          TaskEngine(settings.Optimize),
+		TaskKindExpireSnapshots:    TaskEngine(settings.ExpireSnapshots),
+		TaskKindRemoveOrphanFiles:  TaskEngine(settings.RemoveOrphanFiles),
+		TaskKindOptimize:           TaskEngine(settings.Optimize),
+		TaskKindRollbackToSnapshot: TaskEngine(settings.RollbackToSnapshot),
 	}
 
 	for kind, engine := range engines {
@@ -52,10 +55,9 @@ func (r *TaskEngineResolver) Resolve(kind TaskKind) (TaskEngine, error) {
 }
 
 func validateTaskEngine(kind TaskKind, engine TaskEngine) error {
-	switch engine {
-	case TaskEngineTrino, TaskEngineSpark:
-		return nil
-	default:
+	if engine != TaskEngineSpark {
 		return fmt.Errorf("invalid engine %q configured for task kind %s", engine, kind)
 	}
+
+	return nil
 }

@@ -40,6 +40,22 @@ type IcebergPartitionStats struct {
 	LastSnapshotID int64
 }
 
+// IcebergDataFile is a data file of the current snapshot. Partition lists the
+// file's partition fields in spec order, formatted as text.
+type IcebergDataFile struct {
+	FilePath        string
+	FileFormat      string
+	SpecID          int64
+	RecordCount     int64
+	FileSizeInBytes int64
+	Partition       []IcebergPartitionField
+}
+
+type IcebergPartitionField struct {
+	Name  string
+	Value string
+}
+
 type IcebergPartitionFileStats struct {
 	SizeBytes int64
 }

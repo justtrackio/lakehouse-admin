@@ -9,46 +9,37 @@ import (
 
 	"github.com/justtrackio/gosoline/pkg/cfg"
 	"github.com/justtrackio/gosoline/pkg/log"
-	"github.com/spf13/cast"
 )
 
 func NewServiceBrowseFiles(ctx context.Context, config cfg.Config, logger log.Logger) (*ServiceBrowseFiles, error) {
 	var err error
 	var metadata *ServiceMetadata
-	var trino *TrinoClient
-	var settings *IcebergSettings
+	var iceberg *IcebergClient
 
 	if metadata, err = NewServiceMetadata(ctx, config, logger); err != nil {
 		return nil, fmt.Errorf("could not create service metadata: %w", err)
 	}
 
-	if trino, err = ProvideTrinoClient(ctx, config, logger); err != nil {
-		return nil, fmt.Errorf("could not create trino client: %w", err)
-	}
-
-	if settings, err = ReadIcebergSettings(config); err != nil {
-		return nil, fmt.Errorf("could not read iceberg settings: %w", err)
+	if iceberg, err = ProvideIcebergClient(ctx, config, logger); err != nil {
+		return nil, fmt.Errorf("could not create iceberg client: %w", err)
 	}
 
 	return &ServiceBrowseFiles{
 		metadata: metadata,
-		trino:    trino,
-		settings: settings,
+		iceberg:  iceberg,
 	}, nil
 }
 
 type ServiceBrowseFiles struct {
 	metadata *ServiceMetadata
-	trino    *TrinoClient
-	settings *IcebergSettings
+	iceberg  *IcebergClient
 }
 
 func (s *ServiceBrowseFiles) ListFiles(ctx context.Context, database string, tableName string, filters map[string]string) ([]DataFileItem, error) {
 	var err error
 	var table *TableDescription
 	var selections []browseFileSelection
-	var rows []map[string]any
-	var item DataFileItem
+	var files []IcebergDataFile
 
 	if table, err = s.metadata.GetTable(ctx, database, tableName); err != nil {
 		return nil, fmt.Errorf("could not load table metadata for files browse: %w", err)
@@ -58,22 +49,67 @@ func (s *ServiceBrowseFiles) ListFiles(ctx context.Context, database string, tab
 		return nil, err
 	}
 
-	partitionFieldNames := s.browseSelectionFieldNames(selections)
-
-	if rows, err = s.trino.QueryRows(ctx, s.buildBrowseFilesQuery(table.Database, tableName, selections)); err != nil {
-		return nil, fmt.Errorf("could not query data files from trino: %w", err)
+	if files, err = s.iceberg.ListDataFiles(ctx, table.Database, tableName); err != nil {
+		return nil, fmt.Errorf("could not list data files: %w", err)
 	}
 
-	items := make([]DataFileItem, 0, len(rows))
-	for _, row := range rows {
-		if item, err = s.mapBrowseFileRow(row, partitionFieldNames); err != nil {
-			return nil, fmt.Errorf("could not map data file row: %w", err)
+	return filterBrowseFiles(files, selections), nil
+}
+
+// filterBrowseFiles keeps the files whose partition matches every selection,
+// largest first.
+func filterBrowseFiles(files []IcebergDataFile, selections []browseFileSelection) []DataFileItem {
+	items := make([]DataFileItem, 0)
+
+	for _, file := range files {
+		if !matchesBrowseSelections(file.Partition, selections) {
+			continue
 		}
 
-		items = append(items, item)
+		items = append(items, DataFileItem{
+			Content:         0,
+			FilePath:        file.FilePath,
+			FileFormat:      file.FileFormat,
+			SpecID:          file.SpecID,
+			Partition:       formatBrowsePartition(file.Partition),
+			RecordCount:     file.RecordCount,
+			FileSizeInBytes: file.FileSizeInBytes,
+		})
 	}
 
-	return items, nil
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].FileSizeInBytes != items[j].FileSizeInBytes {
+			return items[i].FileSizeInBytes > items[j].FileSizeInBytes
+		}
+
+		return items[i].FilePath < items[j].FilePath
+	})
+
+	return items
+}
+
+func matchesBrowseSelections(partition []IcebergPartitionField, selections []browseFileSelection) bool {
+	values := make(map[string]string, len(partition))
+	for _, field := range partition {
+		values[field.Name] = field.Value
+	}
+
+	for _, selection := range selections {
+		if value, ok := values[selection.RawFieldName]; !ok || value != selection.Value {
+			return false
+		}
+	}
+
+	return true
+}
+
+func formatBrowsePartition(partition []IcebergPartitionField) string {
+	parts := make([]string, len(partition))
+	for i, field := range partition {
+		parts[i] = field.Name + "=" + field.Value
+	}
+
+	return "{" + strings.Join(parts, ", ") + "}"
 }
 
 type browseFileSelection struct {
@@ -194,166 +230,6 @@ func (s *ServiceBrowseFiles) requireBrowseFilter(filters map[string]string, key 
 	}
 
 	return value, nil
-}
-
-func (s *ServiceBrowseFiles) buildBrowseFilesQuery(database string, table string, selections []browseFileSelection) string {
-	qualifiedTable := qualifiedTableName(s.settings.Catalog, database, table+"$files")
-	query := fmt.Sprintf(`
-		SELECT
-			content,
-			file_path,
-			file_format,
-			spec_id,
-			partition,
-			record_count,
-			file_size_in_bytes
-		FROM %s
-		WHERE content = 0
-	`, qualifiedTable)
-
-	for _, selection := range selections {
-		query += fmt.Sprintf(" AND CAST(partition.%s AS VARCHAR) = %s", quoteIdent(selection.RawFieldName), quoteLiteral(selection.Value))
-	}
-
-	query += " ORDER BY file_size_in_bytes DESC, file_path ASC"
-
-	return query
-}
-
-func (s *ServiceBrowseFiles) browseSelectionFieldNames(selections []browseFileSelection) []string {
-	fieldNames := make([]string, len(selections))
-	for i, selection := range selections {
-		fieldNames[i] = selection.RawFieldName
-	}
-
-	return fieldNames
-}
-
-func (s *ServiceBrowseFiles) mapBrowseFileRow(row map[string]any, partitionFieldNames []string) (DataFileItem, error) {
-	var err error
-	item := DataFileItem{}
-
-	if item.Content, err = cast.ToInt64E(row["content"]); err != nil {
-		return DataFileItem{}, fmt.Errorf("could not cast content: %w", err)
-	}
-
-	if item.SpecID, err = cast.ToInt64E(row["spec_id"]); err != nil {
-		return DataFileItem{}, fmt.Errorf("could not cast spec_id: %w", err)
-	}
-
-	if item.RecordCount, err = cast.ToInt64E(row["record_count"]); err != nil {
-		return DataFileItem{}, fmt.Errorf("could not cast record_count: %w", err)
-	}
-
-	if item.FileSizeInBytes, err = cast.ToInt64E(row["file_size_in_bytes"]); err != nil {
-		return DataFileItem{}, fmt.Errorf("could not cast file_size_in_bytes: %w", err)
-	}
-
-	if item.FilePath, err = cast.ToStringE(row["file_path"]); err != nil {
-		return DataFileItem{}, fmt.Errorf("could not cast file_path: %w", err)
-	}
-
-	if item.FileFormat, err = cast.ToStringE(row["file_format"]); err != nil {
-		return DataFileItem{}, fmt.Errorf("could not cast file_format: %w", err)
-	}
-
-	if item.Partition, err = s.browseRowValueToString(row["partition"], partitionFieldNames); err != nil {
-		return DataFileItem{}, fmt.Errorf("could not cast partition: %w", err)
-	}
-
-	return item, nil
-}
-
-func (s *ServiceBrowseFiles) browseRowValueToString(value any, partitionFieldNames []string) (string, error) {
-	switch v := value.(type) {
-	case nil:
-		return "", nil
-	case []byte:
-		return string(v), nil
-	case []any:
-		return s.formatBrowsePartitionTuple(v, partitionFieldNames)
-	case map[string]any:
-		return s.formatBrowsePartitionMap(v, partitionFieldNames)
-	default:
-		if s, err := cast.ToStringE(v); err == nil {
-			return s, nil
-		}
-
-		return fmt.Sprintf("%v", v), nil
-	}
-}
-
-func (s *ServiceBrowseFiles) formatBrowsePartitionTuple(values []any, partitionFieldNames []string) (string, error) {
-	var err error
-	var formattedValue string
-
-	parts := make([]string, 0, len(values))
-	for i, value := range values {
-		fieldName := fmt.Sprintf("field_%d", i)
-		if i < len(partitionFieldNames) && partitionFieldNames[i] != "" {
-			fieldName = partitionFieldNames[i]
-		}
-
-		if formattedValue, err = s.formatBrowsePartitionValue(value); err != nil {
-			return "", err
-		}
-
-		parts = append(parts, fmt.Sprintf("%s=%s", fieldName, formattedValue))
-	}
-
-	return "{" + strings.Join(parts, ", ") + "}", nil
-}
-
-func (s *ServiceBrowseFiles) formatBrowsePartitionMap(values map[string]any, partitionFieldNames []string) (string, error) {
-	var err error
-	var formattedValue string
-
-	orderedKeys := make([]string, 0, len(values))
-	seen := make(map[string]struct{}, len(values))
-
-	for _, key := range partitionFieldNames {
-		if _, ok := values[key]; ok {
-			orderedKeys = append(orderedKeys, key)
-			seen[key] = struct{}{}
-		}
-	}
-
-	remainingKeys := make([]string, 0, len(values)-len(orderedKeys))
-	for key := range values {
-		if _, ok := seen[key]; ok {
-			continue
-		}
-
-		remainingKeys = append(remainingKeys, key)
-	}
-	sort.Strings(remainingKeys)
-	orderedKeys = append(orderedKeys, remainingKeys...)
-
-	parts := make([]string, 0, len(orderedKeys))
-	for _, key := range orderedKeys {
-		if formattedValue, err = s.formatBrowsePartitionValue(values[key]); err != nil {
-			return "", err
-		}
-
-		parts = append(parts, fmt.Sprintf("%s=%s", key, formattedValue))
-	}
-
-	return "{" + strings.Join(parts, ", ") + "}", nil
-}
-
-func (s *ServiceBrowseFiles) formatBrowsePartitionValue(value any) (string, error) {
-	switch v := value.(type) {
-	case nil:
-		return "null", nil
-	case []byte:
-		return string(v), nil
-	default:
-		if s, err := cast.ToStringE(v); err == nil {
-			return s, nil
-		}
-
-		return fmt.Sprintf("%v", v), nil
-	}
 }
 
 type BrowseInputError struct {

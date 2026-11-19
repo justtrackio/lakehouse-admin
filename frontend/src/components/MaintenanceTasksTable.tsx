@@ -128,6 +128,7 @@ export function MaintenanceTasksTable({ database, tableName, pageSize, global }:
         { text: 'Optimize', value: 'optimize' },
         { text: 'Expire Snapshots', value: 'expire_snapshots' },
         { text: 'Remove Orphan Files', value: 'remove_orphan_files' },
+        { text: 'Rollback To Snapshot', value: 'rollback_to_snapshot' },
       ],
       filteredValue: selectedKinds,
     },

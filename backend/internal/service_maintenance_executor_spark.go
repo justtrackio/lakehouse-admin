@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gosoline-project/sqlc"
 	"github.com/justtrackio/gosoline/pkg/cfg"
 	"github.com/justtrackio/gosoline/pkg/log"
 	"github.com/spf13/cast"
@@ -33,17 +34,19 @@ type RemoveOrphanFilesParameters struct {
 }
 
 const (
-	sparkApplicationTaskIDAnnotation    = "lakehouse-admin.justtrack.io/task-id"
-	sparkApplicationTaskKindAnnotation  = "lakehouse-admin.justtrack.io/task-kind"
-	sparkApplicationTaskTableAnnotation = "lakehouse-admin.justtrack.io/task-table"
+	sparkApplicationTaskIDAnnotation       = "lakehouse-admin.justtrack.io/task-id"
+	sparkApplicationTaskKindAnnotation     = "lakehouse-admin.justtrack.io/task-kind"
+	sparkApplicationTaskDatabaseAnnotation = "lakehouse-admin.justtrack.io/task-database"
+	sparkApplicationTaskTableAnnotation    = "lakehouse-admin.justtrack.io/task-table"
 )
 
 const sparkMaintenancePyFile = "maintenance.py"
 
 const (
-	sparkProcedureRewriteDataFiles  = "rewrite_data_files"
-	sparkProcedureExpireSnapshots   = "expire_snapshots"
-	sparkProcedureRemoveOrphanFiles = "remove_orphan_files"
+	sparkProcedureRewriteDataFiles   = "rewrite_data_files"
+	sparkProcedureExpireSnapshots    = "expire_snapshots"
+	sparkProcedureRemoveOrphanFiles  = "remove_orphan_files"
+	sparkProcedureRollbackToSnapshot = "rollback_to_snapshot"
 )
 
 const sparkApplicationNameMaxLength = 63
@@ -53,6 +56,8 @@ type SparkMaintenanceExecutor struct {
 	metadata        *ServiceMetadata
 	k8s             SparkApplicationCreator
 	taskQueue       TaskClaimer
+	refresh         *ServiceRefresh
+	sqlClient       sqlc.Client
 	icebergSettings *IcebergSettings
 	settings        *SparkSettings
 }
@@ -65,6 +70,8 @@ func sparkTaskProcedure(taskKind TaskKind) (string, error) {
 		return sparkProcedureExpireSnapshots, nil
 	case TaskKindRemoveOrphanFiles:
 		return sparkProcedureRemoveOrphanFiles, nil
+	case TaskKindRollbackToSnapshot:
+		return sparkProcedureRollbackToSnapshot, nil
 	default:
 		return "", fmt.Errorf("unknown task kind: %s", taskKind)
 	}
@@ -75,6 +82,8 @@ func NewSparkMaintenanceExecutor(ctx context.Context, config cfg.Config, logger 
 	var metadata *ServiceMetadata
 	var k8s *K8sService
 	var taskQueue TaskClaimer
+	var refresh *ServiceRefresh
+	var sqlClient sqlc.Client
 	var icebergSettings *IcebergSettings
 	var settings *SparkSettings
 
@@ -90,6 +99,14 @@ func NewSparkMaintenanceExecutor(ctx context.Context, config cfg.Config, logger 
 		return nil, fmt.Errorf("could not create task queue service: %w", err)
 	}
 
+	if refresh, err = NewServiceRefresh(ctx, config, logger); err != nil {
+		return nil, fmt.Errorf("could not create refresh service: %w", err)
+	}
+
+	if sqlClient, err = sqlc.ProvideClient(ctx, config, logger, "default"); err != nil {
+		return nil, fmt.Errorf("could not create sql client: %w", err)
+	}
+
 	if icebergSettings, err = ReadIcebergSettings(config); err != nil {
 		return nil, fmt.Errorf("could not read iceberg settings: %w", err)
 	}
@@ -103,6 +120,8 @@ func NewSparkMaintenanceExecutor(ctx context.Context, config cfg.Config, logger 
 		metadata:        metadata,
 		k8s:             k8s,
 		taskQueue:       taskQueue,
+		refresh:         refresh,
+		sqlClient:       sqlClient,
 		icebergSettings: icebergSettings,
 		settings:        settings,
 	}, nil
@@ -156,6 +175,8 @@ func (s *SparkMaintenanceExecutor) ProcessTask(ctx context.Context, task *Task) 
 		return s.processExpireSnapshots(ctx, task, input)
 	case TaskKindRemoveOrphanFiles:
 		return s.processRemoveOrphanFiles(ctx, task, input)
+	case TaskKindRollbackToSnapshot:
+		return s.processRollbackToSnapshot(ctx, task, input)
 	default:
 		return s.taskQueue.CompleteTask(ctx, task.Id, nil, fmt.Errorf("unknown task kind: %s", task.Kind))
 	}
@@ -210,6 +231,28 @@ func (s *SparkMaintenanceExecutor) processRemoveOrphanFiles(ctx context.Context,
 
 	if result, err = s.executeRemoveOrphanFiles(ctx, task.Id, task.Database, task.Table, int(retentionDays)); err != nil {
 		return fmt.Errorf("could not execute remove orphan files task: %w", err)
+	}
+
+	if err = s.taskQueue.UpdateTaskResult(ctx, task.Id, result); err != nil {
+		return fmt.Errorf("could not update task %d tracking result: %w", task.Id, err)
+	}
+
+	s.logger.Info(ctx, "task %d submitted and waiting for asynchronous completion", task.Id)
+
+	return nil
+}
+
+func (s *SparkMaintenanceExecutor) processRollbackToSnapshot(ctx context.Context, task *Task, input map[string]any) error {
+	var err error
+	var snapshotID int64
+	var result map[string]any
+
+	if snapshotID, err = strconv.ParseInt(cast.ToString(input["snapshot_id"]), 10, 64); err != nil {
+		return fmt.Errorf("invalid snapshot_id %v: %w", input["snapshot_id"], err)
+	}
+
+	if result, err = s.executeRollbackToSnapshot(ctx, task.Id, task.Database, task.Table, snapshotID); err != nil {
+		return fmt.Errorf("could not execute rollback to snapshot task: %w", err)
 	}
 
 	if err = s.taskQueue.UpdateTaskResult(ctx, task.Id, result); err != nil {
@@ -381,6 +424,39 @@ func (s *SparkMaintenanceExecutor) executeRemoveOrphanFiles(ctx context.Context,
 	}, nil
 }
 
+func (s *SparkMaintenanceExecutor) executeRollbackToSnapshot(ctx context.Context, taskID int64, database string, table string, snapshotID int64) (map[string]any, error) {
+	var err error
+	var manifest *SparkApplicationManifest
+
+	applicationName := buildSparkApplicationName("rollback-to-snapshot", table, taskID)
+	s.logger.Info(ctx, "creating spark application to roll back table %s to snapshot %d", table, snapshotID)
+
+	if manifest, err = LoadSparkApplicationTemplate(); err != nil {
+		return nil, fmt.Errorf("could not load spark application template: %w", err)
+	}
+
+	if err = s.prepareSparkApplication(manifest, TaskKindRollbackToSnapshot, taskID, database, table, applicationName); err != nil {
+		return nil, fmt.Errorf("could not prepare spark application manifest: %w", err)
+	}
+
+	if err = manifest.SetEnvValues(map[string]string{"SNAPSHOT_ID": strconv.FormatInt(snapshotID, 10)}); err != nil {
+		return nil, fmt.Errorf("could not set env values: %w", err)
+	}
+
+	if _, err = s.k8s.CreateSparkApplication(ctx, manifest); err != nil {
+		return nil, fmt.Errorf("could not create spark application to roll back table %s: %w", table, err)
+	}
+
+	return map[string]any{
+		"database":         database,
+		"table":            table,
+		"snapshot_id":      strconv.FormatInt(snapshotID, 10),
+		"tracking_id":      applicationName,
+		"application_name": applicationName,
+		"status":           statusSubmitted,
+	}, nil
+}
+
 func (s *SparkMaintenanceExecutor) prepareSparkApplication(manifest *SparkApplicationManifest, taskKind TaskKind, taskID int64, database string, table string, applicationName string) error {
 	var err error
 	var procedure string
@@ -392,6 +468,7 @@ func (s *SparkMaintenanceExecutor) prepareSparkApplication(manifest *SparkApplic
 	manifest.Metadata.Name = applicationName
 	manifest.SetAnnotation(sparkApplicationTaskIDAnnotation, strconv.FormatInt(taskID, 10))
 	manifest.SetAnnotation(sparkApplicationTaskKindAnnotation, string(taskKind))
+	manifest.SetAnnotation(sparkApplicationTaskDatabaseAnnotation, database)
 	manifest.SetAnnotation(sparkApplicationTaskTableAnnotation, table)
 	manifest.MergeDriverPodAnnotations(s.settings.DriverPodSpec.Annotations)
 	manifest.MergeDriverNodeSelector(s.settings.DriverPodSpec.NodeSelector)
@@ -510,6 +587,8 @@ func (s *SparkMaintenanceExecutor) handleDecodedSparkApplicationEvent(ctx contex
 			return nil
 		}
 
+		s.refreshAfterSuccess(ctx, manifest.Metadata.Annotations)
+
 		if deleteErr := s.k8s.DeleteSparkApplication(ctx, manifest.Metadata.Namespace, appName); deleteErr != nil {
 			return fmt.Errorf("task %d from successful spark application %s could not be cleaned up: %w", taskID, appName, deleteErr)
 		}
@@ -528,6 +607,33 @@ func (s *SparkMaintenanceExecutor) handleDecodedSparkApplicationEvent(ctx contex
 	}
 
 	return fmt.Errorf("could not resolve spark tracking update for %s: %w", appName, err)
+}
+
+// refreshAfterSuccess reloads the stored metadata that a successful task changed.
+// The scheduled refresh catches up if this fails.
+func (s *SparkMaintenanceExecutor) refreshAfterSuccess(ctx context.Context, annotations map[string]string) {
+	database := annotations[sparkApplicationTaskDatabaseAnnotation]
+	table := annotations[sparkApplicationTaskTableAnnotation]
+
+	if database == "" || table == "" {
+		return
+	}
+
+	err := s.sqlClient.WithTx(ctx, func(cttx sqlc.Tx) error {
+		switch TaskKind(annotations[sparkApplicationTaskKindAnnotation]) {
+		case TaskKindExpireSnapshots:
+			_, err := s.refresh.RefreshSnapshots(cttx, database, table)
+
+			return err
+		case TaskKindRollbackToSnapshot:
+			return s.refresh.RefreshTableFull(cttx, database, table)
+		default:
+			return nil
+		}
+	})
+	if err != nil {
+		s.logger.Warn(ctx, "could not refresh table %s.%s after spark task: %s", database, table, err)
+	}
 }
 
 func buildSparkApplicationName(prefix string, table string, taskID int64) string {

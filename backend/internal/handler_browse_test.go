@@ -3,6 +3,7 @@ package internal
 import (
 	"testing"
 
+	iceberg "github.com/apache/iceberg-go"
 	"github.com/stretchr/testify/require"
 )
 
@@ -66,33 +67,44 @@ func TestResolveBrowseFileSelectionsRequiresRawFieldName(t *testing.T) {
 	require.EqualError(t, err, "partition \"businessUnitId\" is missing raw field metadata")
 }
 
-func TestBuildBrowseFilesQueryUsesFilesMetadataTable(t *testing.T) {
-	service := &ServiceBrowseFiles{
-		settings: &IcebergSettings{Catalog: "lakehouse"},
+func TestFilterBrowseFilesKeepsSelectedPartitionLargestFirst(t *testing.T) {
+	service := &ServiceBrowseFiles{}
+	spec := iceberg.NewPartitionSpec(
+		iceberg.PartitionField{SourceID: 1, FieldID: 1000, Name: "createdAt_day", Transform: iceberg.DayTransform{}},
+		iceberg.PartitionField{SourceID: 2, FieldID: 1001, Name: "businessUnitId", Transform: iceberg.IdentityTransform{}},
+	)
+	day := iceberg.Date(20537) // 2026-03-25
+	file := func(path string, size int64, date iceberg.Date, businessUnitID int32) IcebergDataFile {
+		return IcebergDataFile{
+			FilePath:        path,
+			FileFormat:      "PARQUET",
+			FileSizeInBytes: size,
+			Partition:       partitionFields(&spec, map[int]any{1000: date, 1001: businessUnitID}),
+		}
 	}
 
-	query := service.buildBrowseFilesQuery("main", "revenueevent", []browseFileSelection{{RawFieldName: "createdAt_day", Value: "2026-03-25"}})
+	selections, err := service.resolveBrowseFileSelections([]TablePartition{
+		{Name: "year", RawFieldName: "createdAt_day", IsHidden: true, Hidden: TablePartitionHidden{Column: "createdAt", Type: transformDay}},
+		{Name: "month", RawFieldName: "createdAt_day", IsHidden: true, Hidden: TablePartitionHidden{Column: "createdAt", Type: transformDay}},
+		{Name: "day", RawFieldName: "createdAt_day", IsHidden: true, Hidden: TablePartitionHidden{Column: "createdAt", Type: transformDay}},
+		{Name: "businessUnitId", RawFieldName: "businessUnitId"},
+	}, map[string]string{"year": "2026", "month": "03", "day": "25", "businessUnitId": "1"})
+	require.NoError(t, err)
 
-	require.Contains(t, query, `FROM "lakehouse"."main"."revenueevent$files"`)
-	require.Contains(t, query, `WHERE content = 0`)
-	require.Contains(t, query, `CAST(partition."createdAt_day" AS VARCHAR) = '2026-03-25'`)
+	items := filterBrowseFiles([]IcebergDataFile{
+		file("s3://b/small.parquet", 10, day, 1),
+		file("s3://b/other-day.parquet", 50, day+1, 1),
+		file("s3://b/other-unit.parquet", 50, day, 2),
+		file("s3://b/large.parquet", 30, day, 1),
+	}, selections)
+
+	require.Equal(t, []DataFileItem{
+		{FilePath: "s3://b/large.parquet", FileFormat: "PARQUET", Partition: "{createdAt_day=2026-03-25, businessUnitId=1}", FileSizeInBytes: 30},
+		{FilePath: "s3://b/small.parquet", FileFormat: "PARQUET", Partition: "{createdAt_day=2026-03-25, businessUnitId=1}", FileSizeInBytes: 10},
+	}, items)
 }
 
-func TestBrowseRowValueToStringFormatsPartitionTupleWithFieldNames(t *testing.T) {
-	service := &ServiceBrowseFiles{}
-
-	value, err := service.browseRowValueToString([]any{"2024-12-24", "2"}, []string{"createdAt_day", "businessUnitId"})
-	require.NoError(t, err)
-	require.Equal(t, "{createdAt_day=2024-12-24, businessUnitId=2}", value)
-}
-
-func TestBrowseRowValueToStringFormatsPartitionMapInSelectionOrder(t *testing.T) {
-	service := &ServiceBrowseFiles{}
-
-	value, err := service.browseRowValueToString(
-		map[string]any{"businessUnitId": "2", "createdAt_day": "2024-12-24"},
-		[]string{"createdAt_day", "businessUnitId"},
-	)
-	require.NoError(t, err)
-	require.Equal(t, "{createdAt_day=2024-12-24, businessUnitId=2}", value)
+func TestPartitionValueTextRendersMonthAndYearAsSelectionDates(t *testing.T) {
+	require.Equal(t, "2026-03-01", partitionValueText(iceberg.MonthTransform{}, int32(674)))
+	require.Equal(t, "2026-01-01", partitionValueText(iceberg.YearTransform{}, int32(56)))
 }

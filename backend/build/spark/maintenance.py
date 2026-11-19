@@ -10,6 +10,7 @@ from datetime import date, datetime, timezone
 PROCEDURE_REWRITE_DATA_FILES = "rewrite_data_files"
 PROCEDURE_EXPIRE_SNAPSHOTS = "expire_snapshots"
 PROCEDURE_REMOVE_ORPHAN_FILES = "remove_orphan_files"
+PROCEDURE_ROLLBACK_TO_SNAPSHOT = "rollback_to_snapshot"
 
 
 def require_env(name: str) -> str:
@@ -90,6 +91,7 @@ def task_procedure() -> str:
         PROCEDURE_REWRITE_DATA_FILES,
         PROCEDURE_EXPIRE_SNAPSHOTS,
         PROCEDURE_REMOVE_ORPHAN_FILES,
+        PROCEDURE_ROLLBACK_TO_SNAPSHOT,
     }:
         raise ValueError(f"unsupported TASK_PROCEDURE: {procedure}")
 
@@ -215,6 +217,25 @@ CALL {catalog}.system.remove_orphan_files(
 """.strip()
 
 
+def build_rollback_to_snapshot_query() -> str:
+    catalog = os.getenv("ICEBERG_CATALOG", "lakehouse").strip() or "lakehouse"
+    database = os.getenv("ICEBERG_DATABASE", "main").strip() or "main"
+    table = require_env("ICEBERG_TABLE")
+    snapshot_id = require_env("SNAPSHOT_ID")
+
+    if not re.fullmatch(r"\d+", snapshot_id):
+        raise ValueError(f"SNAPSHOT_ID must be a positive integer, got: {snapshot_id}")
+
+    qualified_table = f"{database}.{table}"
+
+    return f"""
+CALL {catalog}.system.rollback_to_snapshot(
+  table => {sql_literal(qualified_table)},
+  snapshot_id => {snapshot_id}
+)
+""".strip()
+
+
 def build_query(procedure: str) -> str:
     if procedure == PROCEDURE_REWRITE_DATA_FILES:
         return build_rewrite_data_files_query()
@@ -224,6 +245,9 @@ def build_query(procedure: str) -> str:
 
     if procedure == PROCEDURE_REMOVE_ORPHAN_FILES:
         return build_remove_orphan_files_query()
+
+    if procedure == PROCEDURE_ROLLBACK_TO_SNAPSHOT:
+        return build_rollback_to_snapshot_query()
 
     raise ValueError(f"unsupported TASK_PROCEDURE: {procedure}")
 
@@ -237,6 +261,9 @@ def app_name(procedure: str) -> str:
 
     if procedure == PROCEDURE_REMOVE_ORPHAN_FILES:
         return "remove-orphan-files"
+
+    if procedure == PROCEDURE_ROLLBACK_TO_SNAPSHOT:
+        return "rollback-to-snapshot"
 
     raise ValueError(f"unsupported TASK_PROCEDURE: {procedure}")
 
