@@ -29,6 +29,7 @@ type TaskClaimer interface {
 	FailOrphanedRunningTasks(ctx context.Context, engines []TaskEngine) (int64, error)
 	ListRunningTasks(ctx context.Context, engine TaskEngine) ([]Task, error)
 	RequeueTask(ctx context.Context, id int64) error
+	TaskStatus(ctx context.Context, id int64) (string, error)
 }
 
 type MaintenanceExecutor interface {

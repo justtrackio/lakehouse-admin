@@ -2,7 +2,6 @@ package internal
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -172,9 +171,15 @@ func (s *SparkMaintenanceExecutor) Run(ctx context.Context) error {
 	return nil
 }
 
-// Reconcile settles running tasks without a spark application: their pod
-// stopped after claiming them but before submitting one (or during a
-// refresh-only retry). Others are left to the informer.
+// reconcileClaimGrace is how long a claimed task may run without a spark
+// application before it counts as abandoned. Submitting one takes seconds, so
+// this leaves an active claim (of any worker) alone.
+const reconcileClaimGrace = 15 * time.Minute
+
+// Reconcile settles running tasks that have had no spark application for
+// longer than reconcileClaimGrace: their worker stopped after claiming them but
+// before submitting one, or during a refresh-only retry. Tasks with an
+// application are left to the informer.
 func (s *SparkMaintenanceExecutor) Reconcile(ctx context.Context) error {
 	var err error
 	var tasks []Task
@@ -188,8 +193,10 @@ func (s *SparkMaintenanceExecutor) Reconcile(ctx context.Context) error {
 		return fmt.Errorf("could not list spark applications to reconcile running tasks: %w", err)
 	}
 
+	abandonedBefore := time.Now().Add(-reconcileClaimGrace)
 	for i := range tasks {
-		if submitted[tasks[i].Id] {
+		pickedUp := tasks[i].PickedUpAt
+		if submitted[tasks[i].Id] || (pickedUp != nil && pickedUp.After(abandonedBefore)) {
 			continue
 		}
 
@@ -633,6 +640,7 @@ func (s *SparkMaintenanceExecutor) handleDecodedSparkApplicationEvent(ctx contex
 	var err error
 	var taskIDAnnotation string
 	var taskID int64
+	var status string
 
 	appName := manifest.Metadata.Name
 	resolvedStatus := manifest.Status.Resolve()
@@ -657,6 +665,22 @@ func (s *SparkMaintenanceExecutor) handleDecodedSparkApplicationEvent(ctx contex
 		return fmt.Errorf("ignoring terminal spark application event for %s with invalid %s annotation %q: %w", appName, sparkApplicationTaskIDAnnotation, taskIDAnnotation, err)
 	}
 
+	// Informer resyncs replay terminal applications, so a completion that failed
+	// to write is retried while its task is still running.
+	if status, err = s.taskQueue.TaskStatus(ctx, taskID); err != nil {
+		return fmt.Errorf("could not load task %d of spark application %s: %w", taskID, appName, err)
+	}
+
+	if status != taskStatusRunning {
+		// Clean up after a completed success, or after a task that no longer
+		// exists; failed applications stay for inspection.
+		if status == "" || resolvedStatus.IsSuccess() {
+			return s.deleteSparkApplication(ctx, manifest, taskID)
+		}
+
+		return nil
+	}
+
 	var refreshErr error
 	if resolvedStatus.IsSuccess() {
 		annotations := manifest.Metadata.Annotations
@@ -665,29 +689,25 @@ func (s *SparkMaintenanceExecutor) handleDecodedSparkApplicationEvent(ctx contex
 		refreshErr = s.refreshTable(ctx, kind, database, annotations[sparkApplicationTaskTableAnnotation])
 	}
 
-	if err = s.HandleTaskUpdate(ctx, taskID, appName, state, resolvedStatus.Message, extraResult, refreshErr); err == nil {
-		if !resolvedStatus.IsSuccess() {
-			return nil
-		}
+	if err = s.HandleTaskUpdate(ctx, taskID, appName, state, resolvedStatus.Message, extraResult, refreshErr); err != nil {
+		return fmt.Errorf("could not resolve spark tracking update for %s: %w", appName, err)
+	}
 
-		if deleteErr := s.k8s.DeleteSparkApplication(ctx, manifest.Metadata.Namespace, appName); deleteErr != nil {
-			return fmt.Errorf("task %d from successful spark application %s could not be cleaned up: %w", taskID, appName, deleteErr)
-		}
-
-		s.logger.Info(ctx, "deleted successful spark application %s after completing task %d", appName, taskID)
-
+	if !resolvedStatus.IsSuccess() {
 		return nil
 	}
 
-	if errors.Is(err, errTaskCompletionNotFound) {
-		if deleteErr := s.k8s.DeleteSparkApplication(ctx, manifest.Metadata.Namespace, appName); deleteErr != nil {
-			return fmt.Errorf("task %d for terminal spark application %s no longer exists and could not delete orphaned spark application: %w", taskID, appName, deleteErr)
-		}
+	return s.deleteSparkApplication(ctx, manifest, taskID)
+}
 
-		return nil
+func (s *SparkMaintenanceExecutor) deleteSparkApplication(ctx context.Context, manifest *SparkApplicationManifest, taskID int64) error {
+	if err := s.k8s.DeleteSparkApplication(ctx, manifest.Metadata.Namespace, manifest.Metadata.Name); err != nil {
+		return fmt.Errorf("could not delete spark application %s of task %d: %w", manifest.Metadata.Name, taskID, err)
 	}
 
-	return fmt.Errorf("could not resolve spark tracking update for %s: %w", appName, err)
+	s.logger.Info(ctx, "deleted spark application %s of task %d", manifest.Metadata.Name, taskID)
+
+	return nil
 }
 
 // refreshTable reloads the stored metadata that a successful task of this kind changed.
@@ -748,18 +768,8 @@ func decodeSparkApplicationEvent(obj any) (*SparkApplicationManifest, error) {
 	return manifest, nil
 }
 
-func shouldHandleSparkApplicationUpdate(oldStatus SparkApplicationStatus, newStatus SparkApplicationStatus) bool {
-	newResolved := newStatus.Resolve()
-	if !newResolved.IsTerminal() {
-		return false
-	}
-
-	oldResolved := oldStatus.Resolve()
-	if !oldResolved.IsTerminal() {
-		return true
-	}
-
-	return normalizeSparkApplicationState(oldResolved.State()) != normalizeSparkApplicationState(newResolved.State())
+func shouldHandleSparkApplicationUpdate(_ SparkApplicationStatus, newStatus SparkApplicationStatus) bool {
+	return newStatus.Resolve().IsTerminal()
 }
 
 func isSparkApplicationTerminalState(state string) bool {

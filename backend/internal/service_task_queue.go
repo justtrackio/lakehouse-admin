@@ -472,6 +472,22 @@ func (s *ServiceTaskQueue) ListRunningTasks(ctx context.Context, engine TaskEngi
 	return tasks, nil
 }
 
+// TaskStatus returns the task's status, or "" if it doesn't exist.
+func (s *ServiceTaskQueue) TaskStatus(ctx context.Context, id int64) (string, error) {
+	var task Task
+
+	sel := s.sqlClient.Q().From("tasks").Where(sqlc.Eq{"id": id}).Limit(1)
+	if err := sel.Get(ctx, &task); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", nil
+		}
+
+		return "", fmt.Errorf("could not load task %d: %w", id, err)
+	}
+
+	return task.Status, nil
+}
+
 // RequeueTask puts a running task back into the queue.
 func (s *ServiceTaskQueue) RequeueTask(ctx context.Context, id int64) error {
 	upd := s.sqlClient.Q().Update("tasks").
@@ -498,9 +514,11 @@ func (s *ServiceTaskQueue) UpdateTaskResult(ctx context.Context, id int64, resul
 
 	mergedResult := mergeTaskResult(task.Result.Get(), result)
 
+	// Only a running task takes results, so a late write can't overwrite the
+	// result its completion recorded.
 	upd := s.sqlClient.Q().Update("tasks").
 		Set("result", db.NewJSON(mergedResult, db.NonNullable{})).
-		Where(sqlc.Eq{"id": id})
+		Where(sqlc.Eq{"id": id, "status": taskStatusRunning})
 
 	if _, err := upd.Exec(ctx); err != nil {
 		return fmt.Errorf("could not update task result: %w", err)

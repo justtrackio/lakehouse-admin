@@ -49,12 +49,12 @@ type IcebergDataFile struct {
 	RecordCount     int64
 	FileSizeInBytes int64
 	Partition       []IcebergPartitionField
+	Values          PartitionValues
 }
 
 type IcebergPartitionField struct {
 	Name  string
 	Value string
-	Null  bool
 }
 
 type IcebergPartitionFileStats struct {

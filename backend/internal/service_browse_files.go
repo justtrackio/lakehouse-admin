@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/justtrackio/gosoline/pkg/cfg"
 	"github.com/justtrackio/gosoline/pkg/log"
@@ -38,14 +40,13 @@ type ServiceBrowseFiles struct {
 func (s *ServiceBrowseFiles) ListFiles(ctx context.Context, database string, tableName string, filters map[string]string) ([]DataFileItem, error) {
 	var err error
 	var table *TableDescription
-	var selections []browseFileSelection
 	var files []IcebergDataFile
 
 	if table, err = s.metadata.GetTable(ctx, database, tableName); err != nil {
 		return nil, fmt.Errorf("could not load table metadata for files browse: %w", err)
 	}
 
-	if selections, err = s.resolveBrowseFileSelections(table.Partitions.Get(), filters); err != nil {
+	if err := validateBrowseFilters(table.Partitions.Get(), filters); err != nil {
 		return nil, err
 	}
 
@@ -53,16 +54,40 @@ func (s *ServiceBrowseFiles) ListFiles(ctx context.Context, database string, tab
 		return nil, fmt.Errorf("could not list data files: %w", err)
 	}
 
-	return filterBrowseFiles(files, selections), nil
+	return filterBrowseFiles(files, filters), nil
 }
 
-// filterBrowseFiles keeps the files whose partition matches every selection,
+// validateBrowseFilters requires one value for every browse key of the table.
+func validateBrowseFilters(fields []TablePartition, filters map[string]string) error {
+	if len(fields) == 0 {
+		return newBrowseInputError("table does not define any partitions")
+	}
+
+	keys := make(map[string]bool, len(fields))
+	for _, field := range fields {
+		keys[field.Name] = true
+	}
+
+	for key := range filters {
+		if !keys[key] {
+			return newBrowseInputError("unknown partition key %q", key)
+		}
+	}
+
+	if len(filters) != len(keys) {
+		return newBrowseInputError("listing data files requires a complete partition selection")
+	}
+
+	return nil
+}
+
+// filterBrowseFiles keeps the files whose browse values match every filter,
 // largest first.
-func filterBrowseFiles(files []IcebergDataFile, selections []browseFileSelection) []DataFileItem {
+func filterBrowseFiles(files []IcebergDataFile, filters map[string]string) []DataFileItem {
 	items := make([]DataFileItem, 0)
 
 	for _, file := range files {
-		if !matchesBrowseSelections(file.Partition, selections) {
+		if !matchesBrowseFilters(file.Values, filters) {
 			continue
 		}
 
@@ -88,21 +113,36 @@ func filterBrowseFiles(files []IcebergDataFile, selections []browseFileSelection
 	return items
 }
 
-func matchesBrowseSelections(partition []IcebergPartitionField, selections []browseFileSelection) bool {
-	values := make(map[string]string, len(partition))
-	for _, field := range partition {
-		if !field.Null {
-			values[field.Name] = field.Value
+// matchesBrowseFilters compares the text of each browse value with its filter,
+// the text the partition tree reads from the stored values. Null never matches.
+func matchesBrowseFilters(values PartitionValues, filters map[string]string) bool {
+	for key, filter := range filters {
+		value, ok := values[key]
+		if !ok || value == nil {
+			return false
 		}
-	}
 
-	for _, selection := range selections {
-		if value, ok := values[selection.RawFieldName]; !ok || value != selection.Value {
+		if text := fmt.Sprintf("%v", value); text != filter && !isLegacyDateFilter(text, filter) {
 			return false
 		}
 	}
 
 	return true
+}
+
+// isLegacyDateFilter matches a date value against days since 1970-01-01, the
+// form refresh stored identity dates in before the next refresh rewrites them.
+func isLegacyDateFilter(value string, filter string) bool {
+	var err error
+	var days int
+
+	if days, err = strconv.Atoi(filter); err != nil {
+		return false
+	}
+
+	date := time.Unix(0, 0).UTC().AddDate(0, 0, days)
+
+	return date.Format(time.DateOnly) == value
 }
 
 func formatBrowsePartition(partition []IcebergPartitionField) string {
@@ -112,126 +152,6 @@ func formatBrowsePartition(partition []IcebergPartitionField) string {
 	}
 
 	return "{" + strings.Join(parts, ", ") + "}"
-}
-
-type browseFileSelection struct {
-	RawFieldName string
-	Value        string
-}
-
-func (s *ServiceBrowseFiles) resolveBrowseFileSelections(fields []TablePartition, filters map[string]string) ([]browseFileSelection, error) {
-	var err error
-	var selection browseFileSelection
-
-	if len(fields) == 0 {
-		return nil, newBrowseInputError("table does not define any partitions")
-	}
-
-	validFilterKeys := make(map[string]struct{}, len(fields))
-	for _, field := range fields {
-		validFilterKeys[field.Name] = struct{}{}
-	}
-
-	for key := range filters {
-		if _, ok := validFilterKeys[key]; !ok {
-			return nil, newBrowseInputError("unknown partition key %q", key)
-		}
-	}
-
-	if len(filters) != len(fields) {
-		return nil, newBrowseInputError("listing data files requires a complete partition selection")
-	}
-
-	selections := make([]browseFileSelection, 0)
-	seenRawFieldNames := make(map[string]struct{}, len(fields))
-
-	for _, field := range fields {
-		if field.RawFieldName == "" {
-			return nil, newBrowseInputError("partition %q is missing raw field metadata", field.Name)
-		}
-
-		if _, seen := seenRawFieldNames[field.RawFieldName]; seen {
-			continue
-		}
-
-		if selection, err = s.buildBrowseFileSelection(filters, field); err != nil {
-			return nil, err
-		}
-
-		selections = append(selections, selection)
-		seenRawFieldNames[field.RawFieldName] = struct{}{}
-	}
-
-	return selections, nil
-}
-
-func (s *ServiceBrowseFiles) buildBrowseFileSelection(filters map[string]string, field TablePartition) (browseFileSelection, error) {
-	var err error
-	var value string
-
-	if !field.IsHidden {
-		value, ok := filters[field.Name]
-		if !ok {
-			return browseFileSelection{}, newBrowseInputError("missing partition filter %q", field.Name)
-		}
-
-		return browseFileSelection{RawFieldName: field.RawFieldName, Value: value}, nil
-	}
-
-	if value, err = s.buildHiddenPartitionValue(filters, field); err != nil {
-		return browseFileSelection{}, err
-	}
-
-	return browseFileSelection{RawFieldName: field.RawFieldName, Value: value}, nil
-}
-
-func (s *ServiceBrowseFiles) buildHiddenPartitionValue(filters map[string]string, field TablePartition) (string, error) {
-	var err error
-	var year, month, day string
-
-	switch field.Hidden.Type {
-	case transformDay:
-		if year, err = s.requireBrowseFilter(filters, "year"); err != nil {
-			return "", err
-		}
-
-		if month, err = s.requireBrowseFilter(filters, "month"); err != nil {
-			return "", err
-		}
-
-		if day, err = s.requireBrowseFilter(filters, "day"); err != nil {
-			return "", err
-		}
-
-		return fmt.Sprintf("%s-%s-%s", year, month, day), nil
-	case transformMonth:
-		if year, err = s.requireBrowseFilter(filters, "year"); err != nil {
-			return "", err
-		}
-
-		if month, err = s.requireBrowseFilter(filters, "month"); err != nil {
-			return "", err
-		}
-
-		return fmt.Sprintf("%s-%s-01", year, month), nil
-	case transformYear:
-		if year, err = s.requireBrowseFilter(filters, "year"); err != nil {
-			return "", err
-		}
-
-		return fmt.Sprintf("%s-01-01", year), nil
-	default:
-		return "", newBrowseInputError("unsupported hidden partition transform %q", field.Hidden.Type)
-	}
-}
-
-func (s *ServiceBrowseFiles) requireBrowseFilter(filters map[string]string, key string) (string, error) {
-	value, ok := filters[key]
-	if !ok || value == "" {
-		return "", newBrowseInputError("missing partition filter %q", key)
-	}
-
-	return value, nil
 }
 
 type BrowseInputError struct {

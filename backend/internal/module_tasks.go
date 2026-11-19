@@ -77,14 +77,13 @@ func (m *ModuleTasks) Run(ctx context.Context) error {
 		return err
 	}
 
-	for _, executor := range m.serviceMaintenanceExecutor.All() {
-		if err := executor.Reconcile(ctx); err != nil {
-			return fmt.Errorf("could not reconcile running %s tasks: %w", executor.Engine(), err)
-		}
-	}
+	m.reconcile(ctx)
 
 	ticker := time.NewTicker(m.settings.PollInterval)
 	defer ticker.Stop()
+
+	reconcileTicker := time.NewTicker(reconcileInterval)
+	defer reconcileTicker.Stop()
 
 	cfn, ctx := coffin.WithContext(ctx)
 	for _, executor := range m.serviceMaintenanceExecutor.All() {
@@ -102,11 +101,24 @@ func (m *ModuleTasks) Run(ctx context.Context) error {
 				return nil
 			case <-ticker.C:
 				m.tryProcessTasks(ctx, cfn)
+			case <-reconcileTicker.C:
+				m.reconcile(ctx)
 			}
 		}
 	})
 
 	return cfn.Wait()
+}
+
+const reconcileInterval = 5 * time.Minute
+
+// reconcile lets each executor settle running tasks an earlier worker abandoned.
+func (m *ModuleTasks) reconcile(ctx context.Context) {
+	for _, executor := range m.serviceMaintenanceExecutor.All() {
+		if err := executor.Reconcile(ctx); err != nil {
+			m.logger.Error(ctx, "could not reconcile running %s tasks: %s", executor.Engine(), err)
+		}
+	}
 }
 
 func (m *ModuleTasks) failOrphanedRunningTasks(ctx context.Context) error {
