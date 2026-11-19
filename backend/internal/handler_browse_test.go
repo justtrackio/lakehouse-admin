@@ -104,7 +104,18 @@ func TestFilterBrowseFilesKeepsSelectedPartitionLargestFirst(t *testing.T) {
 	}, items)
 }
 
-func TestPartitionValueTextRendersMonthAndYearAsSelectionDates(t *testing.T) {
+func TestPartitionValueTextRendersTimeTransformsAsSelectionDates(t *testing.T) {
+	require.Equal(t, "2026-03-25", partitionValueText(iceberg.DayTransform{}, iceberg.Date(20537)))
+	require.Equal(t, "2026-03-25", partitionValueText(iceberg.DayTransform{}, int32(20537)))
+	require.Equal(t, "2026-03-25", partitionValueText(iceberg.DayTransform{}, 20537))
 	require.Equal(t, "2026-03-01", partitionValueText(iceberg.MonthTransform{}, int32(674)))
-	require.Equal(t, "2026-01-01", partitionValueText(iceberg.YearTransform{}, int32(56)))
+	require.Equal(t, "2026-03-01", partitionValueText(iceberg.MonthTransform{}, 674))
+	require.Equal(t, "2026-01-01", partitionValueText(iceberg.YearTransform{}, 56))
+}
+
+func TestMatchesBrowseSelectionsKeepsNullDistinctFromLiteralNull(t *testing.T) {
+	selection := []browseFileSelection{{RawFieldName: "country", Value: "null"}}
+
+	require.False(t, matchesBrowseSelections([]IcebergPartitionField{{Name: "country", Value: "null", Null: true}}, selection))
+	require.True(t, matchesBrowseSelections([]IcebergPartitionField{{Name: "country", Value: "null"}}, selection))
 }

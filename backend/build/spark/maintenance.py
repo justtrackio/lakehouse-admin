@@ -212,7 +212,8 @@ def build_remove_orphan_files_query() -> str:
     return f"""
 CALL {catalog}.system.remove_orphan_files(
   table => {sql_literal(qualified_table)},
-  older_than => TIMESTAMP {sql_literal(older_than)}
+  older_than => TIMESTAMP {sql_literal(older_than)},
+  prefix_listing => true
 )
 """.strip()
 
@@ -223,7 +224,7 @@ def build_rollback_to_snapshot_query() -> str:
     table = require_env("ICEBERG_TABLE")
     snapshot_id = require_env("SNAPSHOT_ID")
 
-    if not re.fullmatch(r"\d+", snapshot_id):
+    if not re.fullmatch(r"[1-9]\d*", snapshot_id):
         raise ValueError(f"SNAPSHOT_ID must be a positive integer, got: {snapshot_id}")
 
     qualified_table = f"{database}.{table}"
@@ -268,6 +269,14 @@ def app_name(procedure: str) -> str:
     raise ValueError(f"unsupported TASK_PROCEDURE: {procedure}")
 
 
+def snapshot_ids_as_strings(row: dict) -> dict:
+    # Snapshot IDs exceed the float64 precision the callback's JSON decoder keeps.
+    return {
+        key: str(value) if key.endswith("snapshot_id") and value is not None else value
+        for key, value in row.items()
+    }
+
+
 def main() -> int:
     spark = None
 
@@ -281,7 +290,7 @@ def main() -> int:
         query = build_query(procedure)
         print(json.dumps({"query": query}, indent=2))
 
-        rows = [row.asDict(recursive=True) for row in spark.sql(query).collect()]
+        rows = [snapshot_ids_as_strings(row.asDict(recursive=True)) for row in spark.sql(query).collect()]
         print(json.dumps({"result": rows}, indent=2))
 
         try:

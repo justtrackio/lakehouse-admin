@@ -54,6 +54,7 @@ type IcebergDataFile struct {
 type IcebergPartitionField struct {
 	Name  string
 	Value string
+	Null  bool
 }
 
 type IcebergPartitionFileStats struct {

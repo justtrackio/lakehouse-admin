@@ -91,7 +91,9 @@ func filterBrowseFiles(files []IcebergDataFile, selections []browseFileSelection
 func matchesBrowseSelections(partition []IcebergPartitionField, selections []browseFileSelection) bool {
 	values := make(map[string]string, len(partition))
 	for _, field := range partition {
-		values[field.Name] = field.Value
+		if !field.Null {
+			values[field.Name] = field.Value
+		}
 	}
 
 	for _, selection := range selections {

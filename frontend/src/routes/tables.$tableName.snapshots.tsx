@@ -17,9 +17,11 @@ import {
   fetchSnapshotMissingFiles,
   fetchSnapshots,
   fetchTableDetails,
+  fetchTasks,
   rollbackToSnapshot,
   SnapshotItem,
   TableDetails,
+  Task,
 } from '../api/schema';
 import { normalizeDatabaseSearch } from '../utils/database';
 import { formatTimestamp, formatBytes, formatNumber } from '../utils/format';
@@ -35,6 +37,30 @@ export const Route = createFileRoute('/tables/$tableName/snapshots')({
   validateSearch: normalizeDatabaseSearch,
   component: SnapshotsPage,
 });
+
+const rollbackPollIntervalMs = 3000;
+
+// waitForTask polls the table's rollback tasks until the given one finishes.
+async function waitForTask(database: string, tableName: string, taskId: number): Promise<Task> {
+  for (;;) {
+    await new Promise((resolve) => setTimeout(resolve, rollbackPollIntervalMs));
+
+    const tasks = await fetchTasks(database, tableName, 50, 0, ['rollback_to_snapshot']);
+    const task = tasks.items.find((item) => item.id === taskId);
+
+    if (!task) {
+      throw new Error(`task ${taskId} no longer exists`);
+    }
+
+    if (task.status === 'success') {
+      return task;
+    }
+
+    if (task.status === 'error') {
+      throw new Error(`task ${taskId}: ${task.error_message ?? 'unknown error'}`);
+    }
+  }
+}
 
 function SnapshotsPage() {
   const { tableName } = Route.useParams();
@@ -83,13 +109,24 @@ function SnapshotsPage() {
   });
 
   const rollbackMutation = useMutation({
-    mutationFn: (snapshotId: string) => rollbackToSnapshot(database, tableName, snapshotId),
-    onSuccess: (data) => {
-      messageApi.success(`Queued rollback to snapshot ${data.snapshot_id} as task ${data.task_id}`);
+    mutationFn: async (snapshotId: string) => {
+      const queued = await rollbackToSnapshot(database, tableName, snapshotId);
+      messageApi.info(`Queued rollback to snapshot ${queued.snapshot_id} as task ${queued.task_id}`);
       queryClient.invalidateQueries({ queryKey: ['tasks', database, tableName] });
+
+      return waitForTask(database, tableName, queued.task_id);
+    },
+    onSuccess: (task) => {
+      messageApi.success(`Rollback task ${task.id} finished`);
     },
     onError: (error: Error) => {
       messageApi.error(`Failed to rollback snapshot: ${error.message}`);
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['table', database, tableName] });
+      queryClient.invalidateQueries({ queryKey: ['snapshots', database, tableName] });
+      queryClient.invalidateQueries({ queryKey: ['partitions', database, tableName] });
+      queryClient.invalidateQueries({ queryKey: ['tables', database] });
     },
   });
 

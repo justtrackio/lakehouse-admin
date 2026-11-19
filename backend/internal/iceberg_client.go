@@ -3,6 +3,7 @@ package internal
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -10,6 +11,7 @@ import (
 	iceberg "github.com/apache/iceberg-go"
 	"github.com/apache/iceberg-go/catalog"
 	"github.com/apache/iceberg-go/catalog/glue"
+	icebergio "github.com/apache/iceberg-go/io"
 	"github.com/apache/iceberg-go/table"
 	"github.com/apache/iceberg-go/utils"
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -18,7 +20,10 @@ import (
 	gosoGlue "github.com/justtrackio/gosoline/pkg/cloud/aws/glue"
 	"github.com/justtrackio/gosoline/pkg/db"
 	"github.com/justtrackio/gosoline/pkg/log"
+	"golang.org/x/sync/errgroup"
 )
+
+const manifestReadConcurrency = 8
 
 const (
 	transformDay   = "day"
@@ -166,23 +171,31 @@ func (c *IcebergClient) listSnapshotDataFilePaths(ctx context.Context, tbl *tabl
 	return result, nil
 }
 
-// ListDataFiles returns the data files of the table's current snapshot.
+// ListDataFiles returns the live data files of the table's current snapshot,
+// read from its data manifests. Unlike a scan plan, this keeps files without
+// records and doesn't need to resolve delete files.
 func (c *IcebergClient) ListDataFiles(ctx context.Context, database string, logicalName string) ([]IcebergDataFile, error) {
 	var err error
 	var tbl *table.Table
-	var tasks []table.FileScanTask
+	var fs icebergio.IO
+	var manifests []iceberg.ManifestFile
 
 	if tbl, err = c.LoadTable(ctx, database, logicalName); err != nil {
 		return nil, fmt.Errorf("could not load table: %w", err)
 	}
 
-	if tbl.CurrentSnapshot() == nil {
+	snapshot := tbl.CurrentSnapshot()
+	if snapshot == nil {
 		return []IcebergDataFile{}, nil
 	}
 
 	ctx = utils.WithAwsConfig(ctx, &c.awsCfg)
-	if tasks, err = tbl.Scan().PlanFiles(ctx); err != nil {
-		return nil, fmt.Errorf("could not plan files: %w", err)
+	if fs, err = tbl.FS(ctx); err != nil {
+		return nil, fmt.Errorf("could not open table file io: %w", err)
+	}
+
+	if manifests, err = snapshot.Manifests(fs); err != nil {
+		return nil, fmt.Errorf("could not read manifest list: %w", err)
 	}
 
 	specs := make(map[int]iceberg.PartitionSpec)
@@ -190,33 +203,62 @@ func (c *IcebergClient) ListDataFiles(ctx context.Context, database string, logi
 		specs[spec.ID()] = spec
 	}
 
-	result := make([]IcebergDataFile, 0, len(tasks))
-	for _, task := range tasks {
-		file := task.File
-		spec := specs[int(file.SpecID())]
+	perManifest := make([][]IcebergDataFile, len(manifests))
+	group, _ := errgroup.WithContext(ctx)
+	group.SetLimit(manifestReadConcurrency)
 
-		result = append(result, IcebergDataFile{
-			FilePath:        file.FilePath(),
-			FileFormat:      string(file.FileFormat()),
-			SpecID:          int64(file.SpecID()),
-			RecordCount:     file.Count(),
-			FileSizeInBytes: file.FileSizeBytes(),
-			Partition:       partitionFields(&spec, file.Partition()),
+	for i, manifest := range manifests {
+		if manifest.ManifestContent() != iceberg.ManifestContentData {
+			continue
+		}
+
+		group.Go(func() error {
+			var err error
+			var entries []iceberg.ManifestEntry
+
+			if entries, err = manifest.FetchEntries(fs, true); err != nil {
+				return fmt.Errorf("could not read manifest %s: %w", manifest.FilePath(), err)
+			}
+
+			files := make([]IcebergDataFile, 0, len(entries))
+			for _, entry := range entries {
+				file := entry.DataFile()
+				spec := specs[int(file.SpecID())]
+
+				files = append(files, IcebergDataFile{
+					FilePath:        file.FilePath(),
+					FileFormat:      string(file.FileFormat()),
+					SpecID:          int64(file.SpecID()),
+					RecordCount:     file.Count(),
+					FileSizeInBytes: file.FileSizeBytes(),
+					Partition:       partitionFields(&spec, file.Partition()),
+				})
+			}
+
+			perManifest[i] = files
+
+			return nil
 		})
 	}
 
-	return result, nil
+	if err := group.Wait(); err != nil {
+		return nil, err
+	}
+
+	return slices.Concat(perManifest...), nil
 }
 
-// partitionFields formats a file's partition tuple in spec order. Time transforms
-// render as dates, so that day, month and year values compare against yyyy-mm-dd.
+// partitionFields formats a file's partition tuple in spec order. Time
+// transforms render as yyyy-mm-dd, the form the browse selection uses.
 func partitionFields(spec *iceberg.PartitionSpec, partition map[int]any) []IcebergPartitionField {
 	fields := make([]IcebergPartitionField, 0, spec.NumFields())
 
 	for pf := range spec.Fields() {
+		value := partition[pf.FieldID]
 		fields = append(fields, IcebergPartitionField{
 			Name:  pf.Name,
-			Value: partitionValueText(pf.Transform, partition[pf.FieldID]),
+			Value: partitionValueText(pf.Transform, value),
+			Null:  value == nil,
 		})
 	}
 
@@ -224,23 +266,51 @@ func partitionFields(spec *iceberg.PartitionSpec, partition map[int]any) []Icebe
 }
 
 func partitionValueText(transform iceberg.Transform, value any) string {
-	switch v := value.(type) {
-	case nil:
+	if value == nil {
 		return "null"
-	case []byte:
+	}
+
+	if date, ok := partitionDate(transform, value); ok {
+		return date.Format(time.DateOnly)
+	}
+
+	if v, ok := value.([]byte); ok {
 		return string(v)
-	case iceberg.Date:
-		return v.ToTime().Format(time.DateOnly)
-	case int32:
-		switch transform.(type) {
-		case iceberg.MonthTransform:
-			return time.Date(1970, time.Month(1+v), 1, 0, 0, 0, 0, time.UTC).Format(time.DateOnly)
-		case iceberg.YearTransform:
-			return time.Date(1970+int(v), time.January, 1, 0, 0, 0, 0, time.UTC).Format(time.DateOnly)
-		}
 	}
 
 	return fmt.Sprintf("%v", value)
+}
+
+// partitionDate converts a date value or a day, month or year transform result
+// to the first day it covers. Manifests store transform results as integer
+// offsets from 1970-01-01, which readers may decode as iceberg.Date or int.
+func partitionDate(transform iceberg.Transform, value any) (time.Time, bool) {
+	if date, ok := value.(iceberg.Date); ok {
+		return date.ToTime(), true
+	}
+
+	var offset int
+	switch v := value.(type) {
+	case int:
+		offset = v
+	case int32:
+		offset = int(v)
+	case int64:
+		offset = int(v)
+	default:
+		return time.Time{}, false
+	}
+
+	switch transform.(type) {
+	case iceberg.DayTransform:
+		return time.Unix(0, 0).UTC().AddDate(0, 0, offset), true
+	case iceberg.MonthTransform:
+		return time.Date(1970, time.Month(1+offset), 1, 0, 0, 0, 0, time.UTC), true
+	case iceberg.YearTransform:
+		return time.Date(1970+offset, time.January, 1, 0, 0, 0, 0, time.UTC), true
+	default:
+		return time.Time{}, false
+	}
 }
 
 // ListPartitions returns partition stats with browse-compatible keys
@@ -376,22 +446,20 @@ func (c *IcebergClient) normalizePartitionForBrowse(rawPartition map[int]any, sp
 		}
 
 		transform := pf.Transform.String()
+		date, isDate := partitionDate(pf.Transform, val)
 
-		switch transform {
-		case "identity":
+		switch {
+		case transform == "identity":
 			result[sourceColumnName] = val
-		case transformDay:
-			t := val.(iceberg.Date).ToTime()
-			result["year"] = t.Format("2006")
-			result["month"] = t.Format("01")
-			result["day"] = t.Format("02")
-		case transformMonth:
-			t := val.(iceberg.Date).ToTime()
-			result["year"] = t.Format("2006")
-			result["month"] = t.Format("01")
-		case transformYear:
-			t := val.(iceberg.Date).ToTime()
-			result["year"] = t.Format("2006")
+		case transform == transformDay && isDate:
+			result["year"] = date.Format("2006")
+			result["month"] = date.Format("01")
+			result["day"] = date.Format("02")
+		case transform == transformMonth && isDate:
+			result["year"] = date.Format("2006")
+			result["month"] = date.Format("01")
+		case transform == transformYear && isDate:
+			result["year"] = date.Format("2006")
 		default:
 			// For other transforms (bucket, truncate), use the partition field name
 			result[pf.Name] = val

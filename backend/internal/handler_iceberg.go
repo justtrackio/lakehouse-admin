@@ -3,6 +3,7 @@ package internal
 import (
 	"context"
 	"fmt"
+	"net/http"
 
 	"github.com/gosoline-project/httpserver"
 	"github.com/justtrackio/gosoline/pkg/cfg"
@@ -114,6 +115,10 @@ func (h *HandlerIceberg) ListSnapshotMissingFiles(ctx context.Context, input *Sn
 func (h *HandlerIceberg) RollbackToSnapshot(ctx context.Context, input *SnapshotRollbackInput) (httpserver.Response, error) {
 	var err error
 	var taskId int64
+
+	if input.SnapshotID <= 0 {
+		return httpserver.GetErrorHandler()(http.StatusBadRequest, fmt.Errorf("snapshot id must be positive, got %d", input.SnapshotID)), nil
+	}
 
 	if taskId, err = h.tasks.EnqueueRollbackToSnapshot(ctx, input.Database, input.Table, input.SnapshotID); err != nil {
 		return nil, fmt.Errorf("could not rollback table %s.%s to snapshot %d: %w", input.Database, input.Table, input.SnapshotID, err)

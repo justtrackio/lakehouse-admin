@@ -41,9 +41,11 @@ func TestNormalizePartitionForBrowseKeepsHiddenTimePartitionsForNestedColumn(t *
 		iceberg.PartitionField{SourceID: 2, FieldID: 1000, Name: "goal_conversion_happened_at_day", Transform: iceberg.DayTransform{}},
 	)
 
-	partition := client.normalizePartitionForBrowse(map[int]any{1000: iceberg.Date(20164)}, &spec, schema)
+	for _, day := range []any{iceberg.Date(20164), int32(20164), 20164} {
+		partition := client.normalizePartitionForBrowse(map[int]any{1000: day}, &spec, schema)
 
-	require.Equal(t, PartitionValues{"year": "2025", "month": "03", "day": "17"}, PartitionValues(partition))
+		require.Equal(t, PartitionValues{"year": "2025", "month": "03", "day": "17"}, PartitionValues(partition))
+	}
 }
 
 func TestExtractPartitionsUsesNestedColumnName(t *testing.T) {

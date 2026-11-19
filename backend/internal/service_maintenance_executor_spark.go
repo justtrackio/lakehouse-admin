@@ -492,7 +492,10 @@ func (s *SparkMaintenanceExecutor) prepareSparkApplication(manifest *SparkApplic
 	})
 }
 
-func (s *SparkMaintenanceExecutor) HandleTaskUpdate(ctx context.Context, taskID int64, applicationName string, state string, message string, extraResult map[string]any) error {
+// HandleTaskUpdate completes a task from its spark application's terminal state.
+// A failed metadata refresh after a successful application fails the task, so a
+// retry repeats the (idempotent) procedure and the refresh.
+func (s *SparkMaintenanceExecutor) HandleTaskUpdate(ctx context.Context, taskID int64, applicationName string, state string, message string, extraResult map[string]any, refreshErr error) error {
 	var taskErr error
 
 	result := map[string]any{
@@ -512,6 +515,9 @@ func (s *SparkMaintenanceExecutor) HandleTaskUpdate(ctx context.Context, taskID 
 		}
 		result["status"] = statusError
 		taskErr = fmt.Errorf("%s", message)
+	} else if refreshErr != nil {
+		result["status"] = statusError
+		taskErr = fmt.Errorf("spark application %s succeeded, but refreshing the table metadata failed: %w", applicationName, refreshErr)
 	}
 
 	if err := s.taskQueue.CompleteTask(ctx, taskID, result, taskErr); err != nil {
@@ -582,12 +588,15 @@ func (s *SparkMaintenanceExecutor) handleDecodedSparkApplicationEvent(ctx contex
 		return fmt.Errorf("ignoring terminal spark application event for %s with invalid %s annotation %q: %w", appName, sparkApplicationTaskIDAnnotation, taskIDAnnotation, err)
 	}
 
-	if err = s.HandleTaskUpdate(ctx, taskID, appName, state, resolvedStatus.Message, extraResult); err == nil {
+	var refreshErr error
+	if resolvedStatus.IsSuccess() {
+		refreshErr = s.refreshAfterSuccess(ctx, manifest.Metadata.Annotations)
+	}
+
+	if err = s.HandleTaskUpdate(ctx, taskID, appName, state, resolvedStatus.Message, extraResult, refreshErr); err == nil {
 		if !resolvedStatus.IsSuccess() {
 			return nil
 		}
-
-		s.refreshAfterSuccess(ctx, manifest.Metadata.Annotations)
 
 		if deleteErr := s.k8s.DeleteSparkApplication(ctx, manifest.Metadata.Namespace, appName); deleteErr != nil {
 			return fmt.Errorf("task %d from successful spark application %s could not be cleaned up: %w", taskID, appName, deleteErr)
@@ -610,16 +619,15 @@ func (s *SparkMaintenanceExecutor) handleDecodedSparkApplicationEvent(ctx contex
 }
 
 // refreshAfterSuccess reloads the stored metadata that a successful task changed.
-// The scheduled refresh catches up if this fails.
-func (s *SparkMaintenanceExecutor) refreshAfterSuccess(ctx context.Context, annotations map[string]string) {
+func (s *SparkMaintenanceExecutor) refreshAfterSuccess(ctx context.Context, annotations map[string]string) error {
 	database := annotations[sparkApplicationTaskDatabaseAnnotation]
 	table := annotations[sparkApplicationTaskTableAnnotation]
 
 	if database == "" || table == "" {
-		return
+		return nil
 	}
 
-	err := s.sqlClient.WithTx(ctx, func(cttx sqlc.Tx) error {
+	return s.sqlClient.WithTx(ctx, func(cttx sqlc.Tx) error {
 		switch TaskKind(annotations[sparkApplicationTaskKindAnnotation]) {
 		case TaskKindExpireSnapshots:
 			_, err := s.refresh.RefreshSnapshots(cttx, database, table)
@@ -631,9 +639,6 @@ func (s *SparkMaintenanceExecutor) refreshAfterSuccess(ctx context.Context, anno
 			return nil
 		}
 	})
-	if err != nil {
-		s.logger.Warn(ctx, "could not refresh table %s.%s after spark task: %s", database, table, err)
-	}
 }
 
 func buildSparkApplicationName(prefix string, table string, taskID int64) string {

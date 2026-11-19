@@ -18,6 +18,7 @@ type ServiceTaskQueue struct {
 	logger                 log.Logger
 	sqlClient              sqlc.Client
 	serviceSettings        *ServiceSettings
+	engineResolver         *TaskEngineResolver
 	defaultTaskConcurrency int
 }
 
@@ -27,6 +28,7 @@ func NewServiceTaskQueue(ctx context.Context, config cfg.Config, logger log.Logg
 	var err error
 	var sqlClient sqlc.Client
 	var serviceSettings *ServiceSettings
+	var engineResolver *TaskEngineResolver
 	var defaultTaskConcurrency int
 
 	if sqlClient, err = sqlc.ProvideClient(ctx, config, logger, "default"); err != nil {
@@ -37,6 +39,10 @@ func NewServiceTaskQueue(ctx context.Context, config cfg.Config, logger log.Logg
 		return nil, fmt.Errorf("could not create settings service: %w", err)
 	}
 
+	if engineResolver, err = NewTaskEngineResolver(config); err != nil {
+		return nil, fmt.Errorf("could not create task engine resolver: %w", err)
+	}
+
 	if defaultTaskConcurrency, err = config.GetInt("tasks.worker_count"); err != nil || defaultTaskConcurrency < 1 {
 		defaultTaskConcurrency = 1
 	}
@@ -45,6 +51,7 @@ func NewServiceTaskQueue(ctx context.Context, config cfg.Config, logger log.Logg
 		logger:                 logger.WithChannel("task_queue"),
 		sqlClient:              sqlClient,
 		serviceSettings:        serviceSettings,
+		engineResolver:         engineResolver,
 		defaultTaskConcurrency: defaultTaskConcurrency,
 	}, nil
 }
@@ -128,6 +135,8 @@ func (s *ServiceTaskQueue) RetryAllTasks(ctx context.Context, database string, t
 		query := cttx.Q().
 			From("tasks").
 			Where(sqlc.Eq{"status": taskStatusError, "retried": false}).
+			// A rollback is a one-off user action, not maintenance to catch up on.
+			Where(sqlc.Col("kind").NotEq(string(TaskKindRollbackToSnapshot))).
 			OrderBy(sqlc.Col("started_at").Asc())
 
 		if database != "" {
@@ -211,7 +220,8 @@ func (s *ServiceTaskQueue) retryTaskInTx(ctx sqlc.Tx, task *Task) (int64, error)
 		return 0, fmt.Errorf("task %d has already been retried: %w", task.Id, errTaskAlreadyRetried)
 	}
 
-	insert := ctx.Q().Into("tasks").Records(newQueuedTask(task.Database, task.Table, task.Kind, task.Engine, task.Input.Get()))
+	retry := newQueuedTask(task.Database, task.Table, task.Kind, s.currentEngine(task), task.Input.Get())
+	insert := ctx.Q().Into("tasks").Records(retry)
 	res, err = insert.Exec(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("could not enqueue retry for task %d: %w", task.Id, err)
@@ -305,7 +315,12 @@ func (s *ServiceTaskQueue) claimTaskWithConcurrency(ctx sqlc.Tx, taskConcurrency
 	}
 
 	now := time.Now()
-	upd := ctx.Q().Update("tasks").Set("status", taskStatusRunning).Set("picked_up_at", &now).Where(sqlc.Eq{"id": task.Id, "status": taskStatusQueued})
+	engine := s.currentEngine(&task)
+	upd := ctx.Q().Update("tasks").
+		Set("status", taskStatusRunning).
+		Set("picked_up_at", &now).
+		Set("engine", engine).
+		Where(sqlc.Eq{"id": task.Id, "status": taskStatusQueued})
 	if res, err = upd.Exec(ctx); err != nil {
 		return fmt.Errorf("could not update task status to running: %w", err)
 	}
@@ -320,9 +335,23 @@ func (s *ServiceTaskQueue) claimTaskWithConcurrency(ctx sqlc.Tx, taskConcurrency
 
 	task.Status = taskStatusRunning
 	task.PickedUpAt = &now
+	task.Engine = engine
 	*claimedTask = &task
 
 	return nil
+}
+
+// currentEngine returns the engine now configured for the task's kind, so that
+// tasks queued for a removed engine (trino) run on its replacement.
+func (s *ServiceTaskQueue) currentEngine(task *Task) string {
+	var err error
+	var engine TaskEngine
+
+	if engine, err = s.engineResolver.Resolve(TaskKind(task.Kind)); err != nil {
+		return task.Engine
+	}
+
+	return string(engine)
 }
 
 func isTaskClaimRetryable(err error) bool {
