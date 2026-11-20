@@ -1,25 +1,5 @@
 package internal
 
-func expireSnapshotsResultMap(res *ExpireSnapshotsResult) map[string]any {
-	return map[string]any{
-		"database":               res.Database,
-		"table":                  res.Table,
-		"retention_days":         res.RetentionDays,
-		"clean_expired_metadata": res.CleanExpiredMetadata,
-		"status":                 res.Status,
-	}
-}
-
-func removeOrphanFilesResultMap(res *RemoveOrphanFilesResult) map[string]any {
-	return map[string]any{
-		"database":       res.Database,
-		"table":          res.Table,
-		"retention_days": res.RetentionDays,
-		"metrics":        res.Metrics,
-		"status":         res.Status,
-	}
-}
-
 func optimizeResultMap(res *OptimizeResult) map[string]any {
 	return map[string]any{
 		"database":            res.Database,

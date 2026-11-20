@@ -18,6 +18,7 @@ type ServiceTaskQueue struct {
 	logger                 log.Logger
 	sqlClient              sqlc.Client
 	serviceSettings        *ServiceSettings
+	engineResolver         *TaskEngineResolver
 	defaultTaskConcurrency int
 }
 
@@ -27,6 +28,7 @@ func NewServiceTaskQueue(ctx context.Context, config cfg.Config, logger log.Logg
 	var err error
 	var sqlClient sqlc.Client
 	var serviceSettings *ServiceSettings
+	var engineResolver *TaskEngineResolver
 	var defaultTaskConcurrency int
 
 	if sqlClient, err = sqlc.ProvideClient(ctx, config, logger, "default"); err != nil {
@@ -37,6 +39,10 @@ func NewServiceTaskQueue(ctx context.Context, config cfg.Config, logger log.Logg
 		return nil, fmt.Errorf("could not create settings service: %w", err)
 	}
 
+	if engineResolver, err = NewTaskEngineResolver(config); err != nil {
+		return nil, fmt.Errorf("could not create task engine resolver: %w", err)
+	}
+
 	if defaultTaskConcurrency, err = config.GetInt("tasks.worker_count"); err != nil || defaultTaskConcurrency < 1 {
 		defaultTaskConcurrency = 1
 	}
@@ -45,6 +51,7 @@ func NewServiceTaskQueue(ctx context.Context, config cfg.Config, logger log.Logg
 		logger:                 logger.WithChannel("task_queue"),
 		sqlClient:              sqlClient,
 		serviceSettings:        serviceSettings,
+		engineResolver:         engineResolver,
 		defaultTaskConcurrency: defaultTaskConcurrency,
 	}, nil
 }
@@ -211,7 +218,8 @@ func (s *ServiceTaskQueue) retryTaskInTx(ctx sqlc.Tx, task *Task) (int64, error)
 		return 0, fmt.Errorf("task %d has already been retried: %w", task.Id, errTaskAlreadyRetried)
 	}
 
-	insert := ctx.Q().Into("tasks").Records(newQueuedTask(task.Database, task.Table, task.Kind, task.Engine, task.Input.Get()))
+	retry := newQueuedTask(task.Database, task.Table, task.Kind, s.currentEngine(task), task.Input.Get())
+	insert := ctx.Q().Into("tasks").Records(retry)
 	res, err = insert.Exec(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("could not enqueue retry for task %d: %w", task.Id, err)
@@ -305,7 +313,12 @@ func (s *ServiceTaskQueue) claimTaskWithConcurrency(ctx sqlc.Tx, taskConcurrency
 	}
 
 	now := time.Now()
-	upd := ctx.Q().Update("tasks").Set("status", taskStatusRunning).Set("picked_up_at", &now).Where(sqlc.Eq{"id": task.Id, "status": taskStatusQueued})
+	engine := s.currentEngine(&task)
+	upd := ctx.Q().Update("tasks").
+		Set("status", taskStatusRunning).
+		Set("picked_up_at", &now).
+		Set("engine", engine).
+		Where(sqlc.Eq{"id": task.Id, "status": taskStatusQueued})
 	if res, err = upd.Exec(ctx); err != nil {
 		return fmt.Errorf("could not update task status to running: %w", err)
 	}
@@ -320,9 +333,23 @@ func (s *ServiceTaskQueue) claimTaskWithConcurrency(ctx sqlc.Tx, taskConcurrency
 
 	task.Status = taskStatusRunning
 	task.PickedUpAt = &now
+	task.Engine = engine
 	*claimedTask = &task
 
 	return nil
+}
+
+// currentEngine returns the engine now configured for the task's kind, so that
+// tasks queued for a removed engine (trino) run on its replacement.
+func (s *ServiceTaskQueue) currentEngine(task *Task) string {
+	var err error
+	var engine TaskEngine
+
+	if engine, err = s.engineResolver.Resolve(TaskKind(task.Kind)); err != nil {
+		return task.Engine
+	}
+
+	return string(engine)
 }
 
 func isTaskClaimRetryable(err error) bool {
@@ -338,6 +365,14 @@ func isTaskClaimRetryable(err error) bool {
 }
 
 func (s *ServiceTaskQueue) CompleteTask(ctx context.Context, id int64, result map[string]any, err error) error {
+	_, completeErr := s.CompleteRunningTask(ctx, id, result, err)
+
+	return completeErr
+}
+
+// CompleteRunningTask completes the task if it is still running and reports
+// whether it did.
+func (s *ServiceTaskQueue) CompleteRunningTask(ctx context.Context, id int64, result map[string]any, err error) (bool, error) {
 	var res sqlc.Result
 	var affected int64
 
@@ -353,10 +388,10 @@ func (s *ServiceTaskQueue) CompleteTask(ctx context.Context, id int64, result ma
 	var task Task
 	if getErr := s.sqlClient.Q().From("tasks").Where(sqlc.Eq{"id": id}).Limit(1).Get(ctx, &task); getErr != nil {
 		if errors.Is(getErr, sql.ErrNoRows) {
-			return fmt.Errorf("task %d not found for completion: %w", id, errTaskCompletionNotFound)
+			return false, fmt.Errorf("task %d not found for completion: %w", id, errTaskCompletionNotFound)
 		}
 
-		return fmt.Errorf("could not load task for completion: %w", getErr)
+		return false, fmt.Errorf("could not load task for completion: %w", getErr)
 	}
 
 	mergedResult := mergeTaskResult(task.Result.Get(), result)
@@ -370,15 +405,84 @@ func (s *ServiceTaskQueue) CompleteTask(ctx context.Context, id int64, result ma
 		Where(sqlc.Eq{"id": id, "status": taskStatusRunning})
 
 	if res, err = upd.Exec(ctx); err != nil {
-		return fmt.Errorf("could not complete task: %w", err)
+		return false, fmt.Errorf("could not complete task: %w", err)
 	}
 
 	if affected, err = res.RowsAffected(); err != nil {
-		return fmt.Errorf("could not get rows affected when completing task: %w", err)
+		return false, fmt.Errorf("could not get rows affected when completing task: %w", err)
 	}
 
-	if affected == 0 {
-		return nil
+	return affected > 0, nil
+}
+
+// FailOrphanedRunningTasks fails running tasks of engines this instance has no
+// executor for (trino). No executor will ever complete them, and each one holds
+// a task slot. It relies on a single task worker (Recreate deployments).
+func (s *ServiceTaskQueue) FailOrphanedRunningTasks(ctx context.Context, engines []TaskEngine) (int64, error) {
+	var err error
+	var res sqlc.Result
+	var affected int64
+
+	served := make([]any, len(engines))
+	for i, engine := range engines {
+		served[i] = string(engine)
+	}
+
+	now := time.Now()
+	upd := s.sqlClient.Q().Update("tasks").
+		Set("status", taskStatusError).
+		Set("error_message", "the task's engine was removed before it completed; retry it to run on the current engine").
+		Set("finished_at", &now).
+		Where(sqlc.Eq{"status": taskStatusRunning}).
+		Where(sqlc.Col("engine").NotIn(served...))
+
+	if res, err = upd.Exec(ctx); err != nil {
+		return 0, fmt.Errorf("could not fail running tasks of removed engines: %w", err)
+	}
+
+	if affected, err = res.RowsAffected(); err != nil {
+		return 0, fmt.Errorf("could not get rows affected when failing running tasks of removed engines: %w", err)
+	}
+
+	return affected, nil
+}
+
+func (s *ServiceTaskQueue) ListRunningTasks(ctx context.Context, engine TaskEngine) ([]Task, error) {
+	tasks := make([]Task, 0)
+
+	sel := s.sqlClient.Q().From("tasks").Where(sqlc.Eq{"status": taskStatusRunning, "engine": string(engine)})
+	if err := sel.Select(ctx, &tasks); err != nil {
+		return nil, fmt.Errorf("could not list running %s tasks: %w", engine, err)
+	}
+
+	return tasks, nil
+}
+
+// TaskStatus returns the task's status, or "" if it doesn't exist.
+func (s *ServiceTaskQueue) TaskStatus(ctx context.Context, id int64) (string, error) {
+	var task Task
+
+	sel := s.sqlClient.Q().From("tasks").Where(sqlc.Eq{"id": id}).Limit(1)
+	if err := sel.Get(ctx, &task); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", nil
+		}
+
+		return "", fmt.Errorf("could not load task %d: %w", id, err)
+	}
+
+	return task.Status, nil
+}
+
+// RequeueTask puts a running task back into the queue.
+func (s *ServiceTaskQueue) RequeueTask(ctx context.Context, id int64) error {
+	upd := s.sqlClient.Q().Update("tasks").
+		Set("status", taskStatusQueued).
+		Set("picked_up_at", nil).
+		Where(sqlc.Eq{"id": id, "status": taskStatusRunning})
+
+	if _, err := upd.Exec(ctx); err != nil {
+		return fmt.Errorf("could not requeue task %d: %w", id, err)
 	}
 
 	return nil
@@ -396,9 +500,11 @@ func (s *ServiceTaskQueue) UpdateTaskResult(ctx context.Context, id int64, resul
 
 	mergedResult := mergeTaskResult(task.Result.Get(), result)
 
+	// Only a running task takes results, so a late write can't overwrite the
+	// result its completion recorded.
 	upd := s.sqlClient.Q().Update("tasks").
 		Set("result", db.NewJSON(mergedResult, db.NonNullable{})).
-		Where(sqlc.Eq{"id": id})
+		Where(sqlc.Eq{"id": id, "status": taskStatusRunning})
 
 	if _, err := upd.Exec(ctx); err != nil {
 		return fmt.Errorf("could not update task result: %w", err)

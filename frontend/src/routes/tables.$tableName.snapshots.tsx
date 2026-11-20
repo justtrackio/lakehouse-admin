@@ -21,6 +21,7 @@ import {
   SnapshotItem,
   TableDetails,
 } from '../api/schema';
+import type { ApiError } from '../api/client';
 import { normalizeDatabaseSearch } from '../utils/database';
 import { formatTimestamp, formatBytes, formatNumber } from '../utils/format';
 import MetricWithDelta from '../components/MetricWithDelta';
@@ -82,17 +83,50 @@ function SnapshotsPage() {
     },
   });
 
+  // The current snapshot shown when the rollback confirmation opened. The
+  // rollback only commits while the table is still there, so a refetch while the
+  // dialog is open can't change what the user confirmed.
+  const [rollbackExpectedHead, setRollbackExpectedHead] = useState<string | null>(null);
+
+  const invalidateTable = () => {
+    for (const key of ['table', 'snapshots', 'partitions', 'partitionFiles']) {
+      queryClient.invalidateQueries({ queryKey: [key, database, tableName] });
+    }
+    queryClient.invalidateQueries({ queryKey: ['tables', database] });
+  };
+
   const rollbackMutation = useMutation({
-    mutationFn: (snapshotId: string) => rollbackToSnapshot(database, tableName, snapshotId),
+    mutationFn: ({ snapshotId, expectedHead }: { snapshotId: string; expectedHead: string }) =>
+      rollbackToSnapshot(database, tableName, snapshotId, expectedHead),
     onSuccess: (data) => {
-      messageApi.success(`Rolled back table to snapshot ${data.snapshot_id}`);
-      queryClient.invalidateQueries({ queryKey: ['table', database, tableName] });
-      queryClient.invalidateQueries({ queryKey: ['snapshots', database, tableName] });
-      queryClient.invalidateQueries({ queryKey: ['partitions', database, tableName] });
-      queryClient.invalidateQueries({ queryKey: ['tables', database] });
+      if (data.refresh_error) {
+        messageApi.warning(`Rolled back to snapshot ${data.snapshot_id}, but reloading the table metadata failed; use Refresh Table on the table page: ${data.refresh_error}`);
+      } else if (data.status === 'already_current') {
+        messageApi.info(`The table is already at snapshot ${data.snapshot_id}`);
+      } else {
+        messageApi.success(`Rolled back table to snapshot ${data.snapshot_id}`);
+      }
+      invalidateTable();
     },
     onError: (error: Error) => {
-      messageApi.error(`Failed to rollback snapshot: ${error.message}`);
+      const apiError = error as Partial<ApiError>;
+      const refreshError = apiError.data?.refresh_error;
+      invalidateTable();
+
+      let summary = `Failed to rollback snapshot: ${error.message}`;
+      // A lost response or a gateway timeout leaves the outcome as open as the
+      // API's own unknown.
+      const outcomeUnknown = apiError.data?.outcome === 'unknown' || [0, 502, 504].includes(apiError.status ?? -1);
+      if (outcomeUnknown) {
+        summary = `It is unknown whether the rollback was committed; check the table's snapshot history before retrying. ${error.message}`;
+      } else if (apiError.status === 409) {
+        summary = `The table changed since the confirmation opened, so nothing was rolled back; check the current snapshot before retrying. ${error.message}`;
+      }
+
+      const refreshHint = refreshError
+        ? ` Reloading the table metadata also failed (${String(refreshError)}); use Refresh Table on the table page first.`
+        : '';
+      messageApi.error(summary + refreshHint);
     },
   });
 
@@ -232,7 +266,7 @@ function SnapshotsPage() {
       render: (_, record: SnapshotItem) => {
         const hasSummary = record.summary && Object.keys(record.summary).length > 0;
         const isCurrentSnapshot = record.snapshot_id === table?.current_snapshot_id;
-        const isRollbackPending = rollbackMutation.isPending && rollbackMutation.variables === record.snapshot_id;
+        const isRollbackPending = rollbackMutation.isPending && rollbackMutation.variables?.snapshotId === record.snapshot_id;
 
         return (
           <Space size="small">
@@ -253,8 +287,13 @@ function SnapshotsPage() {
             {isAdminMode ? (
               <Popconfirm
                 title="Rollback to snapshot"
-                description={`Rollback table ${tableName} to snapshot ${record.snapshot_id}? This will change the current table state.`}
-                onConfirm={() => rollbackMutation.mutate(record.snapshot_id)}
+                description={`Rollback table ${tableName} from current snapshot ${rollbackExpectedHead ?? '-'} to snapshot ${record.snapshot_id}? This will change the current table state.`}
+                onOpenChange={(open) => setRollbackExpectedHead(open ? table?.current_snapshot_id ?? null : null)}
+                onConfirm={() => {
+                  if (rollbackExpectedHead) {
+                    rollbackMutation.mutate({ snapshotId: record.snapshot_id, expectedHead: rollbackExpectedHead });
+                  }
+                }}
                 okText="Yes, rollback"
                 cancelText="Cancel"
                 disabled={isCurrentSnapshot || rollbackMutation.isPending}

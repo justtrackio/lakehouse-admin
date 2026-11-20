@@ -40,6 +40,23 @@ type IcebergPartitionStats struct {
 	LastSnapshotID int64
 }
 
+// IcebergDataFile is a data file of the current snapshot. Partition lists the
+// file's partition fields in spec order, formatted as text.
+type IcebergDataFile struct {
+	FilePath        string
+	FileFormat      string
+	SpecID          int64
+	RecordCount     int64
+	FileSizeInBytes int64
+	Partition       []IcebergPartitionField
+	Values          PartitionValues
+}
+
+type IcebergPartitionField struct {
+	Name  string
+	Value string
+}
+
 type IcebergPartitionFileStats struct {
 	SizeBytes int64
 }
@@ -68,6 +85,17 @@ func (v PartitionValues) String() string {
 	}
 
 	return strings.Join(parts, ", ")
+}
+
+// hasNullTimeValue reports a year, month or day key whose value is null.
+func (v PartitionValues) hasNullTimeValue() bool {
+	for _, key := range []string{"year", "month", "day"} {
+		if value, ok := v[key]; ok && value == nil {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (v PartitionValues) GetDate() (*time.Time, error) {

@@ -2,7 +2,12 @@ package internal
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"strconv"
 
 	"github.com/gosoline-project/httpserver"
 	"github.com/gosoline-project/sqlc"
@@ -13,21 +18,17 @@ import (
 func NewHandlerIceberg(ctx context.Context, config cfg.Config, logger log.Logger) (*HandlerIceberg, error) {
 	var err error
 	var service *ServiceIceberg
-	var admin *ServiceIcebergAdmin
-	var files *ServiceFileIntegrity
+	var iceberg *IcebergClient
 	var refresh *ServiceRefresh
 	var sqlClient sqlc.Client
+	var files *ServiceFileIntegrity
 
 	if service, err = NewServiceIceberg(ctx, config, logger); err != nil {
 		return nil, fmt.Errorf("could not create iceberg service: %w", err)
 	}
 
-	if admin, err = NewServiceIcebergAdmin(ctx, config, logger); err != nil {
-		return nil, fmt.Errorf("could not create iceberg admin service: %w", err)
-	}
-
-	if files, err = NewServiceFileIntegrity(ctx, config, logger); err != nil {
-		return nil, fmt.Errorf("could not create file integrity service: %w", err)
+	if iceberg, err = ProvideIcebergClient(ctx, config, logger); err != nil {
+		return nil, fmt.Errorf("could not create iceberg client: %w", err)
 	}
 
 	if refresh, err = NewServiceRefresh(ctx, config, logger); err != nil {
@@ -38,21 +39,27 @@ func NewHandlerIceberg(ctx context.Context, config cfg.Config, logger log.Logger
 		return nil, fmt.Errorf("could not create sql client: %w", err)
 	}
 
+	if files, err = NewServiceFileIntegrity(ctx, config, logger); err != nil {
+		return nil, fmt.Errorf("could not create file integrity service: %w", err)
+	}
+
 	return &HandlerIceberg{
+		logger:    logger.WithChannel("iceberg_handler"),
 		service:   service,
-		admin:     admin,
-		files:     files,
+		iceberg:   iceberg,
 		refresh:   refresh,
 		sqlClient: sqlClient,
+		files:     files,
 	}, nil
 }
 
 type HandlerIceberg struct {
+	logger    log.Logger
 	service   *ServiceIceberg
-	admin     *ServiceIcebergAdmin
-	files     *ServiceFileIntegrity
+	iceberg   *IcebergClient
 	refresh   *ServiceRefresh
 	sqlClient sqlc.Client
+	files     *ServiceFileIntegrity
 }
 
 type IcebergListSnapshotsResponse struct {
@@ -72,8 +79,22 @@ type SnapshotMissingFilesInput struct {
 type SnapshotRollbackInput struct {
 	Database   string `uri:"database"`
 	Table      string `uri:"table"`
-	SnapshotID int64  `uri:"snapshotId"`
+	SnapshotID string `uri:"snapshotId"`
 }
+
+// snapshotRollbackBody carries the main snapshot the user saw; the rollback
+// only commits while main is still there.
+type snapshotRollbackBody struct {
+	ExpectedSnapshotID *string `json:"expected_snapshot_id"`
+}
+
+// RollbackBodyBinding leaves the request body to RollbackToSnapshot, so a
+// missing or malformed body is a 400 with a clear message, not a bind error.
+type RollbackBodyBinding struct{}
+
+func (RollbackBodyBinding) Name() string { return "rollback-body" }
+
+func (RollbackBodyBinding) Bind(*http.Request, any) error { return nil }
 
 type SnapshotMissingFilesResponse struct {
 	SnapshotID   int64    `json:"snapshot_id,string"`
@@ -81,8 +102,21 @@ type SnapshotMissingFilesResponse struct {
 }
 
 type SnapshotRollbackResponse struct {
-	SnapshotID int64  `json:"snapshot_id,string"`
-	Status     string `json:"status"`
+	SnapshotID string `json:"snapshot_id"`
+	// Status is rolled_back, or already_current when main was at the snapshot.
+	Status string `json:"status"`
+	// RefreshError is set when the rollback stands but reloading the stored
+	// metadata failed; repeating the request only repeats the refresh.
+	RefreshError string `json:"refresh_error,omitempty"`
+}
+
+// snapshotRollbackError is the body of a failed rollback. Outcome is
+// "not_rolled_back" for a conflict and "unknown" when the commit's outcome
+// couldn't be established.
+type snapshotRollbackError struct {
+	Err          string `json:"err"`
+	Outcome      string `json:"outcome"`
+	RefreshError string `json:"refresh_error,omitempty"`
 }
 
 func (h *HandlerIceberg) ListSnapshots(ctx context.Context, input *TableSelectInput) (httpserver.Response, error) {
@@ -125,25 +159,94 @@ func (h *HandlerIceberg) ListSnapshotMissingFiles(ctx context.Context, input *Sn
 	}), nil
 }
 
-func (h *HandlerIceberg) RollbackToSnapshot(ctx context.Context, input *SnapshotRollbackInput) (httpserver.Response, error) {
-	if err := h.admin.RollbackToSnapshot(ctx, input.Database, input.Table, input.SnapshotID); err != nil {
-		return nil, fmt.Errorf("could not rollback table %s.%s to snapshot %d: %w", input.Database, input.Table, input.SnapshotID, err)
+func (h *HandlerIceberg) RollbackToSnapshot(ctx context.Context, req *http.Request, input *SnapshotRollbackInput) (httpserver.Response, error) {
+	var err error
+	var targetID, expectedID int64
+	var committed bool
+
+	if targetID, err = parseSnapshotID("snapshot id", input.SnapshotID); err != nil {
+		return httpserver.GetErrorHandler()(http.StatusBadRequest, err), nil
 	}
 
-	if err := h.sqlClient.WithTx(ctx, func(cttx sqlc.Tx) error {
-		if err := h.refresh.RefreshTableFull(cttx, input.Database, input.Table); err != nil {
-			return fmt.Errorf("could not refresh table metadata after rollback: %w", err)
-		}
-
-		return nil
-	}); err != nil {
-		return nil, fmt.Errorf("could not refresh table %s.%s after rollback to snapshot %d: %w", input.Database, input.Table, input.SnapshotID, err)
+	if expectedID, err = parseExpectedSnapshotID(req); err != nil {
+		return httpserver.GetErrorHandler()(http.StatusBadRequest, err), nil
 	}
 
-	return httpserver.NewJsonResponse(SnapshotRollbackResponse{
-		SnapshotID: input.SnapshotID,
-		Status:     statusOK,
-	}), nil
+	committed, err = h.iceberg.RollbackToSnapshot(ctx, input.Database, input.Table, targetID, expectedID)
+	switch {
+	case errors.Is(err, ErrRollbackConflict):
+		// Reload the stored metadata, so the page shows the head that moved.
+		return h.rollbackFailure(ctx, input, http.StatusConflict, "not_rolled_back", err), nil
+	case errors.Is(err, ErrRollbackOutcomeUnknown):
+		return h.rollbackFailure(ctx, input, http.StatusInternalServerError, "unknown", err), nil
+	case errors.Is(err, ErrRollbackInvalidTarget):
+		return httpserver.GetErrorHandler()(http.StatusBadRequest, err), nil
+	case err != nil:
+		return nil, fmt.Errorf("could not rollback table %s.%s to snapshot %d: %w", input.Database, input.Table, targetID, err)
+	}
+
+	response := SnapshotRollbackResponse{SnapshotID: input.SnapshotID, Status: "already_current"}
+	if committed {
+		response.Status = "rolled_back"
+		h.logger.Info(ctx, "rolled back table %s.%s from snapshot %d to %d", input.Database, input.Table, expectedID, targetID)
+	}
+
+	if err = h.refreshTable(ctx, input.Database, input.Table); err != nil {
+		h.logger.Warn(ctx, "rolled back table %s.%s, but could not refresh its metadata: %s", input.Database, input.Table, err)
+		response.RefreshError = err.Error()
+	}
+
+	return httpserver.NewJsonResponse(response), nil
+}
+
+// rollbackFailure refreshes the stored metadata, so the page shows the
+// table's actual head, and reports the failure with the refresh's outcome.
+func (h *HandlerIceberg) rollbackFailure(ctx context.Context, input *SnapshotRollbackInput, status int, outcome string, err error) httpserver.Response {
+	body := snapshotRollbackError{Err: err.Error(), Outcome: outcome}
+
+	if refreshErr := h.refreshTable(ctx, input.Database, input.Table); refreshErr != nil {
+		h.logger.Warn(ctx, "could not refresh table %s.%s after a failed rollback: %s", input.Database, input.Table, refreshErr)
+		body.RefreshError = refreshErr.Error()
+	}
+
+	return httpserver.NewJsonResponse(body, httpserver.WithStatusCode(status))
+}
+
+func parseExpectedSnapshotID(req *http.Request) (int64, error) {
+	var body snapshotRollbackBody
+
+	decoder := json.NewDecoder(req.Body)
+	if err := decoder.Decode(&body); err != nil || body.ExpectedSnapshotID == nil {
+		return 0, errExpectedSnapshotIDRequired
+	}
+
+	// Exactly one JSON object: anything after it makes the body malformed.
+	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
+		return 0, errExpectedSnapshotIDRequired
+	}
+
+	if id, err := parseSnapshotID("expected_snapshot_id", *body.ExpectedSnapshotID); err == nil {
+		return id, nil
+	}
+
+	return 0, errExpectedSnapshotIDRequired
+}
+
+var errExpectedSnapshotIDRequired = errors.New("expected_snapshot_id is required as a decimal string")
+
+func (h *HandlerIceberg) refreshTable(ctx context.Context, database string, table string) error {
+	return h.sqlClient.WithTx(ctx, func(cttx sqlc.Tx) error {
+		return h.refresh.RefreshTableFull(cttx, database, table)
+	})
+}
+
+func parseSnapshotID(name string, value string) (int64, error) {
+	id, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || id <= 0 {
+		return 0, fmt.Errorf("%s must be a positive integer, got %q", name, value)
+	}
+
+	return id, nil
 }
 
 func (h *HandlerIceberg) ListTables(ctx context.Context, input *DatabaseInput) (httpserver.Response, error) {

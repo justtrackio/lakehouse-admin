@@ -3,6 +3,7 @@ package internal
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -10,6 +11,8 @@ import (
 	iceberg "github.com/apache/iceberg-go"
 	"github.com/apache/iceberg-go/catalog"
 	"github.com/apache/iceberg-go/catalog/glue"
+	icebergio "github.com/apache/iceberg-go/io"
+	_ "github.com/apache/iceberg-go/io/gocloud/s3" // registers the s3:// file io
 	"github.com/apache/iceberg-go/table"
 	"github.com/apache/iceberg-go/utils"
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -18,7 +21,10 @@ import (
 	gosoGlue "github.com/justtrackio/gosoline/pkg/cloud/aws/glue"
 	"github.com/justtrackio/gosoline/pkg/db"
 	"github.com/justtrackio/gosoline/pkg/log"
+	"golang.org/x/sync/errgroup"
 )
+
+const manifestReadConcurrency = 8
 
 const (
 	transformDay   = "day"
@@ -64,9 +70,12 @@ func ProvideIcebergClient(ctx context.Context, config cfg.Config, logger log.Log
 			return nil, fmt.Errorf("could not create aws config for iceberg client: %w", err)
 		}
 
-		cat := glue.NewCatalog(glue.WithAwsConfig(awsCfg), glue.WithAwsProperties(map[string]string{
+		cat, err := glue.NewCatalog(glue.WithAwsConfig(awsCfg), glue.WithAwsProperties(map[string]string{
 			"s3.force-virtual-addressing": "true",
 		}))
+		if err != nil {
+			return nil, fmt.Errorf("could not create glue catalog: %w", err)
+		}
 
 		return &IcebergClient{
 			awsCfg:   awsCfg,
@@ -166,13 +175,202 @@ func (c *IcebergClient) listSnapshotDataFilePaths(ctx context.Context, tbl *tabl
 	return result, nil
 }
 
+// ListDataFiles returns the live data files of the table's current snapshot.
+func (c *IcebergClient) ListDataFiles(ctx context.Context, database string, logicalName string) ([]IcebergDataFile, error) {
+	var err error
+	var tbl *table.Table
+	var files []iceberg.DataFile
+
+	if tbl, err = c.LoadTable(ctx, database, logicalName); err != nil {
+		return nil, fmt.Errorf("could not load table: %w", err)
+	}
+
+	if files, err = c.liveDataFiles(ctx, tbl); err != nil {
+		return nil, err
+	}
+
+	specs := partitionSpecsByID(tbl.Metadata())
+	schema := tbl.Metadata().CurrentSchema()
+
+	result := make([]IcebergDataFile, 0, len(files))
+	for _, file := range files {
+		spec := specs[int(file.SpecID())]
+		partition := file.Partition()
+
+		result = append(result, IcebergDataFile{
+			FilePath:        file.FilePath(),
+			FileFormat:      string(file.FileFormat()),
+			SpecID:          int64(file.SpecID()),
+			RecordCount:     file.Count(),
+			FileSizeInBytes: file.FileSizeBytes(),
+			Partition:       partitionFields(&spec, partition),
+			Values:          browsePartitionValues(&spec, schema, partition),
+		})
+	}
+
+	return result, nil
+}
+
+func partitionSpecsByID(metadata table.Metadata) map[int]iceberg.PartitionSpec {
+	specs := make(map[int]iceberg.PartitionSpec)
+	for _, spec := range metadata.PartitionSpecs() {
+		specs[spec.ID()] = spec
+	}
+
+	return specs
+}
+
+// liveDataFiles reads the live entries of the current snapshot's data manifests.
+// Unlike a scan plan, this keeps files without records and doesn't need to
+// resolve delete files, which iceberg-go can't do for equality deletes.
+func (c *IcebergClient) liveDataFiles(ctx context.Context, tbl *table.Table) ([]iceberg.DataFile, error) {
+	var err error
+	var fs icebergio.IO
+	var manifests []iceberg.ManifestFile
+
+	snapshot := tbl.CurrentSnapshot()
+	if snapshot == nil {
+		return []iceberg.DataFile{}, nil
+	}
+
+	ctx = utils.WithAwsConfig(ctx, &c.awsCfg)
+	if fs, err = tbl.FS(ctx); err != nil {
+		return nil, fmt.Errorf("could not open table file io: %w", err)
+	}
+
+	if manifests, err = snapshot.Manifests(fs); err != nil {
+		return nil, fmt.Errorf("could not read manifest list: %w", err)
+	}
+
+	perManifest := make([][]iceberg.DataFile, len(manifests))
+	group, _ := errgroup.WithContext(ctx)
+	group.SetLimit(manifestReadConcurrency)
+
+	for i, manifest := range manifests {
+		if manifest.ManifestContent() != iceberg.ManifestContentData {
+			continue
+		}
+
+		group.Go(func() error {
+			var err error
+
+			if perManifest[i], err = readManifestDataFiles(fs, manifest); err != nil {
+				return fmt.Errorf("could not read manifest %s: %w", manifest.FilePath(), err)
+			}
+
+			return nil
+		})
+	}
+
+	if err := group.Wait(); err != nil {
+		return nil, err
+	}
+
+	return slices.Concat(perManifest...), nil
+}
+
+// readManifestDataFiles reads a manifest's live entries and decodes their
+// partitions. A panic in iceberg-go while reading or decoding becomes an error
+// instead of crashing the process.
+func readManifestDataFiles(fs icebergio.IO, manifest iceberg.ManifestFile) (files []iceberg.DataFile, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			files = nil
+			err = fmt.Errorf("could not decode manifest entries: %v", recovered)
+		}
+	}()
+
+	// Neither browse nor refresh uses column statistics, so skip decoding them.
+	for entry, entryErr := range iceberg.EntriesWithProjection(fs, manifest, true, iceberg.ManifestEntryProjection{}) {
+		if entryErr != nil {
+			return nil, entryErr
+		}
+
+		file := entry.DataFile()
+		file.Partition()
+		files = append(files, file)
+	}
+
+	// A truncated manifest could read as a short one, so check the live entry
+	// count, which v2 manifest lists always record.
+	live := int(manifest.AddedDataFiles() + manifest.ExistingDataFiles())
+	if manifest.Version() >= 2 && len(files) != live {
+		return nil, fmt.Errorf("read %d live entries, but the manifest list records %d", len(files), live)
+	}
+
+	return files, nil
+}
+
+// partitionFields formats a file's partition tuple in spec order. Time
+// transforms render as yyyy-mm-dd, the form the browse selection uses.
+func partitionFields(spec *iceberg.PartitionSpec, partition map[int]any) []IcebergPartitionField {
+	fields := make([]IcebergPartitionField, 0, spec.NumFields())
+
+	for _, pf := range spec.Fields() {
+		fields = append(fields, IcebergPartitionField{
+			Name:  pf.Name,
+			Value: partitionValueText(pf.Transform, partition[pf.FieldID]),
+		})
+	}
+
+	return fields
+}
+
+func partitionValueText(transform iceberg.Transform, value any) string {
+	if value == nil {
+		return "null"
+	}
+
+	if date, ok := partitionDate(transform, value); ok {
+		return date.Format(time.DateOnly)
+	}
+
+	if v, ok := value.([]byte); ok {
+		return string(v)
+	}
+
+	return fmt.Sprintf("%v", value)
+}
+
+// partitionDate converts a date value or a day, month or year transform result
+// to the first day it covers. Manifests store transform results as integer
+// offsets from 1970-01-01, which readers may decode as iceberg.Date or int.
+func partitionDate(transform iceberg.Transform, value any) (time.Time, bool) {
+	if date, ok := value.(iceberg.Date); ok {
+		return date.ToTime(), true
+	}
+
+	var offset int
+	switch v := value.(type) {
+	case int:
+		offset = v
+	case int32:
+		offset = int(v)
+	case int64:
+		offset = int(v)
+	default:
+		return time.Time{}, false
+	}
+
+	switch transform.(type) {
+	case iceberg.DayTransform:
+		return time.Unix(0, 0).UTC().AddDate(0, 0, offset), true
+	case iceberg.MonthTransform:
+		return time.Date(1970, time.Month(1+offset), 1, 0, 0, 0, 0, time.UTC), true
+	case iceberg.YearTransform:
+		return time.Date(1970+offset, time.January, 1, 0, 0, 0, 0, time.UTC), true
+	default:
+		return time.Time{}, false
+	}
+}
+
 // ListPartitions returns partition stats with browse-compatible keys
 // that match the TableDescription.Partitions names (year, month, day for time transforms,
 // or column name for identity transforms).
 func (c *IcebergClient) ListPartitions(ctx context.Context, database string, logicalName string) ([]IcebergPartitionStats, error) {
 	var err error
 	var tbl *table.Table
-	var tasks []table.FileScanTask
+	var files []iceberg.DataFile
 
 	if tbl, err = c.LoadTable(ctx, database, logicalName); err != nil {
 		return nil, fmt.Errorf("could not load table: %w", err)
@@ -183,30 +381,25 @@ func (c *IcebergClient) ListPartitions(ctx context.Context, database string, log
 		return []IcebergPartitionStats{}, nil
 	}
 
-	metadata := tbl.Metadata()
-	spec := c.getDefaultPartitionSpec(metadata)
-	schema := metadata.CurrentSchema()
+	specs := partitionSpecsByID(tbl.Metadata())
+	schema := tbl.Metadata().CurrentSchema()
 
 	partitionMap := make(map[string]*IcebergPartitionStats)
 
-	scanner := tbl.Scan()
-
-	ctx = utils.WithAwsConfig(ctx, &c.awsCfg)
-	if tasks, err = scanner.PlanFiles(ctx); err != nil {
-		return nil, fmt.Errorf("could not plan files: %w", err)
+	if files, err = c.liveDataFiles(ctx, tbl); err != nil {
+		return nil, err
 	}
 
-	for _, task := range tasks {
-		file := task.File
-
-		partitionKey := c.partitionKeyString(file.Partition())
+	for _, file := range files {
+		partition := file.Partition()
+		partitionKey := fmt.Sprintf("%d:%s", file.SpecID(), c.partitionKeyString(partition))
 
 		if _, exists := partitionMap[partitionKey]; !exists {
-			normalizedPartition := c.normalizePartitionForBrowse(file.Partition(), spec, schema)
+			spec := specs[int(file.SpecID())]
 
 			partitionMap[partitionKey] = &IcebergPartitionStats{
-				Partition:      normalizedPartition,
-				RawPartition:   file.Partition(),
+				Partition:      browsePartitionValues(&spec, schema, partition),
+				RawPartition:   partition,
 				SpecID:         file.SpecID(),
 				RecordCount:    0,
 				Files:          make(IcebergPartitionStatsFiles, 0),
@@ -250,81 +443,76 @@ func (c *IcebergClient) partitionKeyString(partition map[int]any) string {
 	return strings.Join(parts, "|")
 }
 
-func (c *IcebergClient) getDefaultPartitionSpec(metadata table.Metadata) *iceberg.PartitionSpec {
-	specs := metadata.PartitionSpecs()
-	defaultSpecID := metadata.DefaultPartitionSpec()
-
-	if len(specs) == 0 {
-		return nil
-	}
-
-	if defaultSpecID >= 0 && defaultSpecID < len(specs) {
-		return &specs[defaultSpecID]
-	}
-
-	for i := range specs {
-		return &specs[i]
-	}
-
-	return nil
-}
-
-func (c *IcebergClient) normalizePartitionForBrowse(rawPartition map[int]any, spec *iceberg.PartitionSpec, schema *iceberg.Schema) map[string]any {
-	result := make(map[string]any)
-
-	if spec == nil || len(rawPartition) == 0 {
-		return result
-	}
-
-	// Build a map from partition field ID to partition field info
-	fieldIDToSpec := make(map[int]iceberg.PartitionField)
-	for pf := range spec.Fields() {
-		fieldIDToSpec[pf.FieldID] = pf
-	}
-
-	for partFieldID, val := range rawPartition {
-		pf, ok := fieldIDToSpec[partFieldID]
-		if !ok {
-			// Unknown partition field, use field_<id> as fallback
-			result[fmt.Sprintf("field_%d", partFieldID)] = val
-
-			continue
+// browsePartitionValues converts a file's partition, by its own spec, into the
+// keys TableDescription.Partitions names: year, month and day for time
+// transforms, the source column for identity, the field name otherwise. Refresh
+// stores these values and file browse matches against them, so both agree.
+// Dates render as yyyy-mm-dd and null stays nil, but a null never replaces a
+// value another field set for the same key.
+func browsePartitionValues(spec *iceberg.PartitionSpec, schema *iceberg.Schema, partition map[int]any) PartitionValues {
+	values := PartitionValues{}
+	set := func(key string, value any) {
+		if _, exists := values[key]; exists && value == nil {
+			return
 		}
 
-		sourceColumnName, ok := c.findSourceColumnName(schema, pf.SourceID)
-		if !ok {
-			result[fmt.Sprintf("field_%d", partFieldID)] = val
+		values[key] = value
+	}
 
-			continue
-		}
+	for _, pf := range spec.Fields() {
+		value := partition[pf.FieldID]
+		keys := timeTransformKeys[pf.Transform.String()]
 
-		transform := pf.Transform.String()
+		switch {
+		case keys != nil:
+			date, isDate := partitionDate(pf.Transform, value)
+			for _, key := range keys {
+				if isDate {
+					set(key, date.Format(timeKeyLayouts[key]))
+				} else {
+					set(key, nil)
+				}
+			}
+		case pf.Transform.String() == "identity":
+			name, ok := findSourceColumnName(schema, pf.SourceID())
+			if !ok {
+				name = pf.Name
+			}
 
-		switch transform {
-		case "identity":
-			result[sourceColumnName] = val
-		case transformDay:
-			t := val.(iceberg.Date).ToTime()
-			result["year"] = t.Format("2006")
-			result["month"] = t.Format("01")
-			result["day"] = t.Format("02")
-		case transformMonth:
-			t := val.(iceberg.Date).ToTime()
-			result["year"] = t.Format("2006")
-			result["month"] = t.Format("01")
-		case transformYear:
-			t := val.(iceberg.Date).ToTime()
-			result["year"] = t.Format("2006")
+			set(name, browseValue(value))
 		default:
-			// For other transforms (bucket, truncate), use the partition field name
-			result[pf.Name] = val
+			set(pf.Name, browseValue(value))
 		}
 	}
 
-	return result
+	return values
 }
 
-func (c *IcebergClient) findSourceColumnName(schema *iceberg.Schema, sourceID int) (string, bool) {
+var (
+	timeTransformKeys = map[string][]string{
+		transformDay:   {"year", "month", "day"},
+		transformMonth: {"year", "month"},
+		transformYear:  {"year"},
+	}
+	timeKeyLayouts = map[string]string{"year": "2006", "month": "01", "day": "02"}
+)
+
+// identityDate is an identity partition value of a date column, as yyyy-mm-dd.
+type identityDate string
+
+// browseValue keeps a partition value as stored JSON, with dates as yyyy-mm-dd.
+func browseValue(value any) any {
+	switch v := value.(type) {
+	case iceberg.Date:
+		return identityDate(v.ToTime().Format(time.DateOnly))
+	case []byte:
+		return string(v)
+	default:
+		return value
+	}
+}
+
+func findSourceColumnName(schema *iceberg.Schema, sourceID int) (string, bool) {
 	if sourceColumnName, ok := schema.FindColumnName(sourceID); ok {
 		return sourceColumnName, true
 	}
@@ -435,28 +623,9 @@ func (c *IcebergClient) extractColumns(schema *iceberg.Schema) (db.JSON[TableCol
 }
 
 func (c *IcebergClient) extractPartitions(metadata table.Metadata) (db.JSON[[]TablePartition, db.NonNullable], error) {
-	var spec *iceberg.PartitionSpec
-
-	specs := metadata.PartitionSpecs()
-	defaultSpecID := metadata.DefaultPartitionSpec()
-
-	if len(specs) == 0 {
-		return db.NewJSON([]TablePartition{}, db.NonNullable{}), nil
-	}
-
-	if defaultSpecID >= 0 && defaultSpecID < len(specs) {
-		spec = &specs[defaultSpecID]
-	}
-
-	if spec == nil {
-		for i := range specs {
-			spec = &specs[i]
-
-			break
-		}
-	}
-
-	if spec == nil {
+	// The default spec id is an id, not an index into the spec list.
+	spec, ok := partitionSpecsByID(metadata)[metadata.DefaultPartitionSpec()]
+	if !ok {
 		return db.NewJSON([]TablePartition{}, db.NonNullable{}), nil
 	}
 
@@ -464,10 +633,10 @@ func (c *IcebergClient) extractPartitions(metadata table.Metadata) (db.JSON[[]Ta
 	fields := spec.Fields()
 	schema := metadata.CurrentSchema()
 
-	for pf := range fields {
-		sourceColumnName, found := c.findSourceColumnName(schema, pf.SourceID)
+	for _, pf := range fields {
+		sourceColumnName, found := findSourceColumnName(schema, pf.SourceID())
 		if !found {
-			return db.NewJSON(partitions, db.NonNullable{}), fmt.Errorf("could not find source field with id %d for partition field %s", pf.SourceID, pf.Name)
+			return db.NewJSON(partitions, db.NonNullable{}), fmt.Errorf("could not find source field with id %d for partition field %s", pf.SourceID(), pf.Name)
 		}
 
 		switch pf.Transform.String() {

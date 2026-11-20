@@ -8,14 +8,6 @@ cloud:
       endpoint: ""
       region: "eu-central-1"
 
-exec:
-  trino:
-    backoff:
-      initial_interval: 3s
-      max_attempts: 0
-      max_elapsed_time: 5m
-      max_interval: 10s
-
 httpserver:
   default:
     port: 8081
@@ -58,8 +50,8 @@ tasks:
     remove_orphan_files:
       retention_days: 7
   engines:
-    expire_snapshots: trino
-    remove_orphan_files: trino
+    expire_snapshots: spark
+    remove_orphan_files: spark
     optimize: spark
   spark:
     driver_pod_spec:
@@ -89,11 +81,3 @@ sqlc:
     migrations:
       enabled: true
       path: build/migrations
-
-trino:
-  backoff:
-    initial_interval: 3s
-    max_attempts: 0
-    max_elapsed_time: 5m
-    max_interval: 10s
-  dsn: https://user@host?catalog=lakehouse&schema=main

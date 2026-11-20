@@ -10,21 +10,15 @@ import (
 
 func NewServiceMaintenanceExecutor(ctx context.Context, config cfg.Config, logger log.Logger) (*ServiceMaintenanceExecutor, error) {
 	var err error
-	var trino *TrinoMaintenanceExecutor
 	var spark *SparkMaintenanceExecutor
-
-	if trino, err = NewTrinoMaintenanceExecutor(ctx, config, logger); err != nil {
-		return nil, fmt.Errorf("could not create trino maintenance executor: %w", err)
-	}
 
 	if spark, err = NewSparkMaintenanceExecutor(ctx, config, logger); err != nil {
 		return nil, fmt.Errorf("could not create spark maintenance executor: %w", err)
 	}
 
 	return &ServiceMaintenanceExecutor{
-		all: []MaintenanceExecutor{trino, spark},
+		all: []MaintenanceExecutor{spark},
 		executors: map[TaskEngine]MaintenanceExecutor{
-			TaskEngineTrino: trino,
 			TaskEngineSpark: spark,
 		},
 	}, nil

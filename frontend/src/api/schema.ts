@@ -178,7 +178,8 @@ export interface SnapshotMissingFilesResponse {
 
 export interface SnapshotRollbackResponse {
   snapshot_id: string;
-  status: string;
+  status: 'rolled_back' | 'already_current';
+  refresh_error?: string;
 }
 
 export async function fetchSnapshotMissingFiles(
@@ -191,13 +192,17 @@ export async function fetchSnapshotMissingFiles(
   );
 }
 
+// rollbackToSnapshot commits only while the table is still at expectedSnapshotId,
+// the current snapshot the user saw; otherwise the API answers 409.
 export async function rollbackToSnapshot(
   database: string,
   tableName: string,
   snapshotId: string,
+  expectedSnapshotId: string,
 ): Promise<SnapshotRollbackResponse> {
   return apiClient.post<SnapshotRollbackResponse>(
-    `/api/iceberg/${encodeURIComponent(database)}/${encodeURIComponent(tableName)}/snapshots/${snapshotId}/rollback`
+    `/api/iceberg/${encodeURIComponent(database)}/${encodeURIComponent(tableName)}/snapshots/${snapshotId}/rollback`,
+    { expected_snapshot_id: expectedSnapshotId },
   );
 }
 

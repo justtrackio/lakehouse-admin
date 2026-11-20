@@ -3,6 +3,8 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 export interface ApiError {
   message: string;
   status: number;
+  // The parsed JSON error body, if there was one.
+  data?: Record<string, unknown>;
 }
 
 export class ApiClient {
@@ -28,12 +30,14 @@ export class ApiClient {
 
       if (!response.ok) {
         let errorMessage = response.statusText;
+        let errorBody: Record<string, unknown> | undefined;
         
         // Try to extract error details from response body
         try {
           const contentType = response.headers.get('content-type');
           if (contentType?.includes('application/json')) {
             const errorData = await response.json();
+            errorBody = errorData;
             if (errorData.err) {
               errorMessage = errorData.err;
             } else if (errorData.error) {
@@ -54,6 +58,7 @@ export class ApiClient {
         const error: ApiError = {
           message: errorMessage || `Request failed with status ${response.status}`,
           status: response.status,
+          data: errorBody,
         };
         throw error;
       }

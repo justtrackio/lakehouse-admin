@@ -18,8 +18,8 @@ type TaskEngineResolver struct {
 
 func NewTaskEngineResolver(config cfg.Config) (*TaskEngineResolver, error) {
 	settings := TaskEngineSettings{
-		ExpireSnapshots:   string(TaskEngineTrino),
-		RemoveOrphanFiles: string(TaskEngineTrino),
+		ExpireSnapshots:   string(TaskEngineSpark),
+		RemoveOrphanFiles: string(TaskEngineSpark),
 		Optimize:          string(TaskEngineSpark),
 	}
 
@@ -52,10 +52,9 @@ func (r *TaskEngineResolver) Resolve(kind TaskKind) (TaskEngine, error) {
 }
 
 func validateTaskEngine(kind TaskKind, engine TaskEngine) error {
-	switch engine {
-	case TaskEngineTrino, TaskEngineSpark:
-		return nil
-	default:
+	if engine != TaskEngineSpark {
 		return fmt.Errorf("invalid engine %q configured for task kind %s", engine, kind)
 	}
+
+	return nil
 }

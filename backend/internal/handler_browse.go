@@ -164,6 +164,9 @@ func (h *HandlerBrowse) ListPartitions(ctx context.Context, input *ListPartition
 		Column(sqlc.Coalesce(sqlc.Col("p.needs_optimize").Max(), false).As("needs_optimize")).
 		Column(sqlc.Col("p.needs_optimize").Sum().As("needs_optimize_count")).
 		Where(where).
+		// Skip partitions without this key (another spec) or with a null value:
+		// file browse can't select either. JSON_TYPE is NULL for a missing key.
+		Where(sqlc.Literal("JSON_TYPE(" + partitionJSONPathExpr(partitions[depth].Name, false) + ")").NotEq("NULL")).
 		GroupBy(sqlc.Lit(1)).
 		OrderBy(sqlc.Lit(1).Asc())
 

@@ -210,7 +210,8 @@ def build_remove_orphan_files_query() -> str:
     return f"""
 CALL {catalog}.system.remove_orphan_files(
   table => {sql_literal(qualified_table)},
-  older_than => TIMESTAMP {sql_literal(older_than)}
+  older_than => TIMESTAMP {sql_literal(older_than)},
+  prefix_listing => true
 )
 """.strip()
 
