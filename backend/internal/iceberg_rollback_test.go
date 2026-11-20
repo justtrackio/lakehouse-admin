@@ -269,3 +269,38 @@ func TestRollbackToSnapshotReportsARollbackThatLandedBeforeTheTableMovedOn(t *te
 	require.True(t, committed)
 	require.Equal(t, lost.concurrent, loadMain(t, cat, ident))
 }
+
+// unreachableAfterCommit fails the commit and every load after it, as a lost
+// connection to the catalog would.
+type unreachableAfterCommit struct {
+	catalog.Catalog
+	commitFailed bool
+}
+
+func (c *unreachableAfterCommit) LoadTable(ctx context.Context, ident table.Identifier) (*table.Table, error) {
+	var err error
+	var tbl *table.Table
+
+	if c.commitFailed {
+		return nil, errors.New("connection reset")
+	}
+
+	if tbl, err = c.Catalog.LoadTable(ctx, ident); err != nil {
+		return nil, err
+	}
+
+	return table.New(tbl.Identifier(), tbl.Metadata(), tbl.MetadataLocation(), tbl.FS, c), nil
+}
+
+func (c *unreachableAfterCommit) CommitTable(context.Context, table.Identifier, []table.Requirement, []table.Update) (table.Metadata, string, error) {
+	c.commitFailed = true
+
+	return nil, "", errors.New("context deadline exceeded")
+}
+
+func TestRollbackToSnapshotReportsAnUnknownOutcomeWhenTheReloadFails(t *testing.T) {
+	cat, ident, snapshots := newRollbackTestTable(t)
+
+	_, err := rollbackToSnapshot(context.Background(), &unreachableAfterCommit{Catalog: cat}, ident, snapshots[0], snapshots[2])
+	require.ErrorIs(t, err, ErrRollbackOutcomeUnknown)
+}

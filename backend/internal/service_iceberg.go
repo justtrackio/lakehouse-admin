@@ -207,6 +207,12 @@ func (s *ServiceIceberg) partitionNeedsOptimize(stats IcebergPartitionStats, sma
 		return false, nil
 	}
 
+	// The optimize scheduler selects partitions by date, so it can't select one
+	// with a null time value; counting it would flag it forever.
+	if stats.Partition.hasNullTimeValue() {
+		return false, nil
+	}
+
 	if date, err = stats.Partition.GetDate(); err != nil {
 		return false, fmt.Errorf("could not get date from partition: %w", err)
 	}

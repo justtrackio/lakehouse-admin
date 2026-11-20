@@ -25,6 +25,8 @@ func TestParseExpectedSnapshotIDRequiresADecimalString(t *testing.T) {
 		`{}`,
 		`{"expected_snapshot_id":6548219920550331090}`,
 		`{"expected_snapshot_id":"0"}`,
+		`{"expected_snapshot_id":"1"} garbage`,
+		`{"expected_snapshot_id":"1"}{"expected_snapshot_id":"2"}`,
 	}
 	for _, body := range rejected {
 		_, err = parse(body)

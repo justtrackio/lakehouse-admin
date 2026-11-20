@@ -87,6 +87,17 @@ func (v PartitionValues) String() string {
 	return strings.Join(parts, ", ")
 }
 
+// hasNullTimeValue reports a year, month or day key whose value is null.
+func (v PartitionValues) hasNullTimeValue() bool {
+	for _, key := range []string{"year", "month", "day"} {
+		if value, ok := v[key]; ok && value == nil {
+			return true
+		}
+	}
+
+	return false
+}
+
 func (v PartitionValues) GetDate() (*time.Time, error) {
 	var ok bool
 	var err error

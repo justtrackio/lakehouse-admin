@@ -100,4 +100,5 @@ func TestSubmitSparkApplicationResolvesALostCreateResponse(t *testing.T) {
 	require.ErrorIs(t, submit(flakyApplications{createErr: invalid}), invalid)
 	require.NoError(t, submit(flakyApplications{createErr: exists, existing: created}))
 	require.ErrorIs(t, submit(flakyApplications{createErr: exists, existing: other}), exists)
+	require.ErrorIs(t, submit(flakyApplications{createErr: exists}), errSparkSubmissionUnknown)
 }

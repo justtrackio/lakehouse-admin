@@ -113,16 +113,17 @@ function SnapshotsPage() {
       const refreshError = apiError.data?.refresh_error;
       invalidateTable();
 
-      if (apiError.status === 409) {
-        const next = refreshError
-          ? `Reloading the table metadata also failed (${String(refreshError)}); use Refresh Table on the table page before retrying.`
-          : 'The page now shows the current snapshot; check it before retrying.';
-        messageApi.error(`The table changed since the confirmation opened, so nothing was rolled back. ${next} ${error.message}`);
-
-        return;
+      let summary = `Failed to rollback snapshot: ${error.message}`;
+      if (apiError.data?.outcome === 'unknown') {
+        summary = `It is unknown whether the rollback was committed; check the table's snapshot history before retrying. ${error.message}`;
+      } else if (apiError.status === 409) {
+        summary = `The table changed since the confirmation opened, so nothing was rolled back; check the current snapshot before retrying. ${error.message}`;
       }
 
-      messageApi.error(`Failed to rollback snapshot: ${error.message}`);
+      const refreshHint = refreshError
+        ? ` Reloading the table metadata also failed (${String(refreshError)}); use Refresh Table on the table page first.`
+        : '';
+      messageApi.error(summary + refreshHint);
     },
   });
 

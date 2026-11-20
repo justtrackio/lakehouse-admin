@@ -261,7 +261,7 @@ func (s *SparkMaintenanceExecutor) submitSparkApplication(ctx context.Context, m
 		s.logger.Warn(ctx, "spark application %s of task %d exists although its create failed: %s", manifest.Metadata.Name, taskID, createErr)
 
 		return nil
-	case k8serrors.IsAlreadyExists(createErr):
+	case existing != nil:
 		return fmt.Errorf("spark application %s exists for another task: %w", manifest.Metadata.Name, createErr)
 	default:
 		// The create may still land after this lookup.
@@ -638,8 +638,10 @@ func (s *SparkMaintenanceExecutor) handleDecodedSparkApplicationEvent(ctx contex
 
 	if status != taskStatusRunning {
 		// Clean up after a completed success, or after a task that no longer
-		// exists; failed applications stay for inspection.
-		if status == "" || resolvedStatus.IsSuccess() {
+		// exists; failed applications stay for inspection. A requeued task's
+		// application stays too: its next claim adopts it instead of
+		// submitting the job again.
+		if status == "" || (resolvedStatus.IsSuccess() && status != taskStatusQueued) {
 			return s.deleteSparkApplication(ctx, manifest, taskID)
 		}
 

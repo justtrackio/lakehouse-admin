@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 
@@ -214,7 +215,13 @@ func (h *HandlerIceberg) rollbackFailure(ctx context.Context, input *SnapshotRol
 func parseExpectedSnapshotID(req *http.Request) (int64, error) {
 	var body snapshotRollbackBody
 
-	if err := json.NewDecoder(req.Body).Decode(&body); err != nil || body.ExpectedSnapshotID == nil {
+	decoder := json.NewDecoder(req.Body)
+	if err := decoder.Decode(&body); err != nil || body.ExpectedSnapshotID == nil {
+		return 0, errExpectedSnapshotIDRequired
+	}
+
+	// Exactly one JSON object: anything after it makes the body malformed.
+	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
 		return 0, errExpectedSnapshotIDRequired
 	}
 

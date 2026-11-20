@@ -90,7 +90,7 @@ func resolveFailedRollbackCommit(ctx context.Context, cat catalog.Catalog, base 
 	var tbl *table.Table
 
 	if tbl, err = cat.LoadTable(ctx, ident); err != nil {
-		return false, fmt.Errorf("could not commit the rollback (%w), and could not reload the table to check: %w", commitErr, err)
+		return false, fmt.Errorf("%w: the commit failed (%w), and reloading the table to check failed: %w", ErrRollbackOutcomeUnknown, commitErr, err)
 	}
 
 	switch mainSnapshotID(tbl) {

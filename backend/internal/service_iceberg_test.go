@@ -114,3 +114,17 @@ func partitionFiles(fileSizes ...int64) IcebergPartitionStatsFiles {
 
 	return files
 }
+
+func TestPartitionNeedsOptimizeSkipsANullDay(t *testing.T) {
+	service := &ServiceIceberg{settings: &IcebergSettings{NeedsOptimizeDelay: 24 * time.Hour}}
+	stats := IcebergPartitionStats{
+		Partition: PartitionValues{"year": nil, "month": nil, "day": nil, "businessUnitId": 1},
+		Files:     partitionFiles(32, 64, 96),
+	}
+
+	needsOptimize, err := service.partitionNeedsOptimize(stats, 256, 2, 25)
+
+	require.NoError(t, err)
+	require.False(t, needsOptimize)
+	require.Equal(t, int64(3), stats.Files.Len())
+}
