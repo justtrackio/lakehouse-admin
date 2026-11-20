@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -54,4 +55,34 @@ func TestReconcileLeavesActiveClaimsAndSubmittedTasksAlone(t *testing.T) {
 
 	require.NoError(t, executor.Reconcile(context.Background()))
 	require.Equal(t, []int64{1}, queue.requeued)
+}
+
+type flakyApplications struct {
+	SparkApplicationCreator
+	existing *SparkApplicationManifest
+	getErr   error
+}
+
+func (flakyApplications) CreateSparkApplication(context.Context, *SparkApplicationManifest) (*SparkApplicationManifest, error) {
+	return nil, errors.New("context deadline exceeded")
+}
+
+func (a flakyApplications) GetSparkApplication(context.Context, string, string) (*SparkApplicationManifest, error) {
+	return a.existing, a.getErr
+}
+
+func TestSubmitSparkApplicationResolvesALostCreateResponse(t *testing.T) {
+	manifest := &SparkApplicationManifest{}
+	manifest.Metadata.Name = "expire-snapshots-events-7"
+	created := &SparkApplicationManifest{}
+	created.Metadata.Annotations = map[string]string{sparkApplicationTaskIDAnnotation: "7"}
+	submit := func(k8s SparkApplicationCreator) error {
+		executor := &SparkMaintenanceExecutor{logger: log.NewLogger(), k8s: k8s}
+
+		return executor.submitSparkApplication(context.Background(), manifest, 7)
+	}
+
+	require.NoError(t, submit(flakyApplications{existing: created}))
+	require.ErrorIs(t, submit(flakyApplications{getErr: errors.New("timeout")}), errSparkSubmissionUnknown)
+	require.EqualError(t, submit(flakyApplications{}), "context deadline exceeded")
 }

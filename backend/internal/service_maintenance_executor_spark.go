@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -205,17 +206,57 @@ func (s *SparkMaintenanceExecutor) reconcileUnsubmittedTask(ctx context.Context,
 }
 
 func (s *SparkMaintenanceExecutor) ProcessTask(ctx context.Context, task *Task) error {
+	var err error
+
 	input := task.Input.Get()
 
 	switch TaskKind(task.Kind) {
 	case TaskKindOptimize:
-		return s.processOptimize(ctx, task, input)
+		err = s.processOptimize(ctx, task, input)
 	case TaskKindExpireSnapshots:
-		return s.processExpireSnapshots(ctx, task, input)
+		err = s.processExpireSnapshots(ctx, task, input)
 	case TaskKindRemoveOrphanFiles:
-		return s.processRemoveOrphanFiles(ctx, task, input)
+		err = s.processRemoveOrphanFiles(ctx, task, input)
 	default:
 		return s.taskQueue.CompleteTask(ctx, task.Id, nil, fmt.Errorf("unknown task kind: %s", task.Kind))
+	}
+
+	// Leave the task running: the informer completes it if its application
+	// exists, and reconciliation requeues it if it never appears.
+	if errors.Is(err, errSparkSubmissionUnknown) {
+		s.logger.Warn(ctx, "task %d stays running until its spark application shows up or reconciliation requeues it: %s", task.Id, err)
+
+		return nil
+	}
+
+	return err
+}
+
+// errSparkSubmissionUnknown reports a create call that failed without telling
+// whether the application was created.
+var errSparkSubmissionUnknown = errors.New("could not tell whether the spark application was created")
+
+// submitSparkApplication creates the application. If the create fails, it
+// looks the application up by its name, which is unique per task, so a lost
+// create response doesn't fail a task whose application runs.
+func (s *SparkMaintenanceExecutor) submitSparkApplication(ctx context.Context, manifest *SparkApplicationManifest, taskID int64) error {
+	_, createErr := s.k8s.CreateSparkApplication(ctx, manifest)
+	if createErr == nil {
+		return nil
+	}
+
+	existing, err := s.k8s.GetSparkApplication(ctx, manifest.Metadata.Namespace, manifest.Metadata.Name)
+	switch {
+	case err != nil:
+		return fmt.Errorf("%w: %w (lookup: %w)", errSparkSubmissionUnknown, createErr, err)
+	case existing == nil:
+		return createErr
+	case existing.Metadata.Annotations[sparkApplicationTaskIDAnnotation] == strconv.FormatInt(taskID, 10):
+		s.logger.Warn(ctx, "spark application %s of task %d exists although its create failed: %s", manifest.Metadata.Name, taskID, createErr)
+
+		return nil
+	default:
+		return fmt.Errorf("spark application %s already exists for another task: %w", manifest.Metadata.Name, createErr)
 	}
 }
 
@@ -336,7 +377,7 @@ func (s *SparkMaintenanceExecutor) executeOptimize(ctx context.Context, taskID i
 		return nil, fmt.Errorf("could not set env values: %w", err)
 	}
 
-	if _, err = s.k8s.CreateSparkApplication(ctx, manifest); err != nil {
+	if err = s.submitSparkApplication(ctx, manifest, taskID); err != nil {
 		return nil, fmt.Errorf("could not create spark application for table %s (range %s): %w", table, whereClause, err)
 	}
 
@@ -380,7 +421,7 @@ func (s *SparkMaintenanceExecutor) executeExpireSnapshots(ctx context.Context, t
 		return nil, fmt.Errorf("could not set env values: %w", err)
 	}
 
-	if _, err = s.k8s.CreateSparkApplication(ctx, manifest); err != nil {
+	if err = s.submitSparkApplication(ctx, manifest, taskID); err != nil {
 		return nil, fmt.Errorf("could not create spark application to expire snapshots for table %s: %w", table, err)
 	}
 
@@ -425,7 +466,7 @@ func (s *SparkMaintenanceExecutor) executeRemoveOrphanFiles(ctx context.Context,
 		return nil, fmt.Errorf("could not set env values: %w", err)
 	}
 
-	if _, err = s.k8s.CreateSparkApplication(ctx, manifest); err != nil {
+	if err = s.submitSparkApplication(ctx, manifest, taskID); err != nil {
 		return nil, fmt.Errorf("could not create spark application to remove orphan files for table %s: %w", table, err)
 	}
 

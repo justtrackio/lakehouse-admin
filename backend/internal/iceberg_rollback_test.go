@@ -19,7 +19,13 @@ import (
 
 // newRollbackTestTable creates a table with three appended snapshots in a
 // local SQLite catalog and returns the catalog and the snapshot ids, oldest first.
+// Retries make iceberg-go replay a conflicting commit against the fresh head
+// (Java writers often set them), which the rollback must not do.
 func newRollbackTestTable(t *testing.T) (cat catalog.Catalog, ident table.Identifier, snapshots []int64) {
+	return newRollbackTestTableWithRetries(t, "4")
+}
+
+func newRollbackTestTableWithRetries(t *testing.T, retries string) (cat catalog.Catalog, ident table.Identifier, snapshots []int64) {
 	ctx := context.Background()
 	dir := t.TempDir()
 
@@ -39,9 +45,7 @@ func newRollbackTestTable(t *testing.T) (cat catalog.Catalog, ident table.Identi
 	require.NoError(t, cat.CreateNamespace(ctx, catalog.NamespaceFromIdent(ident), nil))
 
 	schema := iceberg.NewSchema(0, iceberg.NestedField{ID: 1, Name: "id", Type: iceberg.PrimitiveTypes.Int64, Required: true})
-	// Retries make iceberg-go replay a conflicting commit against the fresh
-	// head (Java writers often set this), which the rollback must not do.
-	tbl, err := cat.CreateTable(ctx, ident, schema, catalog.WithProperties(iceberg.Properties{table.CommitNumRetriesKey: "4"}))
+	tbl, err := cat.CreateTable(ctx, ident, schema, catalog.WithProperties(iceberg.Properties{table.CommitNumRetriesKey: retries}))
 	require.NoError(t, err)
 
 	snapshots = make([]int64, 0, 3)
@@ -145,6 +149,7 @@ func TestRollbackToSnapshotFailsWhenACommitLandsBeforeItsOwn(t *testing.T) {
 type conflictOnFirstCommit struct {
 	catalog.Catalog
 	t          *testing.T
+	change     func(*testing.T, *table.Table) *table.Table
 	conflicted bool
 	concurrent int64
 }
@@ -167,7 +172,7 @@ func (c *conflictOnFirstCommit) CommitTable(ctx context.Context, ident table.Ide
 
 		tbl, err := c.Catalog.LoadTable(ctx, ident)
 		require.NoError(c.t, err)
-		c.concurrent = mainSnapshotID(appendRow(c.t, tbl))
+		c.concurrent = mainSnapshotID(c.change(c.t, tbl))
 
 		return nil, "", fmt.Errorf("%w: version id mismatch", table.ErrCommitFailed)
 	}
@@ -177,11 +182,42 @@ func (c *conflictOnFirstCommit) CommitTable(ctx context.Context, ident table.Ide
 
 func TestRollbackToSnapshotDoesNotRetryOverACatalogConflict(t *testing.T) {
 	cat, ident, snapshots := newRollbackTestTable(t)
-	racing := &conflictOnFirstCommit{Catalog: cat, t: t}
+	racing := &conflictOnFirstCommit{Catalog: cat, t: t, change: appendRow}
 
 	committed, err := rollbackToSnapshot(context.Background(), racing, ident, snapshots[0], snapshots[2])
 	require.ErrorIs(t, err, ErrRollbackConflict)
 	require.False(t, committed)
 	require.NotZero(t, racing.concurrent)
 	require.Equal(t, racing.concurrent, loadMain(t, cat, ident))
+}
+
+func setProperty(t *testing.T, tbl *table.Table) *table.Table {
+	txn := tbl.NewTransaction()
+	require.NoError(t, txn.SetProperties(iceberg.Properties{"owner": "someone"}))
+
+	committed, err := txn.Commit(context.Background())
+	require.NoError(t, err)
+
+	return committed
+}
+
+func TestRollbackToSnapshotReportsAMetadataOnlyConflict(t *testing.T) {
+	// Without retries, iceberg-go returns Glue's conflict as is.
+	cat, ident, snapshots := newRollbackTestTableWithRetries(t, "0")
+	racing := &conflictOnFirstCommit{Catalog: cat, t: t, change: setProperty}
+
+	committed, err := rollbackToSnapshot(context.Background(), racing, ident, snapshots[0], snapshots[2])
+	require.ErrorIs(t, err, ErrRollbackConflict)
+	require.False(t, committed)
+	require.Equal(t, snapshots[2], loadMain(t, cat, ident))
+}
+
+func TestRollbackToSnapshotOnlyWritesConfiguredTables(t *testing.T) {
+	cat, _, snapshots := newRollbackTestTable(t)
+	client := &IcebergClient{catalog: cat, settings: &IcebergSettings{Databases: []string{"main"}}}
+
+	for _, target := range [][2]string{{"other", "events"}, {"main", "other.events"}} {
+		_, err := client.RollbackToSnapshot(context.Background(), target[0], target[1], snapshots[0], snapshots[2])
+		require.ErrorIs(t, err, ErrRollbackInvalidTarget, "%s.%s", target[0], target[1])
+	}
 }

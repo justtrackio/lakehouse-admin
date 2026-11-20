@@ -122,7 +122,11 @@ func matchesBrowseFilters(values PartitionValues, filters map[string]string) boo
 			return false
 		}
 
-		if text := fmt.Sprintf("%v", value); text != filter && !isLegacyDateFilter(text, filter) {
+		if fmt.Sprintf("%v", value) == filter {
+			continue
+		}
+
+		if date, isDate := value.(identityDate); !isDate || !isLegacyDateFilter(string(date), filter) {
 			return false
 		}
 	}
@@ -130,8 +134,9 @@ func matchesBrowseFilters(values PartitionValues, filters map[string]string) boo
 	return true
 }
 
-// isLegacyDateFilter matches a date value against days since 1970-01-01, the
-// form refresh stored identity dates in before the next refresh rewrites them.
+// isLegacyDateFilter matches an identity date against days since 1970-01-01,
+// the form refresh stored identity dates in before the next refresh rewrites
+// them.
 func isLegacyDateFilter(value string, filter string) bool {
 	var err error
 	var days int

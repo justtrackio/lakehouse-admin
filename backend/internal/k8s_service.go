@@ -142,6 +142,21 @@ func (s *K8sService) CreateSparkApplication(ctx context.Context, manifest *Spark
 	return result, nil
 }
 
+func (s *K8sService) GetSparkApplication(ctx context.Context, namespace string, name string) (*SparkApplicationManifest, error) {
+	gvr := schema.GroupVersionResource{Group: "spark.apache.org", Version: "v1", Resource: "sparkapplications"}
+
+	resource, err := s.dynamicClient.Resource(gvr).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
+	if k8serrors.IsNotFound(err) {
+		return nil, nil
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("could not get spark application %s/%s: %w", namespace, name, err)
+	}
+
+	return UnstructuredToSparkApplicationManifest(resource)
+}
+
 func (s *K8sService) DeleteSparkApplication(ctx context.Context, namespace string, name string) error {
 	if name == "" {
 		return fmt.Errorf("spark application name is required")

@@ -74,9 +74,12 @@ func TestMatchesBrowseFiltersKeepsNullDistinctFromLiteralNull(t *testing.T) {
 }
 
 func TestMatchesBrowseFiltersAcceptsIdentityDatesStoredAsDays(t *testing.T) {
-	values := PartitionValues{"eventDate": "2026-03-25"}
+	values := PartitionValues{"eventDate": identityDate("2026-03-25")}
 
 	require.True(t, matchesBrowseFilters(values, map[string]string{"eventDate": "2026-03-25"}))
 	require.True(t, matchesBrowseFilters(values, map[string]string{"eventDate": "20537"}))
 	require.False(t, matchesBrowseFilters(values, map[string]string{"eventDate": "20538"}))
+
+	// Only identity dates have the old form; a string column keeps its text.
+	require.False(t, matchesBrowseFilters(PartitionValues{"label": "2026-03-25"}, map[string]string{"label": "20537"}))
 }

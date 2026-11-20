@@ -496,11 +496,14 @@ var (
 	timeKeyLayouts = map[string]string{"year": "2006", "month": "01", "day": "02"}
 )
 
+// identityDate is an identity partition value of a date column, as yyyy-mm-dd.
+type identityDate string
+
 // browseValue keeps a partition value as stored JSON, with dates as yyyy-mm-dd.
 func browseValue(value any) any {
 	switch v := value.(type) {
 	case iceberg.Date:
-		return v.ToTime().Format(time.DateOnly)
+		return identityDate(v.ToTime().Format(time.DateOnly))
 	case []byte:
 		return string(v)
 	default:
@@ -619,28 +622,9 @@ func (c *IcebergClient) extractColumns(schema *iceberg.Schema) (db.JSON[TableCol
 }
 
 func (c *IcebergClient) extractPartitions(metadata table.Metadata) (db.JSON[[]TablePartition, db.NonNullable], error) {
-	var spec *iceberg.PartitionSpec
-
-	specs := metadata.PartitionSpecs()
-	defaultSpecID := metadata.DefaultPartitionSpec()
-
-	if len(specs) == 0 {
-		return db.NewJSON([]TablePartition{}, db.NonNullable{}), nil
-	}
-
-	if defaultSpecID >= 0 && defaultSpecID < len(specs) {
-		spec = &specs[defaultSpecID]
-	}
-
-	if spec == nil {
-		for i := range specs {
-			spec = &specs[i]
-
-			break
-		}
-	}
-
-	if spec == nil {
+	// The default spec id is an id, not an index into the spec list.
+	spec, ok := partitionSpecsByID(metadata)[metadata.DefaultPartitionSpec()]
+	if !ok {
 		return db.NewJSON([]TablePartition{}, db.NonNullable{}), nil
 	}
 

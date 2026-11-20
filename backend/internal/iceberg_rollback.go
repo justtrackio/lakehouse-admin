@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 
 	iceberg "github.com/apache/iceberg-go"
 	"github.com/apache/iceberg-go/catalog"
@@ -15,16 +17,22 @@ import (
 // snapshot the caller expected, so rolling back would discard newer commits.
 var ErrRollbackConflict = errors.New("the table changed since it was loaded")
 
-// ErrRollbackInvalidTarget reports a target snapshot that is not an ancestor of
-// the table's main branch.
+// ErrRollbackInvalidTarget reports a rollback of a table outside the
+// configured databases, or to a snapshot that is not an ancestor of main.
 var ErrRollbackInvalidTarget = errors.New("invalid rollback target")
 
-// RollbackToSnapshot moves the main branch of the table back to targetID, if
-// main is still at expectedID. It returns whether it committed.
-func (c *IcebergClient) RollbackToSnapshot(ctx context.Context, database string, logicalName string, targetID int64, expectedID int64) (bool, error) {
+// RollbackToSnapshot moves the main branch of database.table back to targetID,
+// if main is still at expectedID. It returns whether it committed.
+func (c *IcebergClient) RollbackToSnapshot(ctx context.Context, database string, tableName string, targetID int64, expectedID int64) (bool, error) {
+	// A dotted name would pick its own database (resolveTableIdentifier), so the
+	// write could hit a different table than the refresh after it.
+	if strings.Contains(tableName, ".") || !slices.Contains(c.settings.Databases, database) {
+		return false, fmt.Errorf("%w: table %s.%s is not in a configured database", ErrRollbackInvalidTarget, database, tableName)
+	}
+
 	ctx = utils.WithAwsConfig(ctx, &c.awsCfg)
 
-	return rollbackToSnapshot(ctx, c.catalog, c.resolveTableIdentifier(database, logicalName), targetID, expectedID)
+	return rollbackToSnapshot(ctx, c.catalog, table.Identifier{database, tableName}, targetID, expectedID)
 }
 
 // rollbackToSnapshot commits main = targetID in one transaction that requires
@@ -85,6 +93,12 @@ func resolveFailedRollbackCommit(ctx context.Context, cat catalog.Catalog, ident
 	case targetID:
 		return true, nil
 	case expectedID:
+		// Another writer changed only table metadata (Glue's VersionId check);
+		// nothing was rolled back, and the caller may retry.
+		if errors.Is(commitErr, table.ErrCommitFailed) {
+			return false, fmt.Errorf("%w: the table metadata changed during the rollback: %w", ErrRollbackConflict, commitErr)
+		}
+
 		return false, fmt.Errorf("could not commit the rollback: %w", commitErr)
 	default:
 		return false, fmt.Errorf("%w: main moved to snapshot %d during the rollback: %w", ErrRollbackConflict, mainSnapshotID(tbl), commitErr)

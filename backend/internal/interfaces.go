@@ -45,6 +45,8 @@ type SparkApplicationCreator interface {
 	DeleteSparkApplication(ctx context.Context, namespace string, name string) error
 	WatchSparkApplications(ctx context.Context) (cache.SharedIndexInformer, error)
 	ListSparkApplicationTaskIDs(ctx context.Context) (map[int64]bool, error)
+	// GetSparkApplication returns nil if the application doesn't exist.
+	GetSparkApplication(ctx context.Context, namespace string, name string) (*SparkApplicationManifest, error)
 }
 
 // SnapshotRefresher abstracts the snapshot refresh operation.

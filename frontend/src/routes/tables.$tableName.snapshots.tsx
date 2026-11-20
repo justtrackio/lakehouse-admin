@@ -83,11 +83,17 @@ function SnapshotsPage() {
     },
   });
 
+  // The current snapshot shown when the rollback confirmation opened. The
+  // rollback only commits while the table is still there, so a refetch while the
+  // dialog is open can't change what the user confirmed.
+  const [rollbackExpectedHead, setRollbackExpectedHead] = useState<string | null>(null);
+
   const rollbackMutation = useMutation({
-    mutationFn: (snapshotId: string) => rollbackToSnapshot(database, tableName, snapshotId, table?.current_snapshot_id ?? ''),
+    mutationFn: ({ snapshotId, expectedHead }: { snapshotId: string; expectedHead: string }) =>
+      rollbackToSnapshot(database, tableName, snapshotId, expectedHead),
     onSuccess: (data) => {
       if (data.refresh_error) {
-        messageApi.warning(`Rolled back to snapshot ${data.snapshot_id}, but reloading the table failed; rollback again to retry the reload: ${data.refresh_error}`);
+        messageApi.warning(`Rolled back to snapshot ${data.snapshot_id}, but reloading the table metadata failed; use Refresh Table on the table page: ${data.refresh_error}`);
       } else if (data.status === 'already_current') {
         messageApi.info(`The table is already at snapshot ${data.snapshot_id}`);
       } else {
@@ -247,7 +253,7 @@ function SnapshotsPage() {
       render: (_, record: SnapshotItem) => {
         const hasSummary = record.summary && Object.keys(record.summary).length > 0;
         const isCurrentSnapshot = record.snapshot_id === table?.current_snapshot_id;
-        const isRollbackPending = rollbackMutation.isPending && rollbackMutation.variables === record.snapshot_id;
+        const isRollbackPending = rollbackMutation.isPending && rollbackMutation.variables?.snapshotId === record.snapshot_id;
 
         return (
           <Space size="small">
@@ -268,8 +274,13 @@ function SnapshotsPage() {
             {isAdminMode ? (
               <Popconfirm
                 title="Rollback to snapshot"
-                description={`Rollback table ${tableName} to snapshot ${record.snapshot_id}? This will change the current table state.`}
-                onConfirm={() => rollbackMutation.mutate(record.snapshot_id)}
+                description={`Rollback table ${tableName} from current snapshot ${rollbackExpectedHead ?? '-'} to snapshot ${record.snapshot_id}? This will change the current table state.`}
+                onOpenChange={(open) => setRollbackExpectedHead(open ? table?.current_snapshot_id ?? null : null)}
+                onConfirm={() => {
+                  if (rollbackExpectedHead) {
+                    rollbackMutation.mutate({ snapshotId: record.snapshot_id, expectedHead: rollbackExpectedHead });
+                  }
+                }}
                 okText="Yes, rollback"
                 cancelText="Cancel"
                 disabled={isCurrentSnapshot || rollbackMutation.isPending}

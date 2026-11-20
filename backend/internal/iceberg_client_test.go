@@ -26,7 +26,7 @@ func TestBrowsePartitionValuesUsesNestedIdentityColumnName(t *testing.T) {
 	// Identity dates take the same yyyy-mm-dd form as the file browse matches.
 	partition := browsePartitionValues(&spec, schema, map[int]any{1000: iceberg.Date(20164)})
 
-	require.Equal(t, PartitionValues{"goal.conversionHappenedAt": "2025-03-17"}, partition)
+	require.Equal(t, PartitionValues{"goal.conversionHappenedAt": identityDate("2025-03-17")}, partition)
 }
 
 func TestBrowsePartitionValuesKeepsHiddenTimePartitionsForNestedColumn(t *testing.T) {
@@ -113,13 +113,31 @@ func TestPartitionJSONPathExprQuotesLiteralKeys(t *testing.T) {
 // testTableMetadata implements the table.Metadata methods extractPartitions uses.
 type testTableMetadata struct {
 	table.Metadata
-	schema *iceberg.Schema
-	specs  []iceberg.PartitionSpec
+	schema      *iceberg.Schema
+	specs       []iceberg.PartitionSpec
+	defaultSpec int
 }
 
 func (m *testTableMetadata) CurrentSchema() *iceberg.Schema          { return m.schema }
 func (m *testTableMetadata) PartitionSpecs() []iceberg.PartitionSpec { return m.specs }
-func (m *testTableMetadata) DefaultPartitionSpec() int               { return 0 }
+func (m *testTableMetadata) DefaultPartitionSpec() int               { return m.defaultSpec }
+
+func TestExtractPartitionsUsesTheDefaultSpecByID(t *testing.T) {
+	schema := iceberg.NewSchema(1,
+		iceberg.NestedField{ID: 1, Name: "createdAt", Type: iceberg.PrimitiveTypes.TimestampTz},
+		iceberg.NestedField{ID: 2, Name: "businessUnitId", Type: iceberg.PrimitiveTypes.Int32},
+	)
+	metadata := &testTableMetadata{schema: schema, defaultSpec: 2, specs: []iceberg.PartitionSpec{
+		iceberg.NewPartitionSpecID(1, iceberg.PartitionField{SourceIDs: []int{2}, FieldID: 1000, Name: "businessUnitId", Transform: iceberg.IdentityTransform{}}),
+		iceberg.NewPartitionSpecID(2, iceberg.PartitionField{SourceIDs: []int{1}, FieldID: 1001, Name: "createdAt_year", Transform: iceberg.YearTransform{}}),
+	}}
+
+	partitions, err := (&IcebergClient{}).extractPartitions(metadata)
+	require.NoError(t, err)
+	require.Equal(t, []TablePartition{
+		{Name: "year", RawFieldName: "createdAt_year", IsHidden: true, Hidden: TablePartitionHidden{Column: "createdAt", Type: transformYear}},
+	}, partitions.Get())
+}
 
 // inMemoryManifest reads its entries from data instead of the table's file io.
 type inMemoryManifest struct {
