@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -78,10 +79,21 @@ type SnapshotRollbackInput struct {
 	Database   string `uri:"database"`
 	Table      string `uri:"table"`
 	SnapshotID string `uri:"snapshotId"`
-	// ExpectedSnapshotID is the main snapshot the user saw; the rollback only
-	// commits while main is still there.
-	ExpectedSnapshotID string `json:"expected_snapshot_id"`
 }
+
+// snapshotRollbackBody carries the main snapshot the user saw; the rollback
+// only commits while main is still there.
+type snapshotRollbackBody struct {
+	ExpectedSnapshotID *string `json:"expected_snapshot_id"`
+}
+
+// RollbackBodyBinding leaves the request body to RollbackToSnapshot, so a
+// missing or malformed body is a 400 with a clear message, not a bind error.
+type RollbackBodyBinding struct{}
+
+func (RollbackBodyBinding) Name() string { return "rollback-body" }
+
+func (RollbackBodyBinding) Bind(*http.Request, any) error { return nil }
 
 type SnapshotMissingFilesResponse struct {
 	SnapshotID   int64    `json:"snapshot_id,string"`
@@ -94,6 +106,15 @@ type SnapshotRollbackResponse struct {
 	Status string `json:"status"`
 	// RefreshError is set when the rollback stands but reloading the stored
 	// metadata failed; repeating the request only repeats the refresh.
+	RefreshError string `json:"refresh_error,omitempty"`
+}
+
+// snapshotRollbackError is the body of a failed rollback. Outcome is
+// "not_rolled_back" for a conflict and "unknown" when the commit's outcome
+// couldn't be established.
+type snapshotRollbackError struct {
+	Err          string `json:"err"`
+	Outcome      string `json:"outcome"`
 	RefreshError string `json:"refresh_error,omitempty"`
 }
 
@@ -137,7 +158,7 @@ func (h *HandlerIceberg) ListSnapshotMissingFiles(ctx context.Context, input *Sn
 	}), nil
 }
 
-func (h *HandlerIceberg) RollbackToSnapshot(ctx context.Context, input *SnapshotRollbackInput) (httpserver.Response, error) {
+func (h *HandlerIceberg) RollbackToSnapshot(ctx context.Context, req *http.Request, input *SnapshotRollbackInput) (httpserver.Response, error) {
 	var err error
 	var targetID, expectedID int64
 	var committed bool
@@ -146,7 +167,7 @@ func (h *HandlerIceberg) RollbackToSnapshot(ctx context.Context, input *Snapshot
 		return httpserver.GetErrorHandler()(http.StatusBadRequest, err), nil
 	}
 
-	if expectedID, err = parseSnapshotID("expected_snapshot_id", input.ExpectedSnapshotID); err != nil {
+	if expectedID, err = parseExpectedSnapshotID(req); err != nil {
 		return httpserver.GetErrorHandler()(http.StatusBadRequest, err), nil
 	}
 
@@ -154,11 +175,9 @@ func (h *HandlerIceberg) RollbackToSnapshot(ctx context.Context, input *Snapshot
 	switch {
 	case errors.Is(err, ErrRollbackConflict):
 		// Reload the stored metadata, so the page shows the head that moved.
-		if refreshErr := h.refreshTable(ctx, input.Database, input.Table); refreshErr != nil {
-			h.logger.Warn(ctx, "could not refresh table %s.%s after a rollback conflict: %s", input.Database, input.Table, refreshErr)
-		}
-
-		return httpserver.GetErrorHandler()(http.StatusConflict, err), nil
+		return h.rollbackFailure(ctx, input, http.StatusConflict, "not_rolled_back", err), nil
+	case errors.Is(err, ErrRollbackOutcomeUnknown):
+		return h.rollbackFailure(ctx, input, http.StatusInternalServerError, "unknown", err), nil
 	case errors.Is(err, ErrRollbackInvalidTarget):
 		return httpserver.GetErrorHandler()(http.StatusBadRequest, err), nil
 	case err != nil:
@@ -178,6 +197,35 @@ func (h *HandlerIceberg) RollbackToSnapshot(ctx context.Context, input *Snapshot
 
 	return httpserver.NewJsonResponse(response), nil
 }
+
+// rollbackFailure refreshes the stored metadata, so the page shows the
+// table's actual head, and reports the failure with the refresh's outcome.
+func (h *HandlerIceberg) rollbackFailure(ctx context.Context, input *SnapshotRollbackInput, status int, outcome string, err error) httpserver.Response {
+	body := snapshotRollbackError{Err: err.Error(), Outcome: outcome}
+
+	if refreshErr := h.refreshTable(ctx, input.Database, input.Table); refreshErr != nil {
+		h.logger.Warn(ctx, "could not refresh table %s.%s after a failed rollback: %s", input.Database, input.Table, refreshErr)
+		body.RefreshError = refreshErr.Error()
+	}
+
+	return httpserver.NewJsonResponse(body, httpserver.WithStatusCode(status))
+}
+
+func parseExpectedSnapshotID(req *http.Request) (int64, error) {
+	var body snapshotRollbackBody
+
+	if err := json.NewDecoder(req.Body).Decode(&body); err != nil || body.ExpectedSnapshotID == nil {
+		return 0, errExpectedSnapshotIDRequired
+	}
+
+	if id, err := parseSnapshotID("expected_snapshot_id", *body.ExpectedSnapshotID); err == nil {
+		return id, nil
+	}
+
+	return 0, errExpectedSnapshotIDRequired
+}
+
+var errExpectedSnapshotIDRequired = errors.New("expected_snapshot_id is required as a decimal string")
 
 func (h *HandlerIceberg) refreshTable(ctx context.Context, database string, table string) error {
 	return h.sqlClient.WithTx(ctx, func(cttx sqlc.Tx) error {

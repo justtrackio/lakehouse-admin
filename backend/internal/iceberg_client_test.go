@@ -2,7 +2,8 @@ package internal
 
 import (
 	"bytes"
-	"iter"
+	"os"
+	"path/filepath"
 	"testing"
 
 	iceberg "github.com/apache/iceberg-go"
@@ -139,38 +140,19 @@ func TestExtractPartitionsUsesTheDefaultSpecByID(t *testing.T) {
 	}, partitions.Get())
 }
 
-// inMemoryManifest reads its entries from data instead of the table's file io.
-type inMemoryManifest struct {
-	iceberg.ManifestFile
-	data []byte
-}
-
-func (m inMemoryManifest) Entries(_ icebergio.IO, discardDeleted bool) iter.Seq2[iceberg.ManifestEntry, error] {
-	entries, err := iceberg.ReadManifest(m.ManifestFile, bytes.NewReader(m.data), discardDeleted)
-
-	return func(yield func(iceberg.ManifestEntry, error) bool) {
-		if err != nil {
-			yield(nil, err)
-
-			return
-		}
-
-		for _, entry := range entries {
-			if !yield(entry, nil) {
-				return
-			}
-		}
-	}
-}
-
 type panickingManifest struct{ iceberg.ManifestFile }
 
-func (panickingManifest) Entries(icebergio.IO, bool) iter.Seq2[iceberg.ManifestEntry, error] {
+func (panickingManifest) FilePath() string { return "m.avro" }
+
+// panickingIO stands in for a reader that panics while reading a manifest.
+type panickingIO struct{ icebergio.IO }
+
+func (panickingIO) Open(string) (icebergio.File, error) {
 	panic("interface conversion: interface {} is nil, not int32")
 }
 
 func TestReadManifestDataFilesTurnsPanicIntoError(t *testing.T) {
-	files, err := readManifestDataFiles(nil, panickingManifest{})
+	files, err := readManifestDataFiles(panickingIO{}, panickingManifest{})
 
 	require.Nil(t, files)
 	require.ErrorContains(t, err, "could not decode manifest entries")
@@ -189,15 +171,18 @@ func TestReadManifestDataFilesKeepsFilesNextToANullDatePartition(t *testing.T) {
 		return iceberg.NewManifestEntry(iceberg.EntryStatusADDED, &snapshotID, nil, nil, builder.Build())
 	}
 
+	path := filepath.Join(t.TempDir(), "m.avro")
 	var buf bytes.Buffer
-	manifest, err := iceberg.WriteManifest("m.avro", &buf, 2, spec, schema, snapshotID, []iceberg.ManifestEntry{
+	manifest, err := iceberg.WriteManifest(path, &buf, 2, spec, schema, snapshotID, []iceberg.ManifestEntry{
 		entry("s3://b/null-day.parquet", nil),
 		entry("s3://b/day.parquet", iceberg.Date(20537)),
 	})
 	require.NoError(t, err)
 	require.Contains(t, buf.String(), `"logicalType":"date"`, "the manifest must carry the Avro date type that v0.4.0 failed on")
 
-	files, err := readManifestDataFiles(nil, inMemoryManifest{ManifestFile: manifest, data: buf.Bytes()})
+	require.NoError(t, os.WriteFile(path, buf.Bytes(), 0o600))
+
+	files, err := readManifestDataFiles(icebergio.LocalFS{}, manifest)
 	require.NoError(t, err)
 	require.Equal(t, map[int]any{1000: nil}, files[0].Partition())
 	require.Equal(t, map[int]any{1000: iceberg.Date(20537)}, files[1].Partition())

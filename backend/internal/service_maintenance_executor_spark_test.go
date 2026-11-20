@@ -9,6 +9,8 @@ import (
 	"github.com/justtrackio/gosoline/pkg/db"
 	"github.com/justtrackio/gosoline/pkg/log"
 	"github.com/stretchr/testify/require"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 type recordingTaskQueue struct {
@@ -59,12 +61,13 @@ func TestReconcileLeavesActiveClaimsAndSubmittedTasksAlone(t *testing.T) {
 
 type flakyApplications struct {
 	SparkApplicationCreator
-	existing *SparkApplicationManifest
-	getErr   error
+	createErr error
+	existing  *SparkApplicationManifest
+	getErr    error
 }
 
-func (flakyApplications) CreateSparkApplication(context.Context, *SparkApplicationManifest) (*SparkApplicationManifest, error) {
-	return nil, errors.New("context deadline exceeded")
+func (a flakyApplications) CreateSparkApplication(context.Context, *SparkApplicationManifest) (*SparkApplicationManifest, error) {
+	return nil, a.createErr
 }
 
 func (a flakyApplications) GetSparkApplication(context.Context, string, string) (*SparkApplicationManifest, error) {
@@ -82,7 +85,19 @@ func TestSubmitSparkApplicationResolvesALostCreateResponse(t *testing.T) {
 		return executor.submitSparkApplication(context.Background(), manifest, 7)
 	}
 
-	require.NoError(t, submit(flakyApplications{existing: created}))
-	require.ErrorIs(t, submit(flakyApplications{getErr: errors.New("timeout")}), errSparkSubmissionUnknown)
-	require.EqualError(t, submit(flakyApplications{}), "context deadline exceeded")
+	timeout := errors.New("context deadline exceeded")
+	invalid := k8serrors.NewInvalid(schema.GroupKind{Group: "spark.apache.org", Kind: "SparkApplication"}, manifest.Metadata.Name, nil)
+	exists := k8serrors.NewAlreadyExists(schema.GroupResource{Group: "spark.apache.org", Resource: "sparkapplications"}, manifest.Metadata.Name)
+	other := &SparkApplicationManifest{}
+	other.Metadata.Annotations = map[string]string{sparkApplicationTaskIDAnnotation: "8"}
+
+	// An ambiguous create stays unknown, even if the application isn't there yet.
+	require.NoError(t, submit(flakyApplications{createErr: timeout, existing: created}))
+	require.ErrorIs(t, submit(flakyApplications{createErr: timeout}), errSparkSubmissionUnknown)
+	require.ErrorIs(t, submit(flakyApplications{createErr: timeout, getErr: errors.New("reset")}), errSparkSubmissionUnknown)
+
+	// Definitive answers settle it.
+	require.ErrorIs(t, submit(flakyApplications{createErr: invalid}), invalid)
+	require.NoError(t, submit(flakyApplications{createErr: exists, existing: created}))
+	require.ErrorIs(t, submit(flakyApplications{createErr: exists, existing: other}), exists)
 }

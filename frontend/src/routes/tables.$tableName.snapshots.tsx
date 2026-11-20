@@ -88,6 +88,13 @@ function SnapshotsPage() {
   // dialog is open can't change what the user confirmed.
   const [rollbackExpectedHead, setRollbackExpectedHead] = useState<string | null>(null);
 
+  const invalidateTable = () => {
+    for (const key of ['table', 'snapshots', 'partitions', 'partitionFiles']) {
+      queryClient.invalidateQueries({ queryKey: [key, database, tableName] });
+    }
+    queryClient.invalidateQueries({ queryKey: ['tables', database] });
+  };
+
   const rollbackMutation = useMutation({
     mutationFn: ({ snapshotId, expectedHead }: { snapshotId: string; expectedHead: string }) =>
       rollbackToSnapshot(database, tableName, snapshotId, expectedHead),
@@ -99,16 +106,18 @@ function SnapshotsPage() {
       } else {
         messageApi.success(`Rolled back table to snapshot ${data.snapshot_id}`);
       }
-      queryClient.invalidateQueries({ queryKey: ['table', database, tableName] });
-      queryClient.invalidateQueries({ queryKey: ['snapshots', database, tableName] });
-      queryClient.invalidateQueries({ queryKey: ['partitions', database, tableName] });
-      queryClient.invalidateQueries({ queryKey: ['tables', database] });
+      invalidateTable();
     },
     onError: (error: Error) => {
-      if ((error as Partial<ApiError>).status === 409) {
-        queryClient.invalidateQueries({ queryKey: ['table', database, tableName] });
-        queryClient.invalidateQueries({ queryKey: ['snapshots', database, tableName] });
-        messageApi.error(`The table changed since this page loaded, so nothing was rolled back. The page now shows its current snapshot; check it and try again: ${error.message}`);
+      const apiError = error as Partial<ApiError>;
+      const refreshError = apiError.data?.refresh_error;
+      invalidateTable();
+
+      if (apiError.status === 409) {
+        const next = refreshError
+          ? `Reloading the table metadata also failed (${String(refreshError)}); use Refresh Table on the table page before retrying.`
+          : 'The page now shows the current snapshot; check it before retrying.';
+        messageApi.error(`The table changed since the confirmation opened, so nothing was rolled back. ${next} ${error.message}`);
 
         return;
       }

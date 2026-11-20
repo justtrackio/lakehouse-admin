@@ -91,7 +91,7 @@ func main() {
 				r.GET("/databases", httpserver.BindN(handler.ListDatabases))
 				r.GET("/:database/tables", httpserver.Bind(handler.ListTables))
 				r.GET("/:database/:table", httpserver.Bind(handler.DescribeTable))
-				r.POST("/:database/:table/snapshots/:snapshotId/rollback", httpserver.Bind(handler.RollbackToSnapshot))
+				r.POST("/:database/:table/snapshots/:snapshotId/rollback", httpserver.BindR(handler.RollbackToSnapshot, internal.RollbackBodyBinding{}))
 				r.GET("/:database/:table/snapshots/:snapshotId/missing-files", httpserver.Bind(handler.ListSnapshotMissingFiles))
 				r.GET("/:database/:table/snapshots", httpserver.Bind(handler.ListSnapshots))
 				r.GET("/:database/:table/partitions", httpserver.Bind(handler.ListPartitions))

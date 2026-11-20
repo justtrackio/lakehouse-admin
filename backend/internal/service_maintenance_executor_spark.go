@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/justtrackio/gosoline/pkg/cfg"
 	"github.com/justtrackio/gosoline/pkg/log"
 	"github.com/spf13/cast"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/tools/cache"
 )
@@ -236,28 +238,48 @@ func (s *SparkMaintenanceExecutor) ProcessTask(ctx context.Context, task *Task) 
 // whether the application was created.
 var errSparkSubmissionUnknown = errors.New("could not tell whether the spark application was created")
 
-// submitSparkApplication creates the application. If the create fails, it
-// looks the application up by its name, which is unique per task, so a lost
-// create response doesn't fail a task whose application runs.
+// submitSparkApplication creates the application. Its name is unique per
+// task, so the outcome of an ambiguous create (timeout, connection reset, 5xx)
+// is settled under that name: the informer completes the task if the
+// application exists, and reconciliation requeues it if it never appears, so
+// the retry creates no second job. Only a definitive rejection fails the task.
 func (s *SparkMaintenanceExecutor) submitSparkApplication(ctx context.Context, manifest *SparkApplicationManifest, taskID int64) error {
 	_, createErr := s.k8s.CreateSparkApplication(ctx, manifest)
 	if createErr == nil {
 		return nil
 	}
 
+	if !k8serrors.IsAlreadyExists(createErr) && isDefinitiveRejection(createErr) {
+		return createErr
+	}
+
 	existing, err := s.k8s.GetSparkApplication(ctx, manifest.Metadata.Namespace, manifest.Metadata.Name)
 	switch {
 	case err != nil:
 		return fmt.Errorf("%w: %w (lookup: %w)", errSparkSubmissionUnknown, createErr, err)
-	case existing == nil:
-		return createErr
-	case existing.Metadata.Annotations[sparkApplicationTaskIDAnnotation] == strconv.FormatInt(taskID, 10):
+	case existing != nil && existing.Metadata.Annotations[sparkApplicationTaskIDAnnotation] == strconv.FormatInt(taskID, 10):
 		s.logger.Warn(ctx, "spark application %s of task %d exists although its create failed: %s", manifest.Metadata.Name, taskID, createErr)
 
 		return nil
+	case k8serrors.IsAlreadyExists(createErr):
+		return fmt.Errorf("spark application %s exists for another task: %w", manifest.Metadata.Name, createErr)
 	default:
-		return fmt.Errorf("spark application %s already exists for another task: %w", manifest.Metadata.Name, createErr)
+		// The create may still land after this lookup.
+		return fmt.Errorf("%w: %w", errSparkSubmissionUnknown, createErr)
 	}
+}
+
+// isDefinitiveRejection reports an API answer that the create did not happen:
+// a 4xx other than a timeout or throttling.
+func isDefinitiveRejection(err error) bool {
+	var status k8serrors.APIStatus
+	if !errors.As(err, &status) {
+		return false
+	}
+
+	code := status.Status().Code
+
+	return code >= 400 && code < 500 && code != http.StatusRequestTimeout && code != http.StatusTooManyRequests
 }
 
 // recordSubmission stores the tracking result of a submitted spark application.

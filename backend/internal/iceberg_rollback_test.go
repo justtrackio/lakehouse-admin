@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"testing"
@@ -220,4 +221,51 @@ func TestRollbackToSnapshotOnlyWritesConfiguredTables(t *testing.T) {
 		_, err := client.RollbackToSnapshot(context.Background(), target[0], target[1], snapshots[0], snapshots[2])
 		require.ErrorIs(t, err, ErrRollbackInvalidTarget, "%s.%s", target[0], target[1])
 	}
+}
+
+// lostResponseAfterCommit lets the first commit land, then has another writer
+// append, and reports the commit as failed, as a timeout after Glue accepted
+// it would.
+type lostResponseAfterCommit struct {
+	catalog.Catalog
+	t          *testing.T
+	committed  bool
+	concurrent int64
+}
+
+func (c *lostResponseAfterCommit) LoadTable(ctx context.Context, ident table.Identifier) (*table.Table, error) {
+	var err error
+	var tbl *table.Table
+
+	if tbl, err = c.Catalog.LoadTable(ctx, ident); err != nil {
+		return nil, err
+	}
+
+	return table.New(tbl.Identifier(), tbl.Metadata(), tbl.MetadataLocation(), tbl.FS, c), nil
+}
+
+func (c *lostResponseAfterCommit) CommitTable(ctx context.Context, ident table.Identifier, reqs []table.Requirement, updates []table.Update) (table.Metadata, string, error) {
+	if c.committed {
+		return c.Catalog.CommitTable(ctx, ident, reqs, updates)
+	}
+
+	c.committed = true
+	_, _, err := c.Catalog.CommitTable(ctx, ident, reqs, updates)
+	require.NoError(c.t, err)
+
+	tbl, err := c.Catalog.LoadTable(ctx, ident)
+	require.NoError(c.t, err)
+	c.concurrent = mainSnapshotID(appendRow(c.t, tbl))
+
+	return nil, "", errors.New("context deadline exceeded")
+}
+
+func TestRollbackToSnapshotReportsARollbackThatLandedBeforeTheTableMovedOn(t *testing.T) {
+	cat, ident, snapshots := newRollbackTestTable(t)
+	lost := &lostResponseAfterCommit{Catalog: cat, t: t}
+
+	committed, err := rollbackToSnapshot(context.Background(), lost, ident, snapshots[0], snapshots[2])
+	require.NoError(t, err)
+	require.True(t, committed)
+	require.Equal(t, lost.concurrent, loadMain(t, cat, ident))
 }

@@ -280,7 +280,8 @@ func readManifestDataFiles(fs icebergio.IO, manifest iceberg.ManifestFile) (file
 		}
 	}()
 
-	for entry, entryErr := range manifest.Entries(fs, true) {
+	// Neither browse nor refresh uses column statistics, so skip decoding them.
+	for entry, entryErr := range iceberg.EntriesWithProjection(fs, manifest, true, iceberg.ManifestEntryProjection{}) {
 		if entryErr != nil {
 			return nil, entryErr
 		}

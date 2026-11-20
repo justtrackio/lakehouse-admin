@@ -17,6 +17,10 @@ import (
 // snapshot the caller expected, so rolling back would discard newer commits.
 var ErrRollbackConflict = errors.New("the table changed since it was loaded")
 
+// ErrRollbackOutcomeUnknown reports a failed commit after which the table
+// doesn't show whether the rollback landed.
+var ErrRollbackOutcomeUnknown = errors.New("could not tell whether the rollback was committed; check the table's snapshot history before retrying")
+
 // ErrRollbackInvalidTarget reports a rollback of a table outside the
 // configured databases, or to a snapshot that is not an ancestor of main.
 var ErrRollbackInvalidTarget = errors.New("invalid rollback target")
@@ -72,7 +76,7 @@ func rollbackToSnapshot(ctx context.Context, cat catalog.Catalog, ident table.Id
 	}
 
 	if _, err = txn.Commit(ctx); err != nil {
-		return resolveFailedRollbackCommit(ctx, cat, ident, targetID, expectedID, err)
+		return resolveFailedRollbackCommit(ctx, cat, tbl.Metadata(), ident, targetID, expectedID, err)
 	}
 
 	return true, nil
@@ -81,7 +85,7 @@ func rollbackToSnapshot(ctx context.Context, cat catalog.Catalog, ident table.Id
 // resolveFailedRollbackCommit reloads the table to tell a conflict from a
 // commit that landed despite an error, such as a timeout after the catalog
 // accepted it.
-func resolveFailedRollbackCommit(ctx context.Context, cat catalog.Catalog, ident table.Identifier, targetID int64, expectedID int64, commitErr error) (bool, error) {
+func resolveFailedRollbackCommit(ctx context.Context, cat catalog.Catalog, base table.Metadata, ident table.Identifier, targetID int64, expectedID int64, commitErr error) (bool, error) {
 	var err error
 	var tbl *table.Table
 
@@ -100,9 +104,42 @@ func resolveFailedRollbackCommit(ctx context.Context, cat catalog.Catalog, ident
 		}
 
 		return false, fmt.Errorf("could not commit the rollback: %w", commitErr)
+	}
+
+	// main moved on. The snapshot log since the loaded metadata tells whether
+	// our commit made the target current before another writer moved it.
+	landed, known := targetBecameCurrent(base, tbl.Metadata(), targetID)
+	switch {
+	case !known:
+		return false, fmt.Errorf("%w: main is at snapshot %d: %w", ErrRollbackOutcomeUnknown, mainSnapshotID(tbl), commitErr)
+	case landed:
+		return true, nil
 	default:
 		return false, fmt.Errorf("%w: main moved to snapshot %d during the rollback: %w", ErrRollbackConflict, mainSnapshotID(tbl), commitErr)
 	}
+}
+
+// targetBecameCurrent reports whether fresh's snapshot log records targetID as
+// current after the last entry base knew. known is false if base's last entry
+// is no longer in the log.
+func targetBecameCurrent(base table.Metadata, fresh table.Metadata, targetID int64) (landed bool, known bool) {
+	baseLog := slices.Collect(base.SnapshotLogs())
+	freshLog := slices.Collect(fresh.SnapshotLogs())
+
+	start := 0
+	if len(baseLog) > 0 {
+		if start = slices.Index(freshLog, baseLog[len(baseLog)-1]) + 1; start == 0 {
+			return false, false
+		}
+	}
+
+	for _, entry := range freshLog[start:] {
+		if entry.SnapshotID == targetID {
+			return true, true
+		}
+	}
+
+	return false, true
 }
 
 func mainSnapshotID(tbl *table.Table) int64 {
