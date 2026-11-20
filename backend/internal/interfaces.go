@@ -3,7 +3,6 @@ package internal
 import (
 	"context"
 
-	"github.com/gosoline-project/sqlc"
 	"k8s.io/client-go/tools/cache"
 )
 
@@ -25,6 +24,7 @@ type TaskClaimer interface {
 	UpdateTaskResult(ctx context.Context, id int64, result map[string]any) error
 	UpdateTaskResultNested(ctx context.Context, id int64, key string, result map[string]any) error
 	CompleteTask(ctx context.Context, id int64, result map[string]any, err error) error
+	CompleteRunningTask(ctx context.Context, id int64, result map[string]any, err error) (bool, error)
 	FailOrphanedRunningTasks(ctx context.Context, engines []TaskEngine) (int64, error)
 	ListRunningTasks(ctx context.Context, engine TaskEngine) ([]Task, error)
 	RequeueTask(ctx context.Context, id int64) error
@@ -47,9 +47,4 @@ type SparkApplicationCreator interface {
 	ListSparkApplicationTaskIDs(ctx context.Context) (map[int64]bool, error)
 	// GetSparkApplication returns nil if the application doesn't exist.
 	GetSparkApplication(ctx context.Context, namespace string, name string) (*SparkApplicationManifest, error)
-}
-
-// SnapshotRefresher abstracts the snapshot refresh operation.
-type SnapshotRefresher interface {
-	RefreshSnapshots(cttx sqlc.Tx, database string, table string) ([]Snapshot, error)
 }

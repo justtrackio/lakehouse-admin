@@ -304,3 +304,31 @@ func TestRollbackToSnapshotReportsAnUnknownOutcomeWhenTheReloadFails(t *testing.
 	_, err := rollbackToSnapshot(context.Background(), &unreachableAfterCommit{Catalog: cat}, ident, snapshots[0], snapshots[2])
 	require.ErrorIs(t, err, ErrRollbackOutcomeUnknown)
 }
+
+// timeoutBeforeCommit fails the commit without applying it, as a timeout
+// whose request never reached the catalog would.
+type timeoutBeforeCommit struct{ catalog.Catalog }
+
+func (c timeoutBeforeCommit) LoadTable(ctx context.Context, ident table.Identifier) (*table.Table, error) {
+	var err error
+	var tbl *table.Table
+
+	if tbl, err = c.Catalog.LoadTable(ctx, ident); err != nil {
+		return nil, err
+	}
+
+	return table.New(tbl.Identifier(), tbl.Metadata(), tbl.MetadataLocation(), tbl.FS, c), nil
+}
+
+func (timeoutBeforeCommit) CommitTable(context.Context, table.Identifier, []table.Requirement, []table.Update) (table.Metadata, string, error) {
+	return nil, "", errors.New("context deadline exceeded")
+}
+
+func TestRollbackToSnapshotReportsAnUnknownOutcomeWhenAnAmbiguousErrorLeftMainInPlace(t *testing.T) {
+	cat, ident, snapshots := newRollbackTestTable(t)
+
+	_, err := rollbackToSnapshot(context.Background(), timeoutBeforeCommit{Catalog: cat}, ident, snapshots[0], snapshots[2])
+	require.ErrorIs(t, err, ErrRollbackOutcomeUnknown)
+	require.NotErrorIs(t, err, ErrRollbackConflict)
+	require.Equal(t, snapshots[2], loadMain(t, cat, ident))
+}

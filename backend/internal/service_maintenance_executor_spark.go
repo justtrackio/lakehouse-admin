@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gosoline-project/sqlc"
@@ -53,6 +54,9 @@ const (
 const sparkApplicationNameMaxLength = 63
 
 type SparkMaintenanceExecutor struct {
+	// taskLocks serializes submission and terminal handling per task id; one
+	// pod runs the worker (Recreate), so an in-process lock is enough.
+	taskLocks       sync.Map
 	logger          log.Logger
 	metadata        *ServiceMetadata
 	k8s             SparkApplicationCreator
@@ -225,6 +229,12 @@ func (s *SparkMaintenanceExecutor) ProcessTask(ctx context.Context, task *Task) 
 
 	// Leave the task running: the informer completes it if its application
 	// exists, and reconciliation requeues it if it never appears.
+	if errors.Is(err, errTaskNoLongerRunning) {
+		s.logger.Info(ctx, "not submitting task %d: %s", task.Id, err)
+
+		return nil
+	}
+
 	if errors.Is(err, errSparkSubmissionUnknown) {
 		s.logger.Warn(ctx, "task %d stays running until its spark application shows up or reconciliation requeues it: %s", task.Id, err)
 
@@ -233,6 +243,10 @@ func (s *SparkMaintenanceExecutor) ProcessTask(ctx context.Context, task *Task) 
 
 	return err
 }
+
+// errTaskNoLongerRunning reports a task that left running before its
+// application was submitted.
+var errTaskNoLongerRunning = errors.New("task is no longer running")
 
 // errSparkSubmissionUnknown reports a create call that failed without telling
 // whether the application was created.
@@ -244,6 +258,21 @@ var errSparkSubmissionUnknown = errors.New("could not tell whether the spark app
 // application exists, and reconciliation requeues it if it never appears, so
 // the retry creates no second job. Only a definitive rejection fails the task.
 func (s *SparkMaintenanceExecutor) submitSparkApplication(ctx context.Context, manifest *SparkApplicationManifest, taskID int64) error {
+	defer s.lockTask(taskID)()
+
+	// The informer may have completed the task (and deleted its application)
+	// since it was claimed; creating it again would run the job twice.
+	var err error
+	var status string
+
+	if status, err = s.taskQueue.TaskStatus(ctx, taskID); err != nil {
+		return fmt.Errorf("%w: could not recheck task %d before submitting: %w", errSparkSubmissionUnknown, taskID, err)
+	}
+
+	if status != taskStatusRunning {
+		return fmt.Errorf("%w: task %d is %q", errTaskNoLongerRunning, taskID, status)
+	}
+
 	_, createErr := s.k8s.CreateSparkApplication(ctx, manifest)
 	if createErr == nil {
 		return nil
@@ -253,7 +282,9 @@ func (s *SparkMaintenanceExecutor) submitSparkApplication(ctx context.Context, m
 		return createErr
 	}
 
-	existing, err := s.k8s.GetSparkApplication(ctx, manifest.Metadata.Namespace, manifest.Metadata.Name)
+	var existing *SparkApplicationManifest
+
+	existing, err = s.k8s.GetSparkApplication(ctx, manifest.Metadata.Namespace, manifest.Metadata.Name)
 	switch {
 	case err != nil:
 		return fmt.Errorf("%w: %w (lookup: %w)", errSparkSubmissionUnknown, createErr, err)
@@ -539,7 +570,9 @@ func (s *SparkMaintenanceExecutor) prepareSparkApplication(manifest *SparkApplic
 }
 
 // HandleTaskUpdate completes a task from its spark application's terminal state.
-func (s *SparkMaintenanceExecutor) HandleTaskUpdate(ctx context.Context, taskID int64, applicationName string, state string, message string, extraResult map[string]any) error {
+// HandleTaskUpdate completes a running task from its application's terminal
+// state and reports whether it did.
+func (s *SparkMaintenanceExecutor) HandleTaskUpdate(ctx context.Context, taskID int64, applicationName string, state string, message string, extraResult map[string]any) (bool, error) {
 	var taskErr error
 
 	result := map[string]any{
@@ -561,13 +594,50 @@ func (s *SparkMaintenanceExecutor) HandleTaskUpdate(ctx context.Context, taskID 
 		taskErr = fmt.Errorf("%s", message)
 	}
 
-	if err := s.taskQueue.CompleteTask(ctx, taskID, result, taskErr); err != nil {
-		return fmt.Errorf("could not complete task %d from spark application %s: %w", taskID, applicationName, err)
+	var err error
+	var completed bool
+
+	if completed, err = s.taskQueue.CompleteRunningTask(ctx, taskID, result, taskErr); err != nil {
+		return false, fmt.Errorf("could not complete task %d from spark application %s: %w", taskID, applicationName, err)
 	}
 
-	s.logger.Info(ctx, "completed task %d from spark application %s with state %s", taskID, applicationName, state)
+	if completed {
+		s.logger.Info(ctx, "completed task %d from spark application %s with state %s", taskID, applicationName, state)
+	}
 
-	return nil
+	return completed, nil
+}
+
+// completeFromApplication completes the running task from its terminal
+// application and returns the task's status afterwards.
+func (s *SparkMaintenanceExecutor) completeFromApplication(ctx context.Context, taskID int64, manifest *SparkApplicationManifest, resolved ResolvedSparkApplicationStatus, extraResult map[string]any) (string, error) {
+	var err error
+	var completed bool
+
+	appName := manifest.Metadata.Name
+	if resolved.IsSuccess() {
+		s.refreshAfterSuccess(ctx, manifest.Metadata.Annotations)
+	}
+
+	if completed, err = s.HandleTaskUpdate(ctx, taskID, appName, resolved.State(), resolved.Message, extraResult); err != nil {
+		return "", fmt.Errorf("could not resolve spark tracking update for %s: %w", appName, err)
+	}
+
+	if completed {
+		return taskStatusSuccess, nil
+	}
+
+	// The row left running meanwhile (requeued, say): decide from its status.
+	return s.taskQueue.TaskStatus(ctx, taskID)
+}
+
+// lockTask holds the task's lock until the returned function is called.
+func (s *SparkMaintenanceExecutor) lockTask(taskID int64) func() {
+	lock, _ := s.taskLocks.LoadOrStore(taskID, &sync.Mutex{})
+	mutex := lock.(*sync.Mutex)
+	mutex.Lock()
+
+	return mutex.Unlock
 }
 
 func (s *SparkMaintenanceExecutor) handleSparkApplicationEvent(ctx context.Context, obj any) error {
@@ -609,7 +679,6 @@ func (s *SparkMaintenanceExecutor) handleDecodedSparkApplicationEvent(ctx contex
 
 	appName := manifest.Metadata.Name
 	resolvedStatus := manifest.Status.Resolve()
-	state := resolvedStatus.State()
 	extraResult := map[string]any{
 		"spark_current_state": resolvedStatus.CurrentState,
 	}
@@ -630,37 +699,29 @@ func (s *SparkMaintenanceExecutor) handleDecodedSparkApplicationEvent(ctx contex
 		return fmt.Errorf("ignoring terminal spark application event for %s with invalid %s annotation %q: %w", appName, sparkApplicationTaskIDAnnotation, taskIDAnnotation, err)
 	}
 
+	defer s.lockTask(taskID)()
+
 	// Informer resyncs replay terminal applications, so a completion that failed
 	// to write is retried while its task is still running.
 	if status, err = s.taskQueue.TaskStatus(ctx, taskID); err != nil {
 		return fmt.Errorf("could not load task %d of spark application %s: %w", taskID, appName, err)
 	}
 
-	if status != taskStatusRunning {
-		// Clean up after a completed success, or after a task that no longer
-		// exists; failed applications stay for inspection. A requeued task's
-		// application stays too: its next claim adopts it instead of
-		// submitting the job again.
-		if status == "" || (resolvedStatus.IsSuccess() && status != taskStatusQueued) {
-			return s.deleteSparkApplication(ctx, manifest, taskID)
+	if status == taskStatusRunning {
+		if status, err = s.completeFromApplication(ctx, taskID, manifest, resolvedStatus, extraResult); err != nil {
+			return err
 		}
-
-		return nil
 	}
 
-	if resolvedStatus.IsSuccess() {
-		s.refreshAfterSuccess(ctx, manifest.Metadata.Annotations)
+	// Clean up after a success the task records, or after a task that no longer
+	// exists; failed applications stay for inspection. A queued or running
+	// task's application stays: its next claim adopts it instead of
+	// submitting the job again.
+	if status == "" || (resolvedStatus.IsSuccess() && (status == taskStatusSuccess || status == taskStatusError)) {
+		return s.deleteSparkApplication(ctx, manifest, taskID)
 	}
 
-	if err = s.HandleTaskUpdate(ctx, taskID, appName, state, resolvedStatus.Message, extraResult); err != nil {
-		return fmt.Errorf("could not resolve spark tracking update for %s: %w", appName, err)
-	}
-
-	if !resolvedStatus.IsSuccess() {
-		return nil
-	}
-
-	return s.deleteSparkApplication(ctx, manifest, taskID)
+	return nil
 }
 
 func (s *SparkMaintenanceExecutor) deleteSparkApplication(ctx context.Context, manifest *SparkApplicationManifest, taskID int64) error {

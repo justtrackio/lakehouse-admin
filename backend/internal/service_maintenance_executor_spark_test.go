@@ -80,7 +80,7 @@ func TestSubmitSparkApplicationResolvesALostCreateResponse(t *testing.T) {
 	created := &SparkApplicationManifest{}
 	created.Metadata.Annotations = map[string]string{sparkApplicationTaskIDAnnotation: "7"}
 	submit := func(k8s SparkApplicationCreator) error {
-		executor := &SparkMaintenanceExecutor{logger: log.NewLogger(), k8s: k8s}
+		executor := &SparkMaintenanceExecutor{logger: log.NewLogger(), k8s: k8s, taskQueue: &statusQueue{statuses: []string{taskStatusRunning}}}
 
 		return executor.submitSparkApplication(context.Background(), manifest, 7)
 	}
@@ -101,4 +101,88 @@ func TestSubmitSparkApplicationResolvesALostCreateResponse(t *testing.T) {
 	require.NoError(t, submit(flakyApplications{createErr: exists, existing: created}))
 	require.ErrorIs(t, submit(flakyApplications{createErr: exists, existing: other}), exists)
 	require.ErrorIs(t, submit(flakyApplications{createErr: exists}), errSparkSubmissionUnknown)
+}
+
+// statusQueue answers TaskStatus from statuses in turn (repeating the last)
+// and records completions.
+type statusQueue struct {
+	TaskClaimer
+	statuses  []string
+	completes bool
+	completed int
+}
+
+func (q *statusQueue) TaskStatus(context.Context, int64) (string, error) {
+	status := q.statuses[0]
+	if len(q.statuses) > 1 {
+		q.statuses = q.statuses[1:]
+	}
+
+	return status, nil
+}
+
+func (q *statusQueue) CompleteRunningTask(context.Context, int64, map[string]any, error) (bool, error) {
+	q.completed++
+
+	return q.completes, nil
+}
+
+// recordedApplications records creates and deletes.
+type recordedApplications struct {
+	SparkApplicationCreator
+	created int
+	deleted int
+}
+
+func (a *recordedApplications) CreateSparkApplication(_ context.Context, manifest *SparkApplicationManifest) (*SparkApplicationManifest, error) {
+	a.created++
+
+	return manifest, nil
+}
+
+func (a *recordedApplications) DeleteSparkApplication(context.Context, string, string) error {
+	a.deleted++
+
+	return nil
+}
+
+func succeededApplication(taskID string) *SparkApplicationManifest {
+	manifest := &SparkApplicationManifest{}
+	manifest.Metadata.Name = "optimize-events-" + taskID
+	manifest.Metadata.Annotations = map[string]string{sparkApplicationTaskIDAnnotation: taskID, sparkApplicationTaskKindAnnotation: string(TaskKindOptimize)}
+	manifest.Status.ApplicationState = SparkApplicationState{State: "COMPLETED"}
+	manifest.Status.CurrentState = SparkApplicationState{State: "COMPLETED"}
+
+	return manifest
+}
+
+func TestTerminalApplicationOfARequeuedTaskIsKept(t *testing.T) {
+	// The informer reads running, then reconciliation requeues the task
+	// before the completion, which then updates no row.
+	queue := &statusQueue{statuses: []string{taskStatusRunning, taskStatusQueued}}
+	applications := &recordedApplications{}
+	executor := &SparkMaintenanceExecutor{logger: log.NewLogger(), taskQueue: queue, k8s: applications}
+	manifest := succeededApplication("7")
+	require.True(t, manifest.Status.Resolve().IsSuccess())
+
+	require.NoError(t, executor.handleDecodedSparkApplicationEvent(context.Background(), manifest))
+	require.Equal(t, 1, queue.completed)
+	require.Zero(t, applications.deleted, "the next claim must find the application to adopt")
+
+	// Once the task records the success, the application goes.
+	completedQueue := &statusQueue{statuses: []string{taskStatusRunning}, completes: true}
+	executor.taskQueue = completedQueue
+	require.NoError(t, executor.handleDecodedSparkApplicationEvent(context.Background(), manifest))
+	require.Equal(t, 1, applications.deleted)
+}
+
+func TestSubmitSparkApplicationSkipsATaskTheInformerCompleted(t *testing.T) {
+	// A worker reclaimed the task, but the informer completed it (and deleted
+	// its application) before the worker's create.
+	applications := &recordedApplications{}
+	executor := &SparkMaintenanceExecutor{logger: log.NewLogger(), taskQueue: &statusQueue{statuses: []string{taskStatusSuccess}}, k8s: applications}
+
+	err := executor.submitSparkApplication(context.Background(), succeededApplication("7"), 7)
+	require.ErrorIs(t, err, errTaskNoLongerRunning)
+	require.Zero(t, applications.created)
 }

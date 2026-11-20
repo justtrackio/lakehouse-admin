@@ -97,13 +97,14 @@ func resolveFailedRollbackCommit(ctx context.Context, cat catalog.Catalog, base 
 	case targetID:
 		return true, nil
 	case expectedID:
-		// Another writer changed only table metadata (Glue's VersionId check);
-		// nothing was rolled back, and the caller may retry.
+		// A confirmed rejection (Glue's VersionId check; another writer changed
+		// only metadata) committed nothing, and the caller may retry. After any
+		// other error, such as a timeout, the commit may still land.
 		if errors.Is(commitErr, table.ErrCommitFailed) {
 			return false, fmt.Errorf("%w: the table metadata changed during the rollback: %w", ErrRollbackConflict, commitErr)
 		}
 
-		return false, fmt.Errorf("could not commit the rollback: %w", commitErr)
+		return false, fmt.Errorf("%w: main is still at snapshot %d after the commit failed: %w", ErrRollbackOutcomeUnknown, expectedID, commitErr)
 	}
 
 	// main moved on. The snapshot log since the loaded metadata tells whether

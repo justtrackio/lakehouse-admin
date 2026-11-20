@@ -114,7 +114,10 @@ function SnapshotsPage() {
       invalidateTable();
 
       let summary = `Failed to rollback snapshot: ${error.message}`;
-      if (apiError.data?.outcome === 'unknown') {
+      // A lost response or a gateway timeout leaves the outcome as open as the
+      // API's own unknown.
+      const outcomeUnknown = apiError.data?.outcome === 'unknown' || [0, 502, 504].includes(apiError.status ?? -1);
+      if (outcomeUnknown) {
         summary = `It is unknown whether the rollback was committed; check the table's snapshot history before retrying. ${error.message}`;
       } else if (apiError.status === 409) {
         summary = `The table changed since the confirmation opened, so nothing was rolled back; check the current snapshot before retrying. ${error.message}`;

@@ -365,6 +365,14 @@ func isTaskClaimRetryable(err error) bool {
 }
 
 func (s *ServiceTaskQueue) CompleteTask(ctx context.Context, id int64, result map[string]any, err error) error {
+	_, completeErr := s.CompleteRunningTask(ctx, id, result, err)
+
+	return completeErr
+}
+
+// CompleteRunningTask completes the task if it is still running and reports
+// whether it did.
+func (s *ServiceTaskQueue) CompleteRunningTask(ctx context.Context, id int64, result map[string]any, err error) (bool, error) {
 	var res sqlc.Result
 	var affected int64
 
@@ -380,10 +388,10 @@ func (s *ServiceTaskQueue) CompleteTask(ctx context.Context, id int64, result ma
 	var task Task
 	if getErr := s.sqlClient.Q().From("tasks").Where(sqlc.Eq{"id": id}).Limit(1).Get(ctx, &task); getErr != nil {
 		if errors.Is(getErr, sql.ErrNoRows) {
-			return fmt.Errorf("task %d not found for completion: %w", id, errTaskCompletionNotFound)
+			return false, fmt.Errorf("task %d not found for completion: %w", id, errTaskCompletionNotFound)
 		}
 
-		return fmt.Errorf("could not load task for completion: %w", getErr)
+		return false, fmt.Errorf("could not load task for completion: %w", getErr)
 	}
 
 	mergedResult := mergeTaskResult(task.Result.Get(), result)
@@ -397,18 +405,14 @@ func (s *ServiceTaskQueue) CompleteTask(ctx context.Context, id int64, result ma
 		Where(sqlc.Eq{"id": id, "status": taskStatusRunning})
 
 	if res, err = upd.Exec(ctx); err != nil {
-		return fmt.Errorf("could not complete task: %w", err)
+		return false, fmt.Errorf("could not complete task: %w", err)
 	}
 
 	if affected, err = res.RowsAffected(); err != nil {
-		return fmt.Errorf("could not get rows affected when completing task: %w", err)
+		return false, fmt.Errorf("could not get rows affected when completing task: %w", err)
 	}
 
-	if affected == 0 {
-		return nil
-	}
-
-	return nil
+	return affected > 0, nil
 }
 
 // FailOrphanedRunningTasks fails running tasks of engines this instance has no
