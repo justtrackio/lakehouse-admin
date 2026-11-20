@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -17,12 +17,9 @@ import {
   fetchSnapshotMissingFiles,
   fetchSnapshots,
   fetchTableDetails,
-  fetchTasks,
-  PaginatedTasks,
   rollbackToSnapshot,
   SnapshotItem,
   TableDetails,
-  Task,
 } from '../api/schema';
 import type { ApiError } from '../api/client';
 import { normalizeDatabaseSearch } from '../utils/database';
@@ -39,59 +36,6 @@ export const Route = createFileRoute('/tables/$tableName/snapshots')({
   validateSearch: normalizeDatabaseSearch,
   component: SnapshotsPage,
 });
-
-const rollbackPollIntervalMs = 3000;
-
-class PollCancelledError extends Error {}
-
-function isTransient(error: unknown): boolean {
-  const status = (error as Partial<ApiError>)?.status;
-
-  return status === undefined || status === 0 || status === 408 || status === 429 || status >= 500;
-}
-
-function sleep(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(resolve, ms);
-    signal.addEventListener('abort', () => {
-      clearTimeout(timer);
-      reject(new PollCancelledError());
-    }, { once: true });
-  });
-}
-
-// waitForTask polls the table's rollback tasks until the given one finishes.
-// Network and server errors are retried on the next poll; other errors end it.
-async function waitForTask(database: string, tableName: string, taskId: number, signal: AbortSignal): Promise<Task> {
-  for (;;) {
-    await sleep(rollbackPollIntervalMs, signal);
-
-    let tasks: PaginatedTasks;
-    try {
-      tasks = await fetchTasks(database, tableName, 50, 0, ['rollback_to_snapshot']);
-    } catch (error) {
-      if (isTransient(error)) {
-        continue;
-      }
-
-      throw new Error(`could not check task ${taskId}: ${(error as ApiError).message}`);
-    }
-
-    const task = tasks.items.find((item) => item.id === taskId);
-
-    if (!task) {
-      throw new Error(`task ${taskId} no longer exists`);
-    }
-
-    if (task.status === 'success') {
-      return task;
-    }
-
-    if (task.status === 'error') {
-      throw new Error(`task ${taskId}: ${task.error_message ?? 'unknown error'}`);
-    }
-  }
-}
 
 function SnapshotsPage() {
   const { tableName } = Route.useParams();
@@ -139,33 +83,31 @@ function SnapshotsPage() {
     },
   });
 
-  const rollbackPoll = useRef<AbortController | null>(null);
-  useEffect(() => () => rollbackPoll.current?.abort(), []);
-
   const rollbackMutation = useMutation({
-    mutationFn: async (snapshotId: string) => {
-      const queued = await rollbackToSnapshot(database, tableName, snapshotId);
-      messageApi.info(`Queued rollback to snapshot ${queued.snapshot_id} as task ${queued.task_id}`);
-      queryClient.invalidateQueries({ queryKey: ['tasks', database, tableName] });
-
-      rollbackPoll.current = new AbortController();
-      return waitForTask(database, tableName, queued.task_id, rollbackPoll.current.signal);
-    },
-    onSuccess: (task) => {
-      messageApi.success(`Rollback task ${task.id} finished`);
-    },
-    onError: (error: Error) => {
-      if (error instanceof PollCancelledError) {
-        return;
+    mutationFn: (snapshotId: string) => rollbackToSnapshot(database, tableName, snapshotId, table?.current_snapshot_id ?? ''),
+    onSuccess: (data) => {
+      if (data.refresh_error) {
+        messageApi.warning(`Rolled back to snapshot ${data.snapshot_id}, but reloading the table failed; rollback again to retry the reload: ${data.refresh_error}`);
+      } else if (data.status === 'already_current') {
+        messageApi.info(`The table is already at snapshot ${data.snapshot_id}`);
+      } else {
+        messageApi.success(`Rolled back table to snapshot ${data.snapshot_id}`);
       }
-
-      messageApi.error(`Failed to rollback snapshot: ${error.message}`);
-    },
-    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['table', database, tableName] });
       queryClient.invalidateQueries({ queryKey: ['snapshots', database, tableName] });
       queryClient.invalidateQueries({ queryKey: ['partitions', database, tableName] });
       queryClient.invalidateQueries({ queryKey: ['tables', database] });
+    },
+    onError: (error: Error) => {
+      if ((error as Partial<ApiError>).status === 409) {
+        queryClient.invalidateQueries({ queryKey: ['table', database, tableName] });
+        queryClient.invalidateQueries({ queryKey: ['snapshots', database, tableName] });
+        messageApi.error(`The table changed since this page loaded, so nothing was rolled back. The page now shows its current snapshot; check it and try again: ${error.message}`);
+
+        return;
+      }
+
+      messageApi.error(`Failed to rollback snapshot: ${error.message}`);
     },
   });
 

@@ -7,10 +7,9 @@ import (
 )
 
 type TaskEngineSettings struct {
-	ExpireSnapshots    string `cfg:"expire_snapshots"`
-	RemoveOrphanFiles  string `cfg:"remove_orphan_files"`
-	Optimize           string `cfg:"optimize"`
-	RollbackToSnapshot string `cfg:"rollback_to_snapshot"`
+	ExpireSnapshots   string `cfg:"expire_snapshots"`
+	RemoveOrphanFiles string `cfg:"remove_orphan_files"`
+	Optimize          string `cfg:"optimize"`
 }
 
 type TaskEngineResolver struct {
@@ -19,10 +18,9 @@ type TaskEngineResolver struct {
 
 func NewTaskEngineResolver(config cfg.Config) (*TaskEngineResolver, error) {
 	settings := TaskEngineSettings{
-		ExpireSnapshots:    string(TaskEngineSpark),
-		RemoveOrphanFiles:  string(TaskEngineSpark),
-		Optimize:           string(TaskEngineSpark),
-		RollbackToSnapshot: string(TaskEngineSpark),
+		ExpireSnapshots:   string(TaskEngineSpark),
+		RemoveOrphanFiles: string(TaskEngineSpark),
+		Optimize:          string(TaskEngineSpark),
 	}
 
 	if err := config.UnmarshalKey("tasks.engines", &settings); err != nil {
@@ -30,10 +28,9 @@ func NewTaskEngineResolver(config cfg.Config) (*TaskEngineResolver, error) {
 	}
 
 	engines := map[TaskKind]TaskEngine{
-		TaskKindExpireSnapshots:    TaskEngine(settings.ExpireSnapshots),
-		TaskKindRemoveOrphanFiles:  TaskEngine(settings.RemoveOrphanFiles),
-		TaskKindOptimize:           TaskEngine(settings.Optimize),
-		TaskKindRollbackToSnapshot: TaskEngine(settings.RollbackToSnapshot),
+		TaskKindExpireSnapshots:   TaskEngine(settings.ExpireSnapshots),
+		TaskKindRemoveOrphanFiles: TaskEngine(settings.RemoveOrphanFiles),
+		TaskKindOptimize:          TaskEngine(settings.Optimize),
 	}
 
 	for kind, engine := range engines {

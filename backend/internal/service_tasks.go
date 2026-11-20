@@ -3,7 +3,6 @@ package internal
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -149,28 +148,6 @@ func (s *ServiceTasks) EnqueueRemoveOrphanFiles(ctx context.Context, database st
 
 	if taskId, err = s.serviceTaskQueue.EnqueueTask(ctx, database, table, string(TaskKindRemoveOrphanFiles), string(engine), taskInput); err != nil {
 		return 0, fmt.Errorf("could not enqueue remove orphan files task: %w", err)
-	}
-
-	return taskId, nil
-}
-
-// EnqueueRollbackToSnapshot enqueues a task to set the table's current snapshot back to snapshotID
-func (s *ServiceTasks) EnqueueRollbackToSnapshot(ctx context.Context, database string, table string, snapshotID int64) (int64, error) {
-	var err error
-	var engine TaskEngine
-	var taskId int64
-
-	// Snapshot IDs exceed float64 precision, so the JSON task input keeps them as strings.
-	taskInput := map[string]any{
-		"snapshot_id": strconv.FormatInt(snapshotID, 10),
-	}
-
-	if engine, err = s.engineResolver.Resolve(TaskKindRollbackToSnapshot); err != nil {
-		return 0, fmt.Errorf("could not resolve engine for rollback to snapshot task: %w", err)
-	}
-
-	if taskId, err = s.serviceTaskQueue.EnqueueTask(ctx, database, table, string(TaskKindRollbackToSnapshot), string(engine), taskInput); err != nil {
-		return 0, fmt.Errorf("could not enqueue rollback to snapshot task: %w", err)
 	}
 
 	return taskId, nil

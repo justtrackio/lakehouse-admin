@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"maps"
 	"strings"
 	"time"
 
@@ -136,8 +135,6 @@ func (s *ServiceTaskQueue) RetryAllTasks(ctx context.Context, database string, t
 		query := cttx.Q().
 			From("tasks").
 			Where(sqlc.Eq{"status": taskStatusError, "retried": false}).
-			// A rollback is a one-off user action, not maintenance to catch up on.
-			Where(sqlc.Col("kind").NotEq(string(TaskKindRollbackToSnapshot))).
 			OrderBy(sqlc.Col("started_at").Asc())
 
 		if database != "" {
@@ -221,7 +218,7 @@ func (s *ServiceTaskQueue) retryTaskInTx(ctx sqlc.Tx, task *Task) (int64, error)
 		return 0, fmt.Errorf("task %d has already been retried: %w", task.Id, errTaskAlreadyRetried)
 	}
 
-	retry := newQueuedTask(task.Database, task.Table, task.Kind, s.currentEngine(task), retryInput(task))
+	retry := newQueuedTask(task.Database, task.Table, task.Kind, s.currentEngine(task), task.Input.Get())
 	insert := ctx.Q().Into("tasks").Records(retry)
 	res, err = insert.Exec(ctx)
 	if err != nil {
@@ -233,21 +230,6 @@ func (s *ServiceTaskQueue) retryTaskInTx(ctx sqlc.Tx, task *Task) (int64, error)
 	}
 
 	return retryTaskID, nil
-}
-
-// retryInput repeats only the metadata refresh when the spark application
-// already succeeded, because repeating a rollback could undo later commits.
-func retryInput(task *Task) map[string]any {
-	input := maps.Clone(task.Input.Get())
-	if input == nil {
-		input = map[string]any{}
-	}
-
-	if succeeded, _ := task.Result.Get()[taskResultSparkSucceeded].(bool); succeeded {
-		input[taskInputRefreshOnly] = true
-	}
-
-	return input
 }
 
 func newQueuedTask(database string, table string, kind string, engine string, input map[string]any) *Task {

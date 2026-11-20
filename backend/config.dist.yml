@@ -53,7 +53,6 @@ tasks:
     expire_snapshots: spark
     remove_orphan_files: spark
     optimize: spark
-    rollback_to_snapshot: spark
   spark:
     driver_pod_spec:
       annotations: {}

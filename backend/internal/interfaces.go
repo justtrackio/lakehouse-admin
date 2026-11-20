@@ -10,10 +10,9 @@ import (
 type TaskKind string
 
 const (
-	TaskKindExpireSnapshots    TaskKind = "expire_snapshots"
-	TaskKindRemoveOrphanFiles  TaskKind = "remove_orphan_files"
-	TaskKindOptimize           TaskKind = "optimize"
-	TaskKindRollbackToSnapshot TaskKind = "rollback_to_snapshot"
+	TaskKindExpireSnapshots   TaskKind = "expire_snapshots"
+	TaskKindRemoveOrphanFiles TaskKind = "remove_orphan_files"
+	TaskKindOptimize          TaskKind = "optimize"
 )
 
 type TaskEngine string

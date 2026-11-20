@@ -42,17 +42,9 @@ const (
 const sparkMaintenancePyFile = "maintenance.py"
 
 const (
-	// taskResultSparkSucceeded marks a task whose spark application succeeded
-	// but whose metadata refresh failed; its retry only repeats the refresh.
-	taskResultSparkSucceeded = "spark_succeeded"
-	taskInputRefreshOnly     = "refresh_only"
-)
-
-const (
-	sparkProcedureRewriteDataFiles   = "rewrite_data_files"
-	sparkProcedureExpireSnapshots    = "expire_snapshots"
-	sparkProcedureRemoveOrphanFiles  = "remove_orphan_files"
-	sparkProcedureRollbackToSnapshot = "rollback_to_snapshot"
+	sparkProcedureRewriteDataFiles  = "rewrite_data_files"
+	sparkProcedureExpireSnapshots   = "expire_snapshots"
+	sparkProcedureRemoveOrphanFiles = "remove_orphan_files"
 )
 
 const sparkApplicationNameMaxLength = 63
@@ -76,8 +68,6 @@ func sparkTaskProcedure(taskKind TaskKind) (string, error) {
 		return sparkProcedureExpireSnapshots, nil
 	case TaskKindRemoveOrphanFiles:
 		return sparkProcedureRemoveOrphanFiles, nil
-	case TaskKindRollbackToSnapshot:
-		return sparkProcedureRollbackToSnapshot, nil
 	default:
 		return "", fmt.Errorf("unknown task kind: %s", taskKind)
 	}
@@ -209,17 +199,6 @@ func (s *SparkMaintenanceExecutor) Reconcile(ctx context.Context) error {
 }
 
 func (s *SparkMaintenanceExecutor) reconcileUnsubmittedTask(ctx context.Context, task *Task) error {
-	refreshOnly, _ := task.Input.Get()[taskInputRefreshOnly].(bool)
-
-	// A rollback without a recorded application may still have reached spark
-	// (a lost tracking write), so repeating it could undo later commits.
-	if TaskKind(task.Kind) == TaskKindRollbackToSnapshot && !refreshOnly {
-		err := fmt.Errorf("the task was interrupted, and it is unknown whether its rollback ran; check the table's current snapshot before retrying")
-		s.logger.Warn(ctx, "failing interrupted rollback task %d", task.Id)
-
-		return s.taskQueue.CompleteTask(ctx, task.Id, map[string]any{"status": statusError}, err)
-	}
-
 	s.logger.Info(ctx, "requeueing interrupted %s task %d", task.Kind, task.Id)
 
 	return s.taskQueue.RequeueTask(ctx, task.Id)
@@ -228,10 +207,6 @@ func (s *SparkMaintenanceExecutor) reconcileUnsubmittedTask(ctx context.Context,
 func (s *SparkMaintenanceExecutor) ProcessTask(ctx context.Context, task *Task) error {
 	input := task.Input.Get()
 
-	if refreshOnly, _ := input[taskInputRefreshOnly].(bool); refreshOnly {
-		return s.processRefreshOnly(ctx, task)
-	}
-
 	switch TaskKind(task.Kind) {
 	case TaskKindOptimize:
 		return s.processOptimize(ctx, task, input)
@@ -239,8 +214,6 @@ func (s *SparkMaintenanceExecutor) ProcessTask(ctx context.Context, task *Task) 
 		return s.processExpireSnapshots(ctx, task, input)
 	case TaskKindRemoveOrphanFiles:
 		return s.processRemoveOrphanFiles(ctx, task, input)
-	case TaskKindRollbackToSnapshot:
-		return s.processRollbackToSnapshot(ctx, task, input)
 	default:
 		return s.taskQueue.CompleteTask(ctx, task.Id, nil, fmt.Errorf("unknown task kind: %s", task.Kind))
 	}
@@ -258,20 +231,6 @@ func (s *SparkMaintenanceExecutor) recordSubmission(ctx context.Context, taskID 
 	}
 
 	s.logger.Info(ctx, "task %d submitted and waiting for asynchronous completion", taskID)
-}
-
-// processRefreshOnly completes a retry of a task whose spark application already
-// succeeded: running the procedure again could undo later commits (rollback).
-func (s *SparkMaintenanceExecutor) processRefreshOnly(ctx context.Context, task *Task) error {
-	result := map[string]any{taskResultSparkSucceeded: true, "status": statusOK}
-
-	err := s.refreshTable(ctx, TaskKind(task.Kind), task.Database, task.Table)
-	if err != nil {
-		result["status"] = statusError
-		err = fmt.Errorf("refreshing the table metadata failed: %w", err)
-	}
-
-	return s.taskQueue.CompleteTask(ctx, task.Id, result, err)
 }
 
 func (s *SparkMaintenanceExecutor) processOptimize(ctx context.Context, task *Task, input map[string]any) error {
@@ -314,24 +273,6 @@ func (s *SparkMaintenanceExecutor) processRemoveOrphanFiles(ctx context.Context,
 
 	if result, err = s.executeRemoveOrphanFiles(ctx, task.Id, task.Database, task.Table, int(retentionDays)); err != nil {
 		return fmt.Errorf("could not execute remove orphan files task: %w", err)
-	}
-
-	s.recordSubmission(ctx, task.Id, result)
-
-	return nil
-}
-
-func (s *SparkMaintenanceExecutor) processRollbackToSnapshot(ctx context.Context, task *Task, input map[string]any) error {
-	var err error
-	var snapshotID int64
-	var result map[string]any
-
-	if snapshotID, err = strconv.ParseInt(cast.ToString(input["snapshot_id"]), 10, 64); err != nil {
-		return fmt.Errorf("invalid snapshot_id %v: %w", input["snapshot_id"], err)
-	}
-
-	if result, err = s.executeRollbackToSnapshot(ctx, task.Id, task.Database, task.Table, snapshotID); err != nil {
-		return fmt.Errorf("could not execute rollback to snapshot task: %w", err)
 	}
 
 	s.recordSubmission(ctx, task.Id, result)
@@ -499,39 +440,6 @@ func (s *SparkMaintenanceExecutor) executeRemoveOrphanFiles(ctx context.Context,
 	}, nil
 }
 
-func (s *SparkMaintenanceExecutor) executeRollbackToSnapshot(ctx context.Context, taskID int64, database string, table string, snapshotID int64) (map[string]any, error) {
-	var err error
-	var manifest *SparkApplicationManifest
-
-	applicationName := buildSparkApplicationName("rollback-to-snapshot", table, taskID)
-	s.logger.Info(ctx, "creating spark application to roll back table %s to snapshot %d", table, snapshotID)
-
-	if manifest, err = LoadSparkApplicationTemplate(); err != nil {
-		return nil, fmt.Errorf("could not load spark application template: %w", err)
-	}
-
-	if err = s.prepareSparkApplication(manifest, TaskKindRollbackToSnapshot, taskID, database, table, applicationName); err != nil {
-		return nil, fmt.Errorf("could not prepare spark application manifest: %w", err)
-	}
-
-	if err = manifest.SetEnvValues(map[string]string{"SNAPSHOT_ID": strconv.FormatInt(snapshotID, 10)}); err != nil {
-		return nil, fmt.Errorf("could not set env values: %w", err)
-	}
-
-	if _, err = s.k8s.CreateSparkApplication(ctx, manifest); err != nil {
-		return nil, fmt.Errorf("could not create spark application to roll back table %s: %w", table, err)
-	}
-
-	return map[string]any{
-		"database":         database,
-		"table":            table,
-		"snapshot_id":      strconv.FormatInt(snapshotID, 10),
-		"tracking_id":      applicationName,
-		"application_name": applicationName,
-		"status":           statusSubmitted,
-	}, nil
-}
-
 func (s *SparkMaintenanceExecutor) prepareSparkApplication(manifest *SparkApplicationManifest, taskKind TaskKind, taskID int64, database string, table string, applicationName string) error {
 	var err error
 	var procedure string
@@ -568,9 +476,7 @@ func (s *SparkMaintenanceExecutor) prepareSparkApplication(manifest *SparkApplic
 }
 
 // HandleTaskUpdate completes a task from its spark application's terminal state.
-// A failed metadata refresh after a successful application fails the task, so a
-// retry repeats the (idempotent) procedure and the refresh.
-func (s *SparkMaintenanceExecutor) HandleTaskUpdate(ctx context.Context, taskID int64, applicationName string, state string, message string, extraResult map[string]any, refreshErr error) error {
+func (s *SparkMaintenanceExecutor) HandleTaskUpdate(ctx context.Context, taskID int64, applicationName string, state string, message string, extraResult map[string]any) error {
 	var taskErr error
 
 	result := map[string]any{
@@ -590,10 +496,6 @@ func (s *SparkMaintenanceExecutor) HandleTaskUpdate(ctx context.Context, taskID 
 		}
 		result["status"] = statusError
 		taskErr = fmt.Errorf("%s", message)
-	} else if refreshErr != nil {
-		result["status"] = statusError
-		result[taskResultSparkSucceeded] = true
-		taskErr = fmt.Errorf("spark application %s succeeded, but refreshing the table metadata failed: %w", applicationName, refreshErr)
 	}
 
 	if err := s.taskQueue.CompleteTask(ctx, taskID, result, taskErr); err != nil {
@@ -681,15 +583,11 @@ func (s *SparkMaintenanceExecutor) handleDecodedSparkApplicationEvent(ctx contex
 		return nil
 	}
 
-	var refreshErr error
 	if resolvedStatus.IsSuccess() {
-		annotations := manifest.Metadata.Annotations
-		kind := TaskKind(annotations[sparkApplicationTaskKindAnnotation])
-		database := annotations[sparkApplicationTaskDatabaseAnnotation]
-		refreshErr = s.refreshTable(ctx, kind, database, annotations[sparkApplicationTaskTableAnnotation])
+		s.refreshAfterSuccess(ctx, manifest.Metadata.Annotations)
 	}
 
-	if err = s.HandleTaskUpdate(ctx, taskID, appName, state, resolvedStatus.Message, extraResult, refreshErr); err != nil {
+	if err = s.HandleTaskUpdate(ctx, taskID, appName, state, resolvedStatus.Message, extraResult); err != nil {
 		return fmt.Errorf("could not resolve spark tracking update for %s: %w", appName, err)
 	}
 
@@ -710,25 +608,23 @@ func (s *SparkMaintenanceExecutor) deleteSparkApplication(ctx context.Context, m
 	return nil
 }
 
-// refreshTable reloads the stored metadata that a successful task of this kind changed.
-func (s *SparkMaintenanceExecutor) refreshTable(ctx context.Context, kind TaskKind, database string, table string) error {
-	if database == "" || table == "" {
-		return nil
+// refreshAfterSuccess reloads the snapshots an expire task removed, as the
+// Trino executor did. The scheduled refresh catches up if this fails.
+func (s *SparkMaintenanceExecutor) refreshAfterSuccess(ctx context.Context, annotations map[string]string) {
+	database := annotations[sparkApplicationTaskDatabaseAnnotation]
+	table := annotations[sparkApplicationTaskTableAnnotation]
+
+	if TaskKind(annotations[sparkApplicationTaskKindAnnotation]) != TaskKindExpireSnapshots || database == "" || table == "" {
+		return
 	}
 
-	switch kind {
-	case TaskKindExpireSnapshots:
-		return s.sqlClient.WithTx(ctx, func(cttx sqlc.Tx) error {
-			_, err := s.refresh.RefreshSnapshots(cttx, database, table)
+	err := s.sqlClient.WithTx(ctx, func(cttx sqlc.Tx) error {
+		_, err := s.refresh.RefreshSnapshots(cttx, database, table)
 
-			return err
-		})
-	case TaskKindRollbackToSnapshot:
-		return s.sqlClient.WithTx(ctx, func(cttx sqlc.Tx) error {
-			return s.refresh.RefreshTableFull(cttx, database, table)
-		})
-	default:
-		return nil
+		return err
+	})
+	if err != nil {
+		s.logger.Warn(ctx, "could not refresh snapshots of %s.%s after expiring them: %s", database, table, err)
 	}
 }
 
